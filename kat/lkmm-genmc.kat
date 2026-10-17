@@ -1,0 +1,102 @@
+// SPDX-License-Identifier: GPL-2.0+
+//
+// The Linux-kernel memory model (tools/memory-model/linux-kernel.cat of
+// Linux 6.18, variant lkmmv2) for GenMC, after the model by Jade Alglave,
+// Luc Maranget, Paul E. McKenney, Andrea Parri and Alan Stern.
+//
+// DRAFT: the regular part only (no RCU, no SRCU, no plain-access races).
+// RCU's rcu-order is not a regular relation and will be a user relation
+// computed by GenMC; see lkmm-implementation-plan.md, 3.3-3.4.
+//
+// Mapping of herd7's events: Marked = ATOM (READ_ONCE and stronger, fences,
+// locks); Plain = NA. Thread creation and join synchronise (tc, tj), which
+// litmus tests do not use.
+
+// ---------------------------------------------------------------------
+// Event classes (GenMC predicates)
+// ---------------------------------------------------------------------
+
+predicate Fmb (genmc: "genmc::isa<LkmmFenceLabel>(#) && genmc::cast<LkmmFenceLabel>(#)->getKind() == LkmmFenceKind::Mb")
+predicate Frmb (genmc: "genmc::isa<LkmmFenceLabel>(#) && genmc::cast<LkmmFenceLabel>(#)->getKind() == LkmmFenceKind::Rmb")
+predicate Fwmb (genmc: "genmc::isa<LkmmFenceLabel>(#) && genmc::cast<LkmmFenceLabel>(#)->getKind() == LkmmFenceKind::Wmb")
+predicate Fba (genmc: "genmc::isa<LkmmFenceLabel>(#) && genmc::cast<LkmmFenceLabel>(#)->getKind() == LkmmFenceKind::BeforeAtomic")
+predicate Faa (genmc: "genmc::isa<LkmmFenceLabel>(#) && genmc::cast<LkmmFenceLabel>(#)->getKind() == LkmmFenceKind::AfterAtomic")
+predicate Fas (genmc: "genmc::isa<LkmmFenceLabel>(#) && genmc::cast<LkmmFenceLabel>(#)->getKind() == LkmmFenceKind::AfterSpinlock")
+predicate Faul (genmc: "genmc::isa<LkmmFenceLabel>(#) && genmc::cast<LkmmFenceLabel>(#)->getKind() == LkmmFenceKind::AfterUnlockLock")
+
+// Accesses of fully ordered RMWs (xchg(), cmpxchg() that succeeds, ...)
+predicate MbR (genmc: "genmc::isa<ReadLabel>(#) && #->isLkmmMb()")
+predicate MbW (genmc: "genmc::isa<WriteLabel>(#) && #->isLkmmMb()")
+// Reads smp_rmb() orders: not the read of a non-value-returning RMW
+predicate R4rmb (genmc: "genmc::isa<ReadLabel>(#) && !#->isLkmmNoreturn()")
+// Locks: the read and write of a successful spin_lock(), and spin_unlock()
+predicate LKR (genmc: "genmc::isa<LockCasReadLabel>(#)")
+predicate LKW (genmc: "genmc::isa<LockCasWriteLabel>(#)")
+predicate UL (genmc: "genmc::isa<UnlockWriteLabel>(#)")
+
+disjoint Fmb # Frmb # Fwmb # Fba # Faa # Fas # Faul # R # W
+disjoint MbR # MbW
+disjoint LKR # LKW # UL
+
+// ---------------------------------------------------------------------
+// Basic relations
+// ---------------------------------------------------------------------
+
+let acq-po = [ACQ] ; po
+let po-rel = po ; [REL]
+let po-unlock-lock-po = po ; [UL] ; (po | rf) ; [LKR] ; po
+
+// Fences
+let rmb = [R4rmb] ; po ; [Frmb] ; po ; [R4rmb]
+let wmb = [W] ; po ; [Fwmb] ; po ; [W]
+let mb = [R | W] ; po ; [Fmb] ; po ; [R | W]
+       | [R | W] ; po ; [MbR]
+       | [MbW] ; po ; [R | W]
+       | [R | W] ; po ; [Fba] ; po ; [UR | UW] ; po? ; [R | W]
+       | [R | W] ; po? ; [UR | UW] ; po ; [Faa] ; po ; [R | W]
+       | [R | W] ; po? ; [LKW] ; po ; [Fas] ; po ; [R | W]
+       | [R | W] ; po-unlock-lock-po ; [Faul] ; po ; [R | W]
+let strong-fence = mb
+let nonrw-fence = strong-fence | po-rel | acq-po
+let fence = nonrw-fence | wmb | rmb
+
+// ---------------------------------------------------------------------
+// Preserved program order
+// ---------------------------------------------------------------------
+
+let dep = addr | data
+let rwdep = (dep | ctrl) ; [W]
+let to-w = rwdep | moi | fri | (addr ; [NA] ; wmb)
+let to-r = (addr ; [R]) | (dep ; [ATOM] ; rfi)
+// po-unlock-lock-po & int: the lock is taken in the unlocking thread
+let po-unlock-lock-po-int = po ; [UL] ; (po | rfi) ; [LKR] ; po
+let ppo = to-r | to-w | fence | po-unlock-lock-po-int
+
+// ---------------------------------------------------------------------
+// Propagation and happens-before
+// ---------------------------------------------------------------------
+
+let rmw-sequence = (rf ; rmw)*
+let cumul-fence = [ATOM] ; ((rfe ; [ATOM])? ; (strong-fence | po-rel) | wmb |
+	po-unlock-lock-po) ; [ATOM] ; rmw-sequence
+let prop = [ATOM] ; (moe | fre)? ; cumul-fence* ; [ATOM] ; rfe? ; [ATOM]
+
+// LKMM's happens-before (GenMC reserves the name hb for its own view below)
+// (prop \ id) & int is not regular (a prop path may leave the thread and come
+// back): GenMC computes it (prop_int_preds/succs), from prop's view
+relation prop-int (genmc_pred: "prop_int_preds", genmc_succ: "prop_int_succs")
+let lkhb = [ATOM] ; (ppo | rfe | prop-int | tc | tj) ; [ATOM]
+let pb = prop ; strong-fence ; lkhb* ; [ATOM]
+
+// ---------------------------------------------------------------------
+// Consistency
+// ---------------------------------------------------------------------
+
+// GenMC's happens-before view, used for coherence (irreflexive (hb ; eco),
+// which with po in hb is sequential consistency per location) and for memory
+// errors; porf until the plain-access rules replace it
+view hb = (po | rf | tc | tj | lin)+
+export coherence hb
+
+export acyclic lkhb
+export acyclic pb
