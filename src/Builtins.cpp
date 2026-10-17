@@ -342,9 +342,13 @@ static const std::unordered_map<Predicate::BuiltinID, PredicateInfo> builtinPred
 	 {"HPPROT", "genmc::isa<MemAccessLabel>(#) && "
 		    "genmc::dyn_cast<MemAccessLabel>(#)->getAddr().isDynamic() && "
 		    "isHazptrProtected(genmc::dyn_cast<MemAccessLabel>(#))"}},
+	/* Only used as retire;[NOTHPPROT]: asking retire_pos() (a map lookup)
+	 * before isHazptrProtected() (a walk over the thread's prefix) skips the
+	 * walk for locations that were never retired (GenMC fork d8482e4) */
 	{PB::NOTHPPROT,
 	 {"NOTHPPROT", "genmc::isa<MemAccessLabel>(#) && "
 		       "genmc::dyn_cast<MemAccessLabel>(#)->getAddr().isDynamic() && "
+		       "g.retire_pos(#).has_value() && "
 		       "!isHazptrProtected(genmc::dyn_cast<MemAccessLabel>(#))"}},
 
 	{PB::MB, {"MB", "genmc::isa<MethodBeginLabel>(#)"}},
