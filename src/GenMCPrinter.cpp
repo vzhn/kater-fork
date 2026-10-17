@@ -18,6 +18,7 @@
 
 #include "GenMCPrinter.hpp"
 
+#include <iostream>
 #include <algorithm>
 
 #include "Config.hpp"
@@ -450,6 +451,7 @@ struct DFSParameters {
 	std::string status;	 // name of status arrays
 	std::string extraParams; // Additional parameters to the routine besides worklist
 	std::string savedParam;	 // saved param of label printing
+	std::optional<unsigned> initViewIdx; // view calculations: init label's per-location view
 
 	Hook atBegin; // at node discovery
 	Hook atTreeE; // at tree-edge discovery
@@ -457,6 +459,9 @@ struct DFSParameters {
 	Hook atForwE; // at forward-edge discovery
 	Hook atEnd;   // at node exit
 	Hook atFinal; // at final-state discovery
+	/* at final-state discovery through a positional relation (alloc, free, ...):
+	 * the event is given as a position, as its label may be gone from the graph */
+	std::function<void(CodeBuilder &, const std::string &)> atFinalPos;
 
 	std::vector<char> visit{}; // indexed by state ID: "has visit array"
 };
@@ -651,6 +656,37 @@ void GenMCPrinter::outputTraversal(const NFA &nfa, const DFSParameters &params, 
 
 	/* For each incoming edge, classify the neighbour by status (tree/cyclic/
 	 * forward edge) and fire the matching hook. */
+	using RB = Relation::BuiltinID;
+	const auto positionalAccessor = [&](const NFA::Transition &t) -> std::optional<std::string> {
+		auto r = t.label.getRelation();
+		if (!r.has_value() || !r->isBuiltin())
+			return std::nullopt;
+		switch (r->toBuiltin()) {
+		case RB::alloc:
+		case RB::free:
+		case RB::retire:
+		case RB::unprotected:
+		case RB::last_na_reads:
+		case RB::last_na_writes:
+		case RB::last_at_reads:
+		case RB::last_at_writes: {
+			const auto &outs = getModule().getTheory().getInfo(*r).genmc;
+			return (r->isInverse() ? outs.pred : outs.succ) + "_pos";
+		}
+		default:
+			return std::nullopt;
+		}
+	};
+	const auto isSingleEventAccessor = [&](const NFA::Transition &t) {
+		auto id = t.label.getRelation()->toBuiltin();
+		return id == RB::alloc || id == RB::free || id == RB::retire;
+	};
+	const auto rfInv = Relation::createBuiltin(Relation::BuiltinID::rf).invert();
+	const auto isRfPred = [&](const NFA::Transition &t) {
+		auto r = t.label.getRelation();
+		return r.has_value() && *r == rfInv;
+	};
+
 	auto emitTransitions = [&](NFA::State *s) {
 		c.line("[[maybe_unused]] auto &g = *lab->getParent();");
 
@@ -661,8 +697,44 @@ void GenMCPrinter::outputTraversal(const NFA &nfa, const DFSParameters &params, 
 					 printTransLabel(t, "pLab", "lab", params.savedParam)};
 		});
 		for (auto &t : ts) {
+			/* Positional relations end the traversal: GenMC gives the event's
+			 * position (alloc_pos() etc.), and its label may no longer exist */
+			if (auto pos = positionalAccessor(t); pos.has_value()) {
+				if (!params.atFinalPos || !t.dest->isStarting() ||
+				    !std::ranges::empty(t.dest->ins()) ||
+				    !t.label.getPostChecks().empty()) {
+					std::cerr << "unsupported use of a positional relation (" << *pos
+						  << ") in " << params.name << "\n";
+					std::exit(EXIT_FAILURE); // NOLINT(concurrency-mt-unsafe)
+				}
+				auto pre = printPredSet("lab", t.label.getPreChecks());
+				if (isSingleEventAccessor(t)) {
+					auto posScope =
+						c.kr("{}if (auto tmpE = g.{}(lab); tmpE)", pre, *pos);
+					params.atFinalPos(c, "*tmpE");
+				} else {
+					auto posScope = c.kr("{}for (auto tmpE : g.{}(lab))", pre, *pos);
+					params.atFinalPos(c, "tmpE");
+				}
+				continue;
+			}
+			/* GenMC keeps the init label out of view calculations: a read
+			 * from init takes the view init holds for the read's location */
+			const bool fromInit = params.initViewIdx.has_value() && isRfPred(t);
+			if (fromInit && !t.dest->isStarting()) {
+				auto initScope = c.kr("{}if (auto *iLab = "
+						      "genmc::dyn_cast_if_present<InitLabel>(g.rf_pred(lab)); "
+						      "iLab)",
+						      printPredSet("lab", t.label.getPreChecks()));
+				c.line("calcRes.update(iLab->locView("
+				       "genmc::cast<ReadLabel>(lab)->getAddr(), {}));",
+				       *params.initViewIdx);
+			}
 			auto transScope =
 				c.kr("{}", printTransLabel(t, "pLab", "lab", params.savedParam));
+			std::optional<CodeBuilder::Scope> notInitScope;
+			if (fromInit)
+				notInitScope.emplace(c.ifStmt("!genmc::isa<InitLabel>(pLab)"));
 			if (!params.visit[t.dest->getId()]) {
 				c.line("worklist.emplace_back({}, pLab);", t.dest->getId());
 				if (params.atTreeE)
@@ -1092,7 +1164,11 @@ auto GenMCPrinter::output() -> bool
 				continue;
 			if (let->hasCodeToPrint())
 				c.raw(*let->getCodeToPrint()).raw("\n");
-			c.line("lab->addView({}(lab));", exportedNames[&*let]);
+			/* The slot exists while the view is computed */
+			auto viewScope = c.kr("");
+			c.line("lab->addView({{}});");
+			c.line("lab->setView(std::move({}(lab)), {});", exportedNames[&*let],
+			       getPrintedIdx(&*let));
 		}
 	}
 	{
@@ -1353,6 +1429,9 @@ void GenMCPrinter::printSubset(const SubsetConstraint *subCst, std::string prefi
 		/* Case e <= 0 : we can optimize and return false if any accepting is
 		 * reachable */
 		paramsLHS.atFinal = [](CodeBuilder &c) { c.line("return false;"); };
+		paramsLHS.atFinalPos = [](CodeBuilder &c, const std::string &) {
+			c.line("return false;");
+		};
 	} else if (viewLet != std::ranges::end(lets)) {
 		shouldVisitRHS = false;
 		rhsViewIdx = getPrintedIdx(&**viewLet);
@@ -1366,6 +1445,12 @@ void GenMCPrinter::printSubset(const SubsetConstraint *subCst, std::string prefi
 				c.line("return false;");
 			}
 			c.blank().blank();
+		};
+		paramsLHS.atFinalPos = [counterexample](CodeBuilder &c, const std::string &e) {
+			auto ifContainsScope = c.ifStmt("!v.contains({})", e);
+			if (counterexample)
+				c.line("cexLab = g.getEventLabelIfPresent({});", e);
+			c.line("return false;");
 		};
 	}
 
@@ -1671,6 +1756,7 @@ void GenMCPrinter::printCalculator(const LetStatement *let, std::string prefix, 
 		.status = "visited" + prefix,
 		.extraParams = ", " + paramType + " &calcRes",
 		.savedParam = "calcRes",
+		.initViewIdx = isView ? std::optional<unsigned>(getPrintedIdx(let)) : std::nullopt,
 		.visit = getStateVisitAssignment(nfa),
 	};
 	outputTraversal(nfa, params, TraversalKind::DFS);
@@ -1702,11 +1788,17 @@ void GenMCPrinter::printCalculator(const LetStatement *let, std::string prefix, 
 		c.line("return calcRes;");
 	}
 
-	/* Getter for the saved result. */
-	h.line("auto get{}{}(const EventLabel *lab) const -> const {} & {{ return lab->{}({}); }}",
-	       name, isView ? "View" : "Set", paramType, isView ? "view" : "calculated",
-	       getPrintedIdx(let))
-		.blank();
+	/* Getter for the saved result; views are also addressed by index, and the
+	 * base class provides getHbView() on top of getHbViewIndex() */
+	if (!isView || name != "Hb")
+		h.line("auto get{}{}(const EventLabel *lab) const -> const {} & {{ return "
+		       "lab->{}({}); }}",
+		       name, isView ? "View" : "Set", paramType, isView ? "view" : "calculated",
+		       getPrintedIdx(let));
+	if (isView)
+		h.line("auto get{}ViewIndex() const -> unsigned {{ return {}; }}", name,
+		       getPrintedIdx(let));
+	h.blank();
 }
 
 void GenMCPrinter::printPPoRfHpp(const NFA &nfa, bool deps)
