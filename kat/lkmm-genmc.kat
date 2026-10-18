@@ -16,22 +16,29 @@
 // Event classes (GenMC predicates)
 // ---------------------------------------------------------------------
 
-predicate Fmb (genmc: "genmc::isa<LkmmFenceLabel>(#) && genmc::cast<LkmmFenceLabel>(#)->getKind() == LkmmFenceKind::Mb")
-predicate Frmb (genmc: "genmc::isa<LkmmFenceLabel>(#) && genmc::cast<LkmmFenceLabel>(#)->getKind() == LkmmFenceKind::Rmb")
-predicate Fwmb (genmc: "genmc::isa<LkmmFenceLabel>(#) && genmc::cast<LkmmFenceLabel>(#)->getKind() == LkmmFenceKind::Wmb")
-predicate Fba (genmc: "genmc::isa<LkmmFenceLabel>(#) && genmc::cast<LkmmFenceLabel>(#)->getKind() == LkmmFenceKind::BeforeAtomic")
-predicate Faa (genmc: "genmc::isa<LkmmFenceLabel>(#) && genmc::cast<LkmmFenceLabel>(#)->getKind() == LkmmFenceKind::AfterAtomic")
-predicate Fas (genmc: "genmc::isa<LkmmFenceLabel>(#) && genmc::cast<LkmmFenceLabel>(#)->getKind() == LkmmFenceKind::AfterSpinlock")
-predicate Faul (genmc: "genmc::isa<LkmmFenceLabel>(#) && genmc::cast<LkmmFenceLabel>(#)->getKind() == LkmmFenceKind::AfterUnlockLock")
+predicate Fmb (genmc: "genmc::isa<LkmmFenceLabel>(#) && genmc::cast<LkmmFenceLabel>(#)->getFenceKind() == LkmmFenceKind::Mb")
+predicate Frmb (genmc: "genmc::isa<LkmmFenceLabel>(#) && genmc::cast<LkmmFenceLabel>(#)->getFenceKind() == LkmmFenceKind::Rmb")
+predicate Fwmb (genmc: "genmc::isa<LkmmFenceLabel>(#) && genmc::cast<LkmmFenceLabel>(#)->getFenceKind() == LkmmFenceKind::Wmb")
+predicate Fba (genmc: "genmc::isa<LkmmFenceLabel>(#) && genmc::cast<LkmmFenceLabel>(#)->getFenceKind() == LkmmFenceKind::BeforeAtomic")
+predicate Faa (genmc: "genmc::isa<LkmmFenceLabel>(#) && genmc::cast<LkmmFenceLabel>(#)->getFenceKind() == LkmmFenceKind::AfterAtomic")
+predicate Fas (genmc: "genmc::isa<LkmmFenceLabel>(#) && genmc::cast<LkmmFenceLabel>(#)->getFenceKind() == LkmmFenceKind::AfterSpinlock")
+predicate Faul (genmc: "genmc::isa<LkmmFenceLabel>(#) && genmc::cast<LkmmFenceLabel>(#)->getFenceKind() == LkmmFenceKind::AfterUnlockLock")
 
 // Accesses of fully ordered RMWs (xchg(), cmpxchg() that succeeds, ...)
 predicate MbR (genmc: "genmc::isa<ReadLabel>(#) && #->isLkmmMb()")
 predicate MbW (genmc: "genmc::isa<WriteLabel>(#) && #->isLkmmMb()")
 // Reads smp_rmb() orders: not the read of a non-value-returning RMW
 predicate R4rmb (genmc: "genmc::isa<ReadLabel>(#) && !#->isLkmmNoreturn()")
-// Locks: the read and write of a successful spin_lock(), and spin_unlock()
-predicate LKR (genmc: "genmc::isa<LockCasReadLabel>(#)")
-predicate LKW (genmc: "genmc::isa<LockCasWriteLabel>(#)")
+// The bell's Acquire = ACQUIRE \ W \ FailedRMW and Release = RELEASE \ R \
+// FailedRMW: the kernel has no acquire/release fences (the orderings GenMC's
+// LKMM fence labels carry are for the rest of GenMC), and a cmpxchg() that
+// failed is a plain read
+predicate Acq (genmc: "genmc::isa<ReadLabel>(#) && #->isAtLeastAcquire() && (!genmc::isa<CasReadLabel>(#) || genmc::cast<ReadLabel>(#)->isRMW())")
+predicate Rel (genmc: "genmc::isa<WriteLabel>(#) && #->isAtLeastRelease()")
+// Locks: the read and write of a spin_lock() or of a spin_trylock() that
+// succeeded, and spin_unlock()
+predicate LKR (genmc: "(genmc::isa<LockCasReadLabel>(#) || genmc::isa<TrylockCasReadLabel>(#)) && genmc::cast<ReadLabel>(#)->isRMW()")
+predicate LKW (genmc: "genmc::isa<LockCasWriteLabel>(#) || genmc::isa<TrylockCasWriteLabel>(#)")
 predicate UL (genmc: "genmc::isa<UnlockWriteLabel>(#)")
 
 disjoint Fmb # Frmb # Fwmb # Fba # Faa # Fas # Faul # R # W
@@ -42,8 +49,8 @@ disjoint LKR # LKW # UL
 // Basic relations
 // ---------------------------------------------------------------------
 
-let acq-po = [ACQ] ; po
-let po-rel = po ; [REL]
+let acq-po = [Acq] ; po
+let po-rel = po ; [Rel]
 let po-unlock-lock-po = po ; [UL] ; (po | rf) ; [LKR] ; po
 
 // Fences
@@ -52,8 +59,8 @@ let wmb = [W] ; po ; [Fwmb] ; po ; [W]
 let mb = [R | W] ; po ; [Fmb] ; po ; [R | W]
        | [R | W] ; po ; [MbR]
        | [MbW] ; po ; [R | W]
-       | [R | W] ; po ; [Fba] ; po ; [UR | UW] ; po? ; [R | W]
-       | [R | W] ; po? ; [UR | UW] ; po ; [Faa] ; po ; [R | W]
+       | [R | W] ; po ; [Fba] ; po ; [EXCL] ; po? ; [R | W]
+       | [R | W] ; po? ; [EXCL] ; po ; [Faa] ; po ; [R | W]
        | [R | W] ; po? ; [LKW] ; po ; [Fas] ; po ; [R | W]
        | [R | W] ; po-unlock-lock-po ; [Faul] ; po ; [R | W]
 let strong-fence = mb
@@ -64,10 +71,14 @@ let fence = nonrw-fence | wmb | rmb
 // Preserved program order
 // ---------------------------------------------------------------------
 
-let dep = addr | data
-let rwdep = (dep | ctrl) ; [W]
-let to-w = rwdep | moi | fri | (addr ; [NA] ; wmb)
-let to-r = (addr ; [R]) | (dep ; [ATOM] ; rfi)
+// A dependency carries through a same-thread rf of a data-dependent write
+// (the bell's carry-dep)
+let carry-dep = (data ; rfi)*
+let dep = carry-dep ; (addr | data)
+let cdep = carry-dep ; ctrl
+let rwdep = (dep | cdep) ; [W]
+let to-w = rwdep | moi | fri | (carry-dep ; addr ; [NA] ; wmb)
+let to-r = (carry-dep ; addr ; [R]) | (dep ; [ATOM] ; rfi)
 // po-unlock-lock-po & int: the lock is taken in the unlocking thread
 let po-unlock-lock-po-int = po ; [UL] ; (po | rfi) ; [LKR] ; po
 let ppo = to-r | to-w | fence | po-unlock-lock-po-int
@@ -92,11 +103,44 @@ let pb = prop ; strong-fence ; lkhb* ; [ATOM]
 // Consistency
 // ---------------------------------------------------------------------
 
-// GenMC's happens-before view, used for coherence (irreflexive (hb ; eco),
-// which with po in hb is sequential consistency per location) and for memory
-// errors; porf until the plain-access rules replace it
-view hb = (po | rf | tc | tj | lin)+
+// GenMC's hb view: the coherence placements and the coherence check
+// (irreflexive (hb ; eco ; hb)) use it, so it is po and thread synchronisation:
+// LKMM's coherence is acyclic (po-loc | com), sequential consistency per
+// location, and nothing of rf may be in it
+view hb = (po | tc | tj | lin)+
 export coherence hb
 
 export acyclic lkhb
 export acyclic pb
+
+// ---------------------------------------------------------------------
+// Memory errors
+// ---------------------------------------------------------------------
+
+// The C11 models' rules over porf, until LKMM's plain-access rules (xbstar)
+// replace them
+
+view porf = (po | rf | tc | tj | lin)+
+
+let na_conflict =
+	last_na_reads; [W] |
+	last_na_writes; [R | W] |
+	last_at_reads; [NA & W] |
+	last_at_writes; ([NA & R] | [NA & W])
+
+let ww_conflict =
+	last_at_writes; [W & ATOM]
+
+let last_accesses =
+	last_na_reads | last_na_writes | last_at_reads | last_at_writes
+
+export error VE_AccessNonMalloc unless  alloc <= porf
+export error VE_DoubleFree      unless  free; [FREE|HPRET] = 0
+
+export error VE_AccessFreed     unless  last_accesses; [FREE] <= porf
+export error VE_AccessFreed     unless  free ; [R | W] = 0
+export error VE_AccessFreed     unless  unprotected ; [HPRET] <= porf
+export error VE_AccessFreed     unless  retire ; [NOTHPPROT] = 0
+
+export error VE_RaceNotAtomic   unless  na_conflict <= porf
+export warning VE_WWRace        unless  ww_conflict <= porf

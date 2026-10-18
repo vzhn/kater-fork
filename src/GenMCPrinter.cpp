@@ -864,11 +864,12 @@ auto GenMCPrinter::printRelation(const std::string &res, const std::string &arg,
 	if (isMutRecRelation(r->getID()))
 		return std::format("if (auto {} = {}; true)", res, arg);
 
-	// FIXME: assumes preds + immediate
+	// A user relation (relation r (genmc_pred: ..., genmc_succ: ...)): GenMC's
+	// hook returns the related labels as a range of pointers
 	assert(getModule().getTheory().hasInfo(*r));
 	const auto &outs = getModule().getTheory().getInfo(*r).genmc;
 	const auto &s = r->isInverse() ? outs.pred : outs.succ;
-	return std::format("if (auto {} = g.{}({}); {})", res, s, arg, res);
+	return std::format("for (auto *{} : g.{}({}))", res, s, arg);
 }
 
 auto GenMCPrinter::printTransLabel(const NFA::Transition &t, const std::string &res,
