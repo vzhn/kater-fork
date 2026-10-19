@@ -418,7 +418,7 @@ private:
 public:
 	#CLASS#(const Config *conf) : ConsistencyChecker(conf) {};
 
-private:
+protected: // subclasses may refine the generated checks (e.g., hand-written axioms)
 	bool isConsistent(const EventLabel *lab) const override;
 	bool isConsistent(const ExecutionGraph &g) const override;
 	bool isCoherentRelinche(const ExecutionGraph &g) const override;
