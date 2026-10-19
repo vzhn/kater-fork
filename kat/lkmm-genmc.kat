@@ -51,21 +51,29 @@ disjoint LKR # LKW # UL
 
 let acq-po = [Acq] ; po
 let po-rel = po ; [Rel]
-let po-unlock-lock-po = po ; [UL] ; (po | rf) ; [LKR] ; po
+// A lock handover: the lock is taken again in the unlocking thread (int) or
+// in another one (ext); the latter leaves po
+let po-unlock-lock-po-int = po ; [UL] ; (po | rfi) ; [LKR] ; po
+let po-unlock-lock-po-ext = po ; [UL] ; rfe ; [LKR] ; po
+let po-unlock-lock-po = po-unlock-lock-po-int | po-unlock-lock-po-ext
 
 // Fences
 let rmb = [R4rmb] ; po ; [Frmb] ; po ; [R4rmb]
 let wmb = [W] ; po ; [Fwmb] ; po ; [W]
-let mb = [R | W] ; po ; [Fmb] ; po ; [R | W]
+let mb-int = [R | W] ; po ; [Fmb] ; po ; [R | W]
        | [R | W] ; po ; [MbR]
        | [MbW] ; po ; [R | W]
        | [R | W] ; po ; [Fba] ; po ; [EXCL] ; po? ; [R | W]
        | [R | W] ; po? ; [EXCL] ; po ; [Faa] ; po ; [R | W]
        | [R | W] ; po? ; [LKW] ; po ; [Fas] ; po ; [R | W]
-       | [R | W] ; po-unlock-lock-po ; [Faul] ; po ; [R | W]
+       | [R | W] ; po-unlock-lock-po-int ; [Faul] ; po ; [R | W]
+// smp_mb__after_unlock_lock() after a handover from another thread
+let mb-ext = [R | W] ; po-unlock-lock-po-ext ; [Faul] ; po ; [R | W]
+let mb = mb-int | mb-ext
 let strong-fence = mb
 let nonrw-fence = strong-fence | po-rel | acq-po
 let fence = nonrw-fence | wmb | rmb
+let fence-int = mb-int | po-rel | acq-po | wmb | rmb
 
 // ---------------------------------------------------------------------
 // Preserved program order
@@ -79,9 +87,17 @@ let cdep = carry-dep ; ctrl
 let rwdep = (dep | cdep) ; [W]
 let to-w = rwdep | moi | fri | (carry-dep ; addr ; [NA] ; wmb)
 let to-r = (carry-dep ; addr ; [R]) | (dep ; [ATOM] ; rfi)
-// po-unlock-lock-po & int: the lock is taken in the unlocking thread
-let po-unlock-lock-po-int = po ; [UL] ; (po | rfi) ; [LKR] ; po
-let ppo = to-r | to-w | fence | po-unlock-lock-po-int
+// LKMM's ppo; mb-ext takes it out of po
+let lkppo = to-r | to-w | fence | po-unlock-lock-po-int
+
+// GenMC's preserved program order (Kater reserves the name): the po edges a
+// revisit keeps, i.e. the prefix of the revisiting write is the (ppo | rfe)
+// prefix. It must carry every dependency of a write (the write of an RMW is
+// made from its read: rmw), must stay within po (Kater: ppo ; view <= view
+// for every view), and may not order more than LKMM does, or executions
+// would be lost: ppo <= lkppo | rmw, and rmw <= fri <= to-w (an RMW's read
+// reads the co-predecessor of its write).
+let ppo = rmw | to-r | to-w | fence-int | po-unlock-lock-po-int
 
 // ---------------------------------------------------------------------
 // Propagation and happens-before
@@ -96,31 +112,35 @@ let prop = [ATOM] ; (moe | fre)? ; cumul-fence* ; [ATOM] ; rfe? ; [ATOM]
 // (prop \ id) & int is not regular (a prop path may leave the thread and come
 // back): GenMC computes it (prop_int_preds/succs), from prop's view
 relation prop-int (genmc_pred: "prop_int_preds", genmc_succ: "prop_int_succs")
-let lkhb = [ATOM] ; (ppo | rfe | prop-int | tc | tj) ; [ATOM]
+let lkhb = [ATOM] ; (lkppo | rfe | prop-int | tc | tj) ; [ATOM]
 let pb = prop ; strong-fence ; lkhb* ; [ATOM]
 
 // ---------------------------------------------------------------------
 // Consistency
 // ---------------------------------------------------------------------
 
-// GenMC's hb view: the coherence placements and the coherence check
-// (irreflexive (hb ; eco ; hb)) use it, so it is po and thread synchronisation:
+// Coherence: GenMC places writes in co and picks the writes a read may
+// read from by the view given here, and checks irreflexive (coh ; eco ; coh).
 // LKMM's coherence is acyclic (po-loc | com), sequential consistency per
-// location, and nothing of rf may be in it
-view hb = (po | tc | tj | lin)+
-export coherence hb
+// location, so the view is po and thread synchronisation, with nothing of rf
+view coh = (po | tc | tj | lin)+
+export coherence coh
 
 export acyclic lkhb
 export acyclic pb
 
 // ---------------------------------------------------------------------
-// Memory errors
+// GenMC's happens-before, memory errors
 // ---------------------------------------------------------------------
 
-// The C11 models' rules over porf, until LKMM's plain-access rules (xbstar)
-// replace them
-
-view porf = (po | rf | tc | tj | lin)+
+// GenMC's hb view (the name is reserved) is what the rest of GenMC takes as
+// visibility: a read of malloc'ed memory must have the initialisation in it,
+// the non-atomic accesses the error rules below see are those hb-before, a
+// helping CAS, barriers and the FAI spin-loops consult it. Marked accesses
+// publish by dependency, so it is porf, an over-approximation of LKMM's
+// visibility for plain accesses; the plain-access rules (xbstar, phase 4)
+// will replace the C11 models' race rules below.
+view hb = (po | rf | tc | tj | lin)+
 
 let na_conflict =
 	last_na_reads; [W] |
@@ -134,13 +154,13 @@ let ww_conflict =
 let last_accesses =
 	last_na_reads | last_na_writes | last_at_reads | last_at_writes
 
-export error VE_AccessNonMalloc unless  alloc <= porf
+export error VE_AccessNonMalloc unless  alloc <= hb
 export error VE_DoubleFree      unless  free; [FREE|HPRET] = 0
 
-export error VE_AccessFreed     unless  last_accesses; [FREE] <= porf
+export error VE_AccessFreed     unless  last_accesses; [FREE] <= hb
 export error VE_AccessFreed     unless  free ; [R | W] = 0
-export error VE_AccessFreed     unless  unprotected ; [HPRET] <= porf
+export error VE_AccessFreed     unless  unprotected ; [HPRET] <= hb
 export error VE_AccessFreed     unless  retire ; [NOTHPPROT] = 0
 
-export error VE_RaceNotAtomic   unless  na_conflict <= porf
-export warning VE_WWRace        unless  ww_conflict <= porf
+export error VE_RaceNotAtomic   unless  na_conflict <= hb
+export warning VE_WWRace        unless  ww_conflict <= hb
