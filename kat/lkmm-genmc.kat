@@ -4,13 +4,14 @@
 // Linux 6.18, variant lkmmv2) for GenMC, after the model by Jade Alglave,
 // Luc Maranget, Paul E. McKenney, Andrea Parri and Alan Stern.
 //
-// The regular part, with RCU's grace periods (gp) in strong-fence. RCU's
-// rcu-order is not a regular relation (it counts grace periods against
-// critical sections): GenMC evaluates rb = prop ; rcu-fence ; hb* ; pb* and
-// checks it irreflexive by hand (LkmmModel.cpp) when an execution has a
-// synchronize_rcu(). The plain-access part (plain-coherence, data races)
-// intersects relations, which Kater cannot export: GenMC evaluates it by
-// hand too. No SRCU yet.
+// The regular part, with RCU's and SRCU's grace periods (gp) in
+// strong-fence. RCU's rcu-order is not a regular relation (it counts grace
+// periods against critical sections): GenMC evaluates rb = prop ; rcu-fence ;
+// hb* ; pb* and checks it irreflexive by hand (LkmmModel.cpp) when an
+// execution has a synchronize_rcu() or synchronize_srcu(), as it matches
+// SRCU's critical sections (srcu-rscs, by data dependencies). The
+// plain-access part (plain-coherence, data races) intersects relations,
+// which Kater cannot export: GenMC evaluates it by hand too.
 //
 // Mapping of herd7's events: Marked = ATOM (READ_ONCE and stronger, fences,
 // locks); Plain = NA. Thread creation and join synchronise (tc, tj), which
@@ -31,6 +32,12 @@ predicate Faul (genmc: "genmc::isa<LkmmFenceLabel>(#) && static_cast<const LkmmF
 predicate Frl (genmc: "genmc::isa<LkmmFenceLabel>(#) && static_cast<const LkmmFenceLabel *>(static_cast<const EventLabel *>(#))->getFenceKind() == LkmmFenceKind::RcuLock")
 predicate Fru (genmc: "genmc::isa<LkmmFenceLabel>(#) && static_cast<const LkmmFenceLabel *>(static_cast<const EventLabel *>(#))->getFenceKind() == LkmmFenceKind::RcuUnlock")
 predicate Fsync (genmc: "genmc::isa<LkmmFenceLabel>(#) && static_cast<const LkmmFenceLabel *>(static_cast<const EventLabel *>(#))->getFenceKind() == LkmmFenceKind::SyncRcu")
+// SRCU: synchronize_srcu(), smp_mb__after_srcu_read_unlock(), and
+// srcu_read_unlock() (a write; srcu_read_lock() is a read)
+predicate Fsyncs (genmc: "genmc::isa<LkmmFenceLabel>(#) && static_cast<const LkmmFenceLabel *>(static_cast<const EventLabel *>(#))->getFenceKind() == LkmmFenceKind::SyncSrcu")
+predicate Fasru (genmc: "genmc::isa<LkmmFenceLabel>(#) && static_cast<const LkmmFenceLabel *>(static_cast<const EventLabel *>(#))->getFenceKind() == LkmmFenceKind::AfterSrcuReadUnlock")
+predicate SrcuU (genmc: "genmc::isa<SrcuUnlockWriteLabel>(#)")
+predicate NotSrcuU (genmc: "!genmc::isa<SrcuUnlockWriteLabel>(#)")
 
 // Accesses of fully ordered RMWs (xchg(), cmpxchg() that succeeds, ...)
 predicate MbR (genmc: "genmc::isa<ReadLabel>(#) && #->isLkmmMb()")
@@ -53,7 +60,7 @@ predicate UL (genmc: "genmc::isa<UnlockWriteLabel>(#)")
 // Anything but a plain access (herd7's Plain = M \ Marked)
 predicate NotPlain (genmc: "!(genmc::isa<MemAccessLabel>(#) && #->isNotAtomic())")
 
-disjoint Fmb # Frmb # Fwmb # Fba # Faa # Fas # Faul # Frl # Fru # Fsync # R # W
+disjoint Fmb # Frmb # Fwmb # Fba # Faa # Fas # Faul # Frl # Fru # Fsync # Fsyncs # Fasru # R # W
 disjoint MbR # MbW
 disjoint LKR # LKW # UL
 
@@ -72,19 +79,20 @@ let po-unlock-lock-po = po-unlock-lock-po-int | po-unlock-lock-po-ext
 // Fences
 let rmb = [R4rmb] ; po ; [Frmb] ; po ; [R4rmb]
 let wmb = [W] ; po ; [Fwmb] ; po ; [W]
-// mb, and gp = po ; [Sync-rcu] ; po? (here between accesses and thread
+// mb, and gp = po ; [Sync-rcu | Sync-srcu] ; po? (here between accesses and thread
 // events: the events of synchronize_rcu() itself only matter to rcu-order).
 // GenMC's thread creation and join synchronise like a release and an
 // acquire (tc, tj, thread-po), so a strong fence reaches them as it reaches
 // a release write: W x ; smp_mb() ; pthread_create() is the message passing
 // of W x ; smp_mb() ; smp_store_release(), which pb forbids.
-let mb-int = [R | W | TC | TE | TB | TJ] ; po ; [Fmb | Fsync] ; po ; [R | W | TC | TE | TB | TJ]
+let mb-int = [R | W | TC | TE | TB | TJ] ; po ; [Fmb | Fsync | Fsyncs] ; po ; [R | W | TC | TE | TB | TJ]
        | [R | W | TC | TE | TB | TJ] ; po ; [MbR]
        | [MbW] ; po ; [R | W | TC | TE | TB | TJ]
        | [R | W | TC | TE | TB | TJ] ; po ; [Fba] ; po ; [EXCL] ; po? ; [R | W | TC | TE | TB | TJ]
        | [R | W | TC | TE | TB | TJ] ; po? ; [EXCL] ; po ; [Faa] ; po ; [R | W | TC | TE | TB | TJ]
        | [R | W | TC | TE | TB | TJ] ; po? ; [LKW] ; po ; [Fas] ; po ; [R | W | TC | TE | TB | TJ]
        | [R | W | TC | TE | TB | TJ] ; po-unlock-lock-po-int ; [Faul] ; po ; [R | W | TC | TE | TB | TJ]
+       | [R | W | TC | TE | TB | TJ] ; po? ; [SrcuU] ; po ; [Fasru] ; po ; [R | W | TC | TE | TB | TJ]
 // smp_mb__after_unlock_lock() after a handover from another thread
 let mb-ext = [R | W | TC | TE | TB | TJ] ; po-unlock-lock-po-ext ; [Faul] ; po ; [R | W | TC | TE | TB | TJ]
 let mb = mb-int | mb-ext
@@ -103,7 +111,9 @@ let fence-int = mb-int | po-rel | acq-po | wmb | rmb
 // a dependency stands for that. Without it a write of an RMW is not in the
 // prefix of a read it depends on, and GenMC loses executions (a thread
 // taking a lock under a condition between two critical sections of another).
-let carry-dep = (data ; rmw? ; rfi)*
+// The bell's carry-dep = (data ; [~Srcu-unlock] ; rfi)*: an srcu_read_lock()
+// reading the index an srcu_read_unlock() wrote back depends on nothing.
+let carry-dep = (data ; rmw? ; [NotSrcuU] ; rfi)*
 let dep = carry-dep ; (addr | data)
 let cdep = carry-dep ; ctrl
 let rwdep = (dep | cdep) ; rmw? ; [W]
