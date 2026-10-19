@@ -96,14 +96,23 @@ let to-r = (carry-dep ; addr ; [R]) | (dep ; rmw? ; [ATOM] ; rfi)
 // LKMM's ppo; mb-ext takes it out of po
 let lkppo = to-r | to-w | fence | po-unlock-lock-po-int
 
+// Thread creation and join (no herd7 counterpart): everything before a create
+// or a thread's end happens before it, everything after a thread's start or a
+// join happens after it, as for IMM's release/acquire thread events. Without
+// this a parent's read could read a value that depends on a thread it creates
+// later.
+let thread-po = po ; [TC | TE] | [TB | TJ] ; po
+
 // GenMC's preserved program order (Kater reserves the name): the po edges a
 // revisit keeps, i.e. the prefix of the revisiting write is the (ppo | rfe)
 // prefix. It must carry every dependency of a write (the write of an RMW is
 // made from its read: rmw), must stay within po (Kater: ppo ; view <= view
 // for every view), and may not order more than LKMM does, or executions
-// would be lost: ppo <= lkppo | rmw, and rmw <= fri <= to-w (an RMW's read
-// reads the co-predecessor of its write).
-let ppo = rmw | to-r | to-w | fence-int | po-unlock-lock-po-int
+// would be lost: ppo <= lkppo | thread-po | rmw, and rmw <= fri <= to-w (an
+// RMW's read reads the co-predecessor of its write). thread-po also keeps a
+// thread's start, hence its create, in every prefix that has one of its
+// events (GenMC copies a thread's events only with its create).
+let ppo = rmw | to-r | to-w | fence-int | po-unlock-lock-po-int | thread-po
 
 // ---------------------------------------------------------------------
 // Propagation and happens-before
@@ -118,7 +127,7 @@ let prop = [ATOM] ; (moe | fre)? ; cumul-fence* ; [ATOM] ; rfe? ; [ATOM]
 // (prop \ id) & int is not regular (a prop path may leave the thread and come
 // back): GenMC computes it (prop_int_preds/succs), from prop's view
 relation prop-int (genmc_pred: "prop_int_preds", genmc_succ: "prop_int_succs")
-let lkhb = [ATOM] ; (lkppo | rfe | prop-int | tc | tj) ; [ATOM]
+let lkhb = [ATOM] ; (lkppo | thread-po | rfe | prop-int | tc | tj) ; [ATOM]
 let pb = prop ; strong-fence ; lkhb* ; [ATOM]
 
 // ---------------------------------------------------------------------
