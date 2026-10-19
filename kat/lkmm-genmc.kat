@@ -16,13 +16,13 @@
 // Event classes (GenMC predicates)
 // ---------------------------------------------------------------------
 
-predicate Fmb (genmc: "genmc::isa<LkmmFenceLabel>(#) && genmc::cast<LkmmFenceLabel>(#)->getFenceKind() == LkmmFenceKind::Mb")
-predicate Frmb (genmc: "genmc::isa<LkmmFenceLabel>(#) && genmc::cast<LkmmFenceLabel>(#)->getFenceKind() == LkmmFenceKind::Rmb")
-predicate Fwmb (genmc: "genmc::isa<LkmmFenceLabel>(#) && genmc::cast<LkmmFenceLabel>(#)->getFenceKind() == LkmmFenceKind::Wmb")
-predicate Fba (genmc: "genmc::isa<LkmmFenceLabel>(#) && genmc::cast<LkmmFenceLabel>(#)->getFenceKind() == LkmmFenceKind::BeforeAtomic")
-predicate Faa (genmc: "genmc::isa<LkmmFenceLabel>(#) && genmc::cast<LkmmFenceLabel>(#)->getFenceKind() == LkmmFenceKind::AfterAtomic")
-predicate Fas (genmc: "genmc::isa<LkmmFenceLabel>(#) && genmc::cast<LkmmFenceLabel>(#)->getFenceKind() == LkmmFenceKind::AfterSpinlock")
-predicate Faul (genmc: "genmc::isa<LkmmFenceLabel>(#) && genmc::cast<LkmmFenceLabel>(#)->getFenceKind() == LkmmFenceKind::AfterUnlockLock")
+predicate Fmb (genmc: "genmc::isa<LkmmFenceLabel>(#) && static_cast<const LkmmFenceLabel *>(static_cast<const EventLabel *>(#))->getFenceKind() == LkmmFenceKind::Mb")
+predicate Frmb (genmc: "genmc::isa<LkmmFenceLabel>(#) && static_cast<const LkmmFenceLabel *>(static_cast<const EventLabel *>(#))->getFenceKind() == LkmmFenceKind::Rmb")
+predicate Fwmb (genmc: "genmc::isa<LkmmFenceLabel>(#) && static_cast<const LkmmFenceLabel *>(static_cast<const EventLabel *>(#))->getFenceKind() == LkmmFenceKind::Wmb")
+predicate Fba (genmc: "genmc::isa<LkmmFenceLabel>(#) && static_cast<const LkmmFenceLabel *>(static_cast<const EventLabel *>(#))->getFenceKind() == LkmmFenceKind::BeforeAtomic")
+predicate Faa (genmc: "genmc::isa<LkmmFenceLabel>(#) && static_cast<const LkmmFenceLabel *>(static_cast<const EventLabel *>(#))->getFenceKind() == LkmmFenceKind::AfterAtomic")
+predicate Fas (genmc: "genmc::isa<LkmmFenceLabel>(#) && static_cast<const LkmmFenceLabel *>(static_cast<const EventLabel *>(#))->getFenceKind() == LkmmFenceKind::AfterSpinlock")
+predicate Faul (genmc: "genmc::isa<LkmmFenceLabel>(#) && static_cast<const LkmmFenceLabel *>(static_cast<const EventLabel *>(#))->getFenceKind() == LkmmFenceKind::AfterUnlockLock")
 
 // Accesses of fully ordered RMWs (xchg(), cmpxchg() that succeeds, ...)
 predicate MbR (genmc: "genmc::isa<ReadLabel>(#) && #->isLkmmMb()")
@@ -33,11 +33,13 @@ predicate R4rmb (genmc: "genmc::isa<ReadLabel>(#) && !#->isLkmmNoreturn()")
 // FailedRMW: the kernel has no acquire/release fences (the orderings GenMC's
 // LKMM fence labels carry are for the rest of GenMC), and a cmpxchg() that
 // failed is a plain read
-predicate Acq (genmc: "genmc::isa<ReadLabel>(#) && #->isAtLeastAcquire() && (!genmc::isa<CasReadLabel>(#) || genmc::cast<ReadLabel>(#)->isRMW())")
+predicate Acq (genmc: "genmc::isa<ReadLabel>(#) && #->isAtLeastAcquire() && (!genmc::isa<CasReadLabel>(#) || static_cast<const ReadLabel *>(static_cast<const EventLabel *>(#))->isRMW())")
 predicate Rel (genmc: "genmc::isa<WriteLabel>(#) && #->isAtLeastRelease()")
 // Locks: the read and write of a spin_lock() or of a spin_trylock() that
-// succeeded, and spin_unlock()
-predicate LKR (genmc: "(genmc::isa<LockCasReadLabel>(#) || genmc::isa<TrylockCasReadLabel>(#)) && genmc::cast<ReadLabel>(#)->isRMW()")
+// succeeded, and spin_unlock(). (The casts go through EventLabel: Kater
+// instantiates a predicate on labels of any static type, and genmc::cast
+// from an unrelated one does not compile.)
+predicate LKR (genmc: "(genmc::isa<LockCasReadLabel>(#) || genmc::isa<TrylockCasReadLabel>(#)) && static_cast<const ReadLabel *>(static_cast<const EventLabel *>(#))->isRMW()")
 predicate LKW (genmc: "genmc::isa<LockCasWriteLabel>(#) || genmc::isa<TrylockCasWriteLabel>(#)")
 predicate UL (genmc: "genmc::isa<UnlockWriteLabel>(#)")
 
@@ -79,14 +81,18 @@ let fence-int = mb-int | po-rel | acq-po | wmb | rmb
 // Preserved program order
 // ---------------------------------------------------------------------
 
-// A dependency carries through a same-thread rf of a data-dependent write
-// (the bell's carry-dep)
-let carry-dep = (data ; rfi)*
+// GenMC records the dependencies of an RMW on its read, and makes the write
+// from the read with none of its own; the kernel's dependencies reach both
+// (herd7's ctrl, addr and data target the write of an RMW too): rmw? after
+// a dependency stands for that. Without it a write of an RMW is not in the
+// prefix of a read it depends on, and GenMC loses executions (a thread
+// taking a lock under a condition between two critical sections of another).
+let carry-dep = (data ; rmw? ; rfi)*
 let dep = carry-dep ; (addr | data)
 let cdep = carry-dep ; ctrl
-let rwdep = (dep | cdep) ; [W]
+let rwdep = (dep | cdep) ; rmw? ; [W]
 let to-w = rwdep | moi | fri | (carry-dep ; addr ; [NA] ; wmb)
-let to-r = (carry-dep ; addr ; [R]) | (dep ; [ATOM] ; rfi)
+let to-r = (carry-dep ; addr ; [R]) | (dep ; rmw? ; [ATOM] ; rfi)
 // LKMM's ppo; mb-ext takes it out of po
 let lkppo = to-r | to-w | fence | po-unlock-lock-po-int
 
@@ -122,7 +128,9 @@ let pb = prop ; strong-fence ; lkhb* ; [ATOM]
 // Coherence: GenMC places writes in co and picks the writes a read may
 // read from by the view given here, and checks irreflexive (coh ; eco ; coh).
 // LKMM's coherence is acyclic (po-loc | com), sequential consistency per
-// location, so the view is po and thread synchronisation, with nothing of rf
+// location, so the view is po and thread synchronisation, with nothing of rf.
+// (Two-sided synchronisation, Rel|UL|MbW ; rf ; Acq|LKR|MbR and mb-fenced
+// writes to mb-fenced reads, is in LKMM's hb and could prune earlier.)
 view coh = (po | tc | tj | lin)+
 export coherence coh
 
