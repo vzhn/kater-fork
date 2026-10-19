@@ -8,7 +8,9 @@
 // rcu-order is not a regular relation (it counts grace periods against
 // critical sections): GenMC evaluates rb = prop ; rcu-fence ; hb* ; pb* and
 // checks it irreflexive by hand (LkmmModel.cpp) when an execution has a
-// synchronize_rcu(). No SRCU, no plain-access races yet.
+// synchronize_rcu(). The plain-access part (plain-coherence, data races)
+// intersects relations, which Kater cannot export: GenMC evaluates it by
+// hand too. No SRCU yet.
 //
 // Mapping of herd7's events: Marked = ATOM (READ_ONCE and stronger, fences,
 // locks); Plain = NA. Thread creation and join synchronise (tc, tj), which
@@ -48,6 +50,8 @@ predicate Rel (genmc: "genmc::isa<WriteLabel>(#) && #->isAtLeastRelease()")
 predicate LKR (genmc: "(genmc::isa<LockCasReadLabel>(#) || genmc::isa<TrylockCasReadLabel>(#)) && static_cast<const ReadLabel *>(static_cast<const EventLabel *>(#))->isRMW()")
 predicate LKW (genmc: "genmc::isa<LockCasWriteLabel>(#) || genmc::isa<TrylockCasWriteLabel>(#)")
 predicate UL (genmc: "genmc::isa<UnlockWriteLabel>(#)")
+// Anything but a plain access (herd7's Plain = M \ Marked)
+predicate NotPlain (genmc: "!(genmc::isa<MemAccessLabel>(#) && #->isNotAtomic())")
 
 disjoint Fmb # Frmb # Fwmb # Fba # Faa # Fas # Faul # Frl # Fru # Fsync # R # W
 disjoint MbR # MbW
@@ -121,7 +125,13 @@ let thread-po = po ; [TC | TE] | [TB | TJ] ; po
 // made from its read: rmw), must stay within po (Kater: ppo ; view <= view
 // for every view), and may not order more than LKMM does, or executions
 // would be lost: ppo <= lkppo | thread-po | rmw, and rmw <= fri <= to-w (an
-// RMW's read reads the co-predecessor of its write). thread-po also keeps a
+// RMW's read reads the co-predecessor of its write). Nor may it order a
+// plain access before the events a fence or a lock handover puts after it:
+// lkhb has no plain events, so LKMM allows a cycle through one (a plain
+// read that reads a write whose prefix has a po-later release), which only
+// a racy execution has, and plain-coherence forbids it where the fence
+// counts. Dependencies from a plain read stay (they decide what a thread
+// does). thread-po also keeps a
 // thread's start, hence its create, in every prefix that has one of its
 // events (GenMC copies a thread's events only with its create). [F] ; po
 // keeps the fences (barriers and RCU events) before a kept event: one left
@@ -130,7 +140,8 @@ let thread-po = po ; [TC | TE] | [TB | TJ] ; po
 // but fences: whatever ppo leads from an event x into a fence F (acq-po,
 // po-unlock-lock-po-int, thread-po, [F] ; po) already orders x before every
 // event po-after F.
-let ppo = rmw | to-r | to-w | fence-int | po-unlock-lock-po-int | thread-po | [F] ; po
+let ppo = rmw | to-r | to-w | [NotPlain] ; (fence-int | po-unlock-lock-po-int) | thread-po |
+	[F] ; po
 
 // ---------------------------------------------------------------------
 // Propagation and happens-before
@@ -172,16 +183,11 @@ export acyclic pb
 // visibility: a read of malloc'ed memory must have the initialisation in it,
 // the non-atomic accesses the error rules below see are those hb-before, a
 // helping CAS, barriers and the FAI spin-loops consult it. Marked accesses
-// publish by dependency, so it is porf, an over-approximation of LKMM's
-// visibility for plain accesses; the plain-access rules (xbstar, phase 4)
-// will replace the C11 models' race rules below.
+// publish by dependency, so it is porf. Races are LKMM's (xbstar, vis),
+// decided by hand on complete executions: a pair of accesses can be ordered
+// by events added after both, so the C11 models' race rule, which checks
+// a new access against the hb view, has no counterpart here.
 view hb = (po | rf | tc | tj | lin)+
-
-let na_conflict =
-	last_na_reads; [W] |
-	last_na_writes; [R | W] |
-	last_at_reads; [NA & W] |
-	last_at_writes; ([NA & R] | [NA & W])
 
 let ww_conflict =
 	last_at_writes; [W & ATOM]
@@ -198,5 +204,4 @@ export error VE_DoubleFree      unless  free; [FREE|HPRET] = 0
 export error VE_AccessFreed     unless  unprotected ; [HPRET] <= hb
 export error VE_AccessFreed     unless  retire ; [NOTHPPROT] = 0
 
-export error VE_RaceNotAtomic   unless  na_conflict <= hb
 export warning VE_WWRace        unless  ww_conflict <= hb
