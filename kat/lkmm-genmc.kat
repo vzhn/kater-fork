@@ -68,17 +68,21 @@ let po-unlock-lock-po = po-unlock-lock-po-int | po-unlock-lock-po-ext
 // Fences
 let rmb = [R4rmb] ; po ; [Frmb] ; po ; [R4rmb]
 let wmb = [W] ; po ; [Fwmb] ; po ; [W]
-// mb, and gp = po ; [Sync-rcu] ; po? (here between accesses: the events
-// of synchronize_rcu() itself only matter to rcu-order)
-let mb-int = [R | W] ; po ; [Fmb | Fsync] ; po ; [R | W]
-       | [R | W] ; po ; [MbR]
-       | [MbW] ; po ; [R | W]
-       | [R | W] ; po ; [Fba] ; po ; [EXCL] ; po? ; [R | W]
-       | [R | W] ; po? ; [EXCL] ; po ; [Faa] ; po ; [R | W]
-       | [R | W] ; po? ; [LKW] ; po ; [Fas] ; po ; [R | W]
-       | [R | W] ; po-unlock-lock-po-int ; [Faul] ; po ; [R | W]
+// mb, and gp = po ; [Sync-rcu] ; po? (here between accesses and thread
+// events: the events of synchronize_rcu() itself only matter to rcu-order).
+// GenMC's thread creation and join synchronise like a release and an
+// acquire (tc, tj, thread-po), so a strong fence reaches them as it reaches
+// a release write: W x ; smp_mb() ; pthread_create() is the message passing
+// of W x ; smp_mb() ; smp_store_release(), which pb forbids.
+let mb-int = [R | W | TC | TE | TB | TJ] ; po ; [Fmb | Fsync] ; po ; [R | W | TC | TE | TB | TJ]
+       | [R | W | TC | TE | TB | TJ] ; po ; [MbR]
+       | [MbW] ; po ; [R | W | TC | TE | TB | TJ]
+       | [R | W | TC | TE | TB | TJ] ; po ; [Fba] ; po ; [EXCL] ; po? ; [R | W | TC | TE | TB | TJ]
+       | [R | W | TC | TE | TB | TJ] ; po? ; [EXCL] ; po ; [Faa] ; po ; [R | W | TC | TE | TB | TJ]
+       | [R | W | TC | TE | TB | TJ] ; po? ; [LKW] ; po ; [Fas] ; po ; [R | W | TC | TE | TB | TJ]
+       | [R | W | TC | TE | TB | TJ] ; po-unlock-lock-po-int ; [Faul] ; po ; [R | W | TC | TE | TB | TJ]
 // smp_mb__after_unlock_lock() after a handover from another thread
-let mb-ext = [R | W] ; po-unlock-lock-po-ext ; [Faul] ; po ; [R | W]
+let mb-ext = [R | W | TC | TE | TB | TJ] ; po-unlock-lock-po-ext ; [Faul] ; po ; [R | W | TC | TE | TB | TJ]
 let mb = mb-int | mb-ext
 let strong-fence = mb   // gp included
 let nonrw-fence = strong-fence | po-rel | acq-po
@@ -122,8 +126,10 @@ let thread-po = po ; [TC | TE] | [TB | TJ] ; po
 // events (GenMC copies a thread's events only with its create). [F] ; po
 // keeps the fences (barriers and RCU events) before a kept event: one left
 // out is re-added later in the middle of its thread, unchecked, and the
-// orderings it makes are missing meanwhile. Nothing in ppo leads into a
-// fence, so it orders no further accesses.
+// orderings it makes are missing meanwhile. It orders no further events
+// but fences: whatever ppo leads from an event x into a fence F (acq-po,
+// po-unlock-lock-po-int, thread-po, [F] ; po) already orders x before every
+// event po-after F.
 let ppo = rmw | to-r | to-w | fence-int | po-unlock-lock-po-int | thread-po | [F] ; po
 
 // ---------------------------------------------------------------------
