@@ -4,9 +4,11 @@
 // Linux 6.18, variant lkmmv2) for GenMC, after the model by Jade Alglave,
 // Luc Maranget, Paul E. McKenney, Andrea Parri and Alan Stern.
 //
-// DRAFT: the regular part only (no RCU, no SRCU, no plain-access races).
-// RCU's rcu-order is not a regular relation and will be a user relation
-// computed by GenMC; see lkmm-implementation-plan.md, 3.3-3.4.
+// The regular part, with RCU's grace periods (gp) in strong-fence. RCU's
+// rcu-order is not a regular relation (it counts grace periods against
+// critical sections): GenMC evaluates rb = prop ; rcu-fence ; hb* ; pb* and
+// checks it irreflexive by hand (LkmmModel.cpp) when an execution has a
+// synchronize_rcu(). No SRCU, no plain-access races yet.
 //
 // Mapping of herd7's events: Marked = ATOM (READ_ONCE and stronger, fences,
 // locks); Plain = NA. Thread creation and join synchronise (tc, tj), which
@@ -23,6 +25,10 @@ predicate Fba (genmc: "genmc::isa<LkmmFenceLabel>(#) && static_cast<const LkmmFe
 predicate Faa (genmc: "genmc::isa<LkmmFenceLabel>(#) && static_cast<const LkmmFenceLabel *>(static_cast<const EventLabel *>(#))->getFenceKind() == LkmmFenceKind::AfterAtomic")
 predicate Fas (genmc: "genmc::isa<LkmmFenceLabel>(#) && static_cast<const LkmmFenceLabel *>(static_cast<const EventLabel *>(#))->getFenceKind() == LkmmFenceKind::AfterSpinlock")
 predicate Faul (genmc: "genmc::isa<LkmmFenceLabel>(#) && static_cast<const LkmmFenceLabel *>(static_cast<const EventLabel *>(#))->getFenceKind() == LkmmFenceKind::AfterUnlockLock")
+// RCU: rcu_read_lock(), rcu_read_unlock(), synchronize_rcu()
+predicate Frl (genmc: "genmc::isa<LkmmFenceLabel>(#) && static_cast<const LkmmFenceLabel *>(static_cast<const EventLabel *>(#))->getFenceKind() == LkmmFenceKind::RcuLock")
+predicate Fru (genmc: "genmc::isa<LkmmFenceLabel>(#) && static_cast<const LkmmFenceLabel *>(static_cast<const EventLabel *>(#))->getFenceKind() == LkmmFenceKind::RcuUnlock")
+predicate Fsync (genmc: "genmc::isa<LkmmFenceLabel>(#) && static_cast<const LkmmFenceLabel *>(static_cast<const EventLabel *>(#))->getFenceKind() == LkmmFenceKind::SyncRcu")
 
 // Accesses of fully ordered RMWs (xchg(), cmpxchg() that succeeds, ...)
 predicate MbR (genmc: "genmc::isa<ReadLabel>(#) && #->isLkmmMb()")
@@ -43,7 +49,7 @@ predicate LKR (genmc: "(genmc::isa<LockCasReadLabel>(#) || genmc::isa<TrylockCas
 predicate LKW (genmc: "genmc::isa<LockCasWriteLabel>(#) || genmc::isa<TrylockCasWriteLabel>(#)")
 predicate UL (genmc: "genmc::isa<UnlockWriteLabel>(#)")
 
-disjoint Fmb # Frmb # Fwmb # Fba # Faa # Fas # Faul # R # W
+disjoint Fmb # Frmb # Fwmb # Fba # Faa # Fas # Faul # Frl # Fru # Fsync # R # W
 disjoint MbR # MbW
 disjoint LKR # LKW # UL
 
@@ -62,7 +68,9 @@ let po-unlock-lock-po = po-unlock-lock-po-int | po-unlock-lock-po-ext
 // Fences
 let rmb = [R4rmb] ; po ; [Frmb] ; po ; [R4rmb]
 let wmb = [W] ; po ; [Fwmb] ; po ; [W]
-let mb-int = [R | W] ; po ; [Fmb] ; po ; [R | W]
+// mb, and gp = po ; [Sync-rcu] ; po? (here between accesses: the events
+// of synchronize_rcu() itself only matter to rcu-order)
+let mb-int = [R | W] ; po ; [Fmb | Fsync] ; po ; [R | W]
        | [R | W] ; po ; [MbR]
        | [MbW] ; po ; [R | W]
        | [R | W] ; po ; [Fba] ; po ; [EXCL] ; po? ; [R | W]
@@ -72,7 +80,7 @@ let mb-int = [R | W] ; po ; [Fmb] ; po ; [R | W]
 // smp_mb__after_unlock_lock() after a handover from another thread
 let mb-ext = [R | W] ; po-unlock-lock-po-ext ; [Faul] ; po ; [R | W]
 let mb = mb-int | mb-ext
-let strong-fence = mb
+let strong-fence = mb   // gp included
 let nonrw-fence = strong-fence | po-rel | acq-po
 let fence = nonrw-fence | wmb | rmb
 let fence-int = mb-int | po-rel | acq-po | wmb | rmb
@@ -111,8 +119,12 @@ let thread-po = po ; [TC | TE] | [TB | TJ] ; po
 // would be lost: ppo <= lkppo | thread-po | rmw, and rmw <= fri <= to-w (an
 // RMW's read reads the co-predecessor of its write). thread-po also keeps a
 // thread's start, hence its create, in every prefix that has one of its
-// events (GenMC copies a thread's events only with its create).
-let ppo = rmw | to-r | to-w | fence-int | po-unlock-lock-po-int | thread-po
+// events (GenMC copies a thread's events only with its create). [F] ; po
+// keeps the fences (barriers and RCU events) before a kept event: one left
+// out is re-added later in the middle of its thread, unchecked, and the
+// orderings it makes are missing meanwhile. Nothing in ppo leads into a
+// fence, so it orders no further accesses.
+let ppo = rmw | to-r | to-w | fence-int | po-unlock-lock-po-int | thread-po | [F] ; po
 
 // ---------------------------------------------------------------------
 // Propagation and happens-before
@@ -174,8 +186,9 @@ let last_accesses =
 export error VE_AccessNonMalloc unless  alloc <= hb
 export error VE_DoubleFree      unless  free; [FREE|HPRET] = 0
 
-export error VE_AccessFreed     unless  last_accesses; [FREE] <= hb
-export error VE_AccessFreed     unless  free ; [R | W] = 0
+// An access and a free of the same memory (last_accesses ; [FREE] <= hb and
+// free ; [R | W] = 0) are hand-written in GenMC (LKMMRcuChecker): a grace
+// period orders a reader's accesses before a free after synchronize_rcu()
 export error VE_AccessFreed     unless  unprotected ; [HPRET] <= hb
 export error VE_AccessFreed     unless  retire ; [NOTHPPROT] = 0
 
