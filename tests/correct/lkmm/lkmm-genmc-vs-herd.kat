@@ -1,0 +1,44 @@
+// kat/lkmm-genmc.kat against kat/lkmm-ref.kat, the regular part of the
+// kernel's linux-kernel.cat transcribed definition by definition.
+//
+// Compared on executions without thread events (herd7 has none), and
+// between memory accesses ([R | W] at both ends): lkmm-genmc.kat leaves the
+// [M] off some fence ends (acq-po, po-rel) and narrows gp to [M] ends, which
+// only adds or removes edges at fence events. Kater has no int/ext and no
+// rotation on the right of an inclusion, so the axioms themselves are not
+// compared; the inclusions below are the steps of that argument.
+
+include "../../../kat/lkmm-ref.kat"
+include "genmc-facts.inc"
+
+assume [TC] = 0
+assume [TB] = 0
+assume [TE] = 0
+assume [TJ] = 0
+assume tc = 0
+assume tj = 0
+
+// Fences: strong-fence and cumul-fence are herd7's
+assert [R | W] ; lkmm-genmc::strong-fence ; [R | W] = [R | W] ; lkmm-ref::strong-fence ; [R | W]
+assert [R | W] ; lkmm-genmc::cumul-fence ; [R | W] = [R | W] ; lkmm-ref::cumul-fence ; [R | W]
+
+// LKMM's ppo is herd7's plus mb-ext, smp_mb__after_unlock_lock() after a
+// lock handover from another thread (herd7's ppo takes fence & int only)
+assert [R | W] ; lkmm-genmc::lkppo ; [R | W] = [R | W] ; (lkmm-ref::ppo | lkmm-genmc::mb-ext) ; [R | W]
+
+// prop is contained in herd7's. Not equal: herd7's gp also ends at the
+// synchronize_rcu() itself, from which a po-unlock-lock-po can start
+// (W rfe R ; po ; [Sync] ; po ; [UL] ; rfe ; [LKR] ; po ; W'); GenMC's
+// narrowed gp cannot. The same chain is an hb path (gp is in ppo, a lock
+// read is an acquire).
+assert [R | W] ; lkmm-genmc::prop ; [R | W] <= [R | W] ; lkmm-ref::prop ; [R | W]
+
+// hb is herd7's plus mb-ext ...
+assert [R | W] ; lkmm-ref::hb ; [R | W] <= [R | W] ; lkmm-genmc::lkhb ; [R | W]
+assert [R | W] ; lkmm-genmc::lkhb ; [R | W] <= [R | W] ; (lkmm-ref::hb | lkmm-genmc::mb-ext) ; [R | W]
+
+// ... and mb-ext forbids nothing herd7 allows: it is part of pb, and a cycle
+// of hb | mb-ext is an hb cycle or rotates into a pb cycle (pb ; hb <= pb)
+assert [ATOM] ; lkmm-genmc::mb-ext ; [ATOM] <= lkmm-ref::pb
+assert lkmm-ref::pb ; lkmm-ref::hb <= lkmm-ref::pb
+assert (lkmm-ref::hb | [ATOM] ; lkmm-genmc::mb-ext ; [ATOM])+ <= lkmm-ref::hb+ | lkmm-ref::hb* ; lkmm-ref::pb+
