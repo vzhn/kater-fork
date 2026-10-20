@@ -1,0 +1,37 @@
+// Invariants of kat/lkmm-genmc.kat that GenMC's exploration relies on.
+// Each assertion failed on the revision of lkmm-genmc.kat before the fix
+// named with it, and holds since.
+
+include "../../../kat/lkmm-genmc.kat"
+
+// GenMC's prefix (ppo) carries every dependency of a write, an RMW's write
+// included: herd7's addr, data and ctrl reach it, while GenMC records them
+// on the RMW's read. LKMM's own ppo (lkppo) has them too.
+// (Fixed by "dependencies into an RMW reach its write".)
+assert (addr | data | ctrl) ; rmw ; [W] <= lkmm-genmc::ppo
+assert (addr | data | ctrl) ; rmw ; [W] <= lkmm-genmc::lkppo
+
+// GenMC copies a thread's events only with its create: a prefix holding an
+// event of a thread holds the thread's start, and a create holds what
+// precedes it. (Fixed by "thread creation and join order the threads'
+// events".)
+assert [TB] ; po <= lkmm-genmc::ppo
+assert po ; [TC] <= lkmm-genmc::ppo
+
+// A parent's events before a create happen before the child's, so that no
+// read can read from a thread created after it. Thread events carry atomic
+// orderings in GenMC (release creates, acquire starts), which Kater does
+// not know of TC and TB, hence the intersections. (Same fix.)
+assert [ATOM] ; po ; [TC & ATOM] ; tc ; [TB & ATOM] ; po ; [ATOM] <= lkmm-genmc::lkhb+
+
+// W ; smp_mb() ; pthread_create() orders like a release write.
+// (Fixed by "strong fences reach thread creation and join".)
+assert [W] ; po ; [lkmm-genmc::Fmb] ; po ; [TC] <= lkmm-genmc::strong-fence
+
+// The revisit prefix orders nothing that LKMM leaves unordered, besides
+// GenMC's thread and fence bookkeeping and the prefix-only control
+// dependencies (pctrl): an ordering beyond LKMM's loses executions.
+assert lkmm-genmc::ppo <= lkmm-genmc::lkppo | po ; [TC | TE] | [TB | TJ] ; po | rmw | [F] ; po | lkmm-genmc::pcdep
+
+// The prefix a write's revisits take is part of the full one.
+assert lkmm-genmc::rppo <= lkmm-genmc::ppo
