@@ -454,6 +454,7 @@ protected: // subclasses may refine the generated checks (e.g., hand-written axi
 	std::vector<EventLabel *> getCoherentPlacings(WriteLabel *sLab) override;
 	void updateMMViews(EventLabel *lab) override;
 	std::unique_ptr<VectorClock> calculatePrefixView(const EventLabel *lab) const override;
+	std::unique_ptr<VectorClock> calculateRevisitPrefixView(const EventLabel *lab) const override;
 	bool isDepTracking() const override;
 	void calculateSaved(EventLabel *lab);
 	void calculateViews(EventLabel *lab);
@@ -1035,6 +1036,25 @@ void GenMCPrinter::printConsistency(
 			className);
 		cpp.line("return std::make_unique<{}>(calcPPoRfBefore(lab));",
 			 module.isDepTracking() ? "DepView" : "View");
+	}
+
+	/* The prefix a write's revisits take (rppo, if declared): reads in the
+	 * prefix but not in this one stay revisitable */
+	if (module.getRPPODeclaration() && module.isDepTracking()) {
+		auto rpporfNFA = module.createRPPORF()->toNFA();
+		simplify(rpporfNFA, theory);
+		printPPoRfHpp(rpporfNFA, true, "RPPoRf");
+		printPPoRfCpp(rpporfNFA, true, "RPPoRf");
+	}
+	{
+		auto fun = cpp.function(
+			"std::unique_ptr<VectorClock> {}::calculateRevisitPrefixView(const EventLabel "
+			"*lab) const",
+			className);
+		if (module.getRPPODeclaration() && module.isDepTracking())
+			cpp.line("return std::make_unique<DepView>(calcRPPoRfBefore(lab));");
+		else
+			cpp.line("return calculatePrefixView(lab);");
 	}
 }
 
@@ -1827,36 +1847,36 @@ void GenMCPrinter::printCalculator(const LetStatement *let, std::string prefix, 
 	h.blank();
 }
 
-void GenMCPrinter::printPPoRfHpp(const NFA &nfa, bool deps)
+void GenMCPrinter::printPPoRfHpp(const NFA &nfa, bool deps, const std::string &name)
 {
 	const auto vt = deps ? "DepView" : "View";
 
 	/* visitPPoRfXX for each state */
 	std::for_each(nfa.states_begin(), nfa.states_end(), [&](auto &s) {
-		hppB().line("void visitPPoRf{}(const EventLabel *lab, {} &pporf) const;",
-			    s->getId(), vt);
+		hppB().line("void visit{}{}(const EventLabel *lab, {} &pporf) const;",
+			    name, s->getId(), vt);
 	});
 	hppB().blank();
 
-	/* calcPPoRfBefore for the automaton */
-	hppB().line("{} calcPPoRfBefore(const EventLabel *lab) const;", vt).blank();
+	/* calc<name>Before for the automaton */
+	hppB().line("{} calc{}Before(const EventLabel *lab) const;", vt, name).blank();
 
 	/* status arrays */
 	std::for_each(nfa.states_begin(), nfa.states_end(), [&](auto &s) {
-		hppB().line("mutable std::vector<NodeStatus> visitedPPoRf{};", s->getId());
+		hppB().line("mutable std::vector<NodeStatus> visited{}{};", name, s->getId());
 	});
 	hppB().blank();
 }
 
-void GenMCPrinter::printPPoRfCpp(const NFA &nfa, bool deps)
+void GenMCPrinter::printPPoRfCpp(const NFA &nfa, bool deps, const std::string &name)
 {
 	auto &c = cppB();
 	const auto vt = deps ? "DepView" : "View";
 
 	/* Optimization for non-dep-tracking models */
 	if (!deps) {
-		auto fn = c.function("{} {}::calcPPoRfBefore(const EventLabel *lab) const", vt,
-				     className);
+		auto fn = c.function("{} {}::calc{}Before(const EventLabel *lab) const", vt,
+				     className, name);
 		c.line("[[maybe_unused]] auto &g = *lab->getParent();")
 			.line("View pporf;")
 			.line("pporf.updateIdx(lab->getPos());")
@@ -1878,13 +1898,13 @@ void GenMCPrinter::printPPoRfCpp(const NFA &nfa, bool deps)
 	std::for_each(nfa.states_begin(), nfa.states_end(), [&](auto &s) {
 		{
 			auto fn = c.function(
-				"void {}::visitPPoRf{}(const EventLabel *lab, {} &pporf) const",
-				className, s->getId(), vt);
+				"void {}::visit{}{}(const EventLabel *lab, {} &pporf) const",
+				className, name, s->getId(), vt);
 			c.line("[[maybe_unused]] auto &g = *lab->getParent();")
 				.blank()
-				.line("visitedPPoRf{}[lab->getStamp().get()] = "
+				.line("visited{}{}[lab->getStamp().get()] = "
 				      "NodeStatus::entered;",
-				      s->getId());
+				      name, s->getId());
 			if (s->isStarting()) {
 				c.line("pporf.updateIdx(lab->getPos());");
 			}
@@ -1894,31 +1914,31 @@ void GenMCPrinter::printPPoRfCpp(const NFA &nfa, bool deps)
 				 * indent the body. */
 				auto trans = c.kr("{}", printTransLabel(t, "pLab", "lab", "pporf"));
 				c.line("auto status = "
-				       "visitedPPoRf{}[pLab->getStamp().get()];",
-				       t.dest->getId())
+				       "visited{}{}[pLab->getStamp().get()];",
+				       name, t.dest->getId())
 					.line("if (status == NodeStatus::unseen)")
-					.indented("visitPPoRf{}(pLab, pporf);", t.dest->getId());
+					.indented("visit{}{}(pLab, pporf);", name, t.dest->getId());
 			});
-			c.line("visitedPPoRf{}[lab->getStamp().get()] = NodeStatus::left;",
-			       s->getId());
+			c.line("visited{}{}[lab->getStamp().get()] = NodeStatus::left;",
+			       name, s->getId());
 		}
 	});
 
 	{
-		auto fn = c.function("{} {}::calcPPoRfBefore(const EventLabel *lab) const", vt,
-				     className);
+		auto fn = c.function("{} {}::calc{}Before(const EventLabel *lab) const", vt,
+				     className, name);
 		c.line("[[maybe_unused]] auto &g = *lab->getParent();")
 			.line("{} pporf;", vt)
 			.line("pporf.updateIdx(lab->getPos());");
 		std::for_each(nfa.states_begin(), nfa.states_end(), [&](auto &s) {
-			c.line("visitedPPoRf{}.clear();", s->getId())
-				.line("visitedPPoRf{}.resize(g.getMaxStamp().get() + 1, "
+			c.line("visited{}{}.clear();", name, s->getId())
+				.line("visited{}{}.resize(g.getMaxStamp().get() + 1, "
 				      "NodeStatus::unseen);",
-				      s->getId());
+				      name, s->getId());
 		});
 		c.blank();
 		std::for_each(nfa.accept_begin(), nfa.accept_end(), [&](auto &acc) -> void {
-			c.line("visitPPoRf{}(lab, pporf);", acc->getId());
+			c.line("visit{}{}(lab, pporf);", name, acc->getId());
 		});
 		c.line("return pporf;");
 	}

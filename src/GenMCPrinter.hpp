@@ -89,8 +89,8 @@ private:
 	void printWarning(const WarningConstraint *cst, std::string prefix);
 	void printCoherence(const CoherenceConstraint *cst);
 
-	void printPPoRfHpp(const NFA &nfa, bool deps);
-	void printPPoRfCpp(const NFA &nfa, bool deps);
+	void printPPoRfHpp(const NFA &nfa, bool deps, const std::string &name = "PPoRf");
+	void printPPoRfCpp(const NFA &nfa, bool deps, const std::string &name = "PPoRf");
 
 	void printHeader();
 	void printConsistency(const std::unordered_map<Statement *, std::string> &exportedNames);

@@ -118,6 +118,7 @@ auto ParsingDriver::parse(const std::string &name) -> int
 		auto *ppoLet = module->getRegisteredStatement(getQualifiedName("ppo"));
 		auto *hbLet = module->getRegisteredStatement(getQualifiedName("hb"));
 		module->registerPPO(ppoLet);
+		module->registerRPPO(module->getRegisteredStatement(getQualifiedName("rppo")));
 		module->registerHB(hbLet);
 	}
 
