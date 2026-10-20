@@ -38,6 +38,7 @@ public:
 	auto asserts() { return std::views::all(asserts_); }
 
 	auto getPPODeclaration() const -> const LetStatement * { return ppo_; }
+	auto getRPPODeclaration() const -> const LetStatement * { return rppo_; }
 	auto getHBDeclaration() const -> const LetStatement * { return hb_; }
 	auto getCOHDeclaration() const -> const LetStatement * { return coh_; }
 
@@ -45,6 +46,13 @@ public:
 	{
 		return PlusRE::createOpt(AltRE::createOpt(
 			getPPODeclaration()->getRE()->clone(), getRegisteredRE("rfe")->clone(),
+			getRegisteredRE("tc")->clone(), getRegisteredRE("tj")->clone(),
+			getRegisteredRE("lin")->clone()));
+	}
+	auto createRPPORF() const -> std::unique_ptr<RegExp>
+	{
+		return PlusRE::createOpt(AltRE::createOpt(
+			getRPPODeclaration()->getRE()->clone(), getRegisteredRE("rfe")->clone(),
 			getRegisteredRE("tc")->clone(), getRegisteredRE("tj")->clone(),
 			getRegisteredRE("lin")->clone()));
 	}
@@ -118,6 +126,7 @@ public:
 	}
 
 	void registerHB(LetStatement *hb) { hb_ = hb; }
+	void registerRPPO(LetStatement *rppo) { rppo_ = rppo; }
 
 	void registerCOH(LetStatement *coh) { coh_ = coh; }
 
@@ -160,6 +169,7 @@ private:
 
 	/* Store some commonly used expressions for easy access */
 	LetStatement *ppo_{};
+	LetStatement *rppo_{};
 	LetStatement *hb_{};
 	LetStatement *coh_{};
 

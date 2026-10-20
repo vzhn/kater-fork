@@ -98,6 +98,7 @@ public:
 		ctrl,
 		addr,
 		data,
+		pctrl,
 		/* rfi, coi, fri*/
 		rfi,
 		moi,

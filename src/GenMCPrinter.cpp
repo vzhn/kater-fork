@@ -18,6 +18,7 @@
 
 #include "GenMCPrinter.hpp"
 
+#include <iostream>
 #include <algorithm>
 
 #include "Config.hpp"
@@ -105,6 +106,21 @@ static auto splitLocMOAfter(WriteLabel *wLab) -> ExecutionGraph::co_iterator
 			    [&](auto &sLab) { return isHbOptRfBefore(wLab, &sLab); });
 }
 
+/* Whether END is reachable from BEGIN in ADDR's coherence order. It is not
+ * when coherence contradicts hb, which a consistent graph never does, but an
+ * event added before events kept further on in its thread can see before
+ * the graph is checked again, typically because of a kept event the new path
+ * skips (it goes once the thread passes its place): then every position is a
+ * candidate, and GenMC's later checks drop the inconsistent ones */
+static auto isCoRange(ExecutionGraph &g, SAddr addr, ExecutionGraph::co_iterator begin,
+		      ExecutionGraph::co_iterator end) -> bool
+{
+	for (auto it = begin; it != end; ++it)
+		if (it == std::ranges::end(g.co(addr)))
+			return false;
+	return true;
+}
+
 auto #CLASS#::getCoherentStores(ReadLabel *rLab) -> std::vector<EventLabel *>
 {
 	auto &g = *rLab->getParent();
@@ -135,6 +151,12 @@ auto #CLASS#::getCoherentStores(ReadLabel *rLab) -> std::vector<EventLabel *>
 	 * store, or some read that reads from a store.
 	 */
 	auto endIt = (isDepTracking()) ? splitLocMOAfterHb(rLab) : std::ranges::end(g.co(rLab->getAddr()));
+	if (!isCoRange(g, rLab->getAddr(), begIt, endIt)) {
+		stores.clear();
+		stores.push_back(g.getInitLabel());
+		begIt = std::ranges::begin(g.co(rLab->getAddr()));
+		endIt = std::ranges::end(g.co(rLab->getAddr()));
+	}
 	std::transform(begIt, endIt, std::back_inserter(stores), [&](auto &lab){
 		return &lab;
 	});
@@ -263,6 +285,10 @@ auto #CLASS#::getCoherentPlacings(WriteLabel *wLab)
 	/* Otherwise, we calculate the full range and add the store */
 	auto rangeBegin = splitLocMOBefore(wLab->getAddr(), wLab);
 	auto rangeEnd = (isDepTracking()) ? splitLocMOAfter(wLab) : std::ranges::end(g.co(wLab->getAddr()));
+	if (!isCoRange(g, wLab->getAddr(), rangeBegin, rangeEnd)) {
+		rangeBegin = std::ranges::begin(g.co(wLab->getAddr()));
+		rangeEnd = std::ranges::end(g.co(wLab->getAddr()));
+	}
 	auto cos = std::ranges::subrange(rangeBegin, rangeEnd) |
 		   std::views::filter([&](auto &sLab) { return !sLab.isRMW(); }) |
 		   std::views::transform([&](auto &sLab) {
@@ -417,7 +443,7 @@ private:
 public:
 	#CLASS#(const Config *conf) : ConsistencyChecker(conf) {};
 
-private:
+protected: // subclasses may refine the generated checks (e.g., hand-written axioms)
 	bool isConsistent(const EventLabel *lab) const override;
 	bool isConsistent(const ExecutionGraph &g) const override;
 	bool isCoherentRelinche(const ExecutionGraph &g) const override;
@@ -428,6 +454,7 @@ private:
 	std::vector<EventLabel *> getCoherentPlacings(WriteLabel *sLab) override;
 	void updateMMViews(EventLabel *lab) override;
 	std::unique_ptr<VectorClock> calculatePrefixView(const EventLabel *lab) const override;
+	std::unique_ptr<VectorClock> calculateRevisitPrefixView(const EventLabel *lab) const override;
 	bool isDepTracking() const override;
 	void calculateSaved(EventLabel *lab);
 	void calculateViews(EventLabel *lab);
@@ -450,6 +477,7 @@ struct DFSParameters {
 	std::string status;	 // name of status arrays
 	std::string extraParams; // Additional parameters to the routine besides worklist
 	std::string savedParam;	 // saved param of label printing
+	std::optional<unsigned> initViewIdx; // view calculations: init label's per-location view
 
 	Hook atBegin; // at node discovery
 	Hook atTreeE; // at tree-edge discovery
@@ -457,6 +485,9 @@ struct DFSParameters {
 	Hook atForwE; // at forward-edge discovery
 	Hook atEnd;   // at node exit
 	Hook atFinal; // at final-state discovery
+	/* at final-state discovery through a positional relation (alloc, free, ...):
+	 * the event is given as a position, as its label may be gone from the graph */
+	std::function<void(CodeBuilder &, const std::string &)> atFinalPos;
 
 	std::vector<char> visit{}; // indexed by state ID: "has visit array"
 };
@@ -651,6 +682,37 @@ void GenMCPrinter::outputTraversal(const NFA &nfa, const DFSParameters &params, 
 
 	/* For each incoming edge, classify the neighbour by status (tree/cyclic/
 	 * forward edge) and fire the matching hook. */
+	using RB = Relation::BuiltinID;
+	const auto positionalAccessor = [&](const NFA::Transition &t) -> std::optional<std::string> {
+		auto r = t.label.getRelation();
+		if (!r.has_value() || !r->isBuiltin())
+			return std::nullopt;
+		switch (r->toBuiltin()) {
+		case RB::alloc:
+		case RB::free:
+		case RB::retire:
+		case RB::unprotected:
+		case RB::last_na_reads:
+		case RB::last_na_writes:
+		case RB::last_at_reads:
+		case RB::last_at_writes: {
+			const auto &outs = getModule().getTheory().getInfo(*r).genmc;
+			return (r->isInverse() ? outs.pred : outs.succ) + "_pos";
+		}
+		default:
+			return std::nullopt;
+		}
+	};
+	const auto isSingleEventAccessor = [&](const NFA::Transition &t) {
+		auto id = t.label.getRelation()->toBuiltin();
+		return id == RB::alloc || id == RB::free || id == RB::retire;
+	};
+	const auto rfInv = Relation::createBuiltin(Relation::BuiltinID::rf).invert();
+	const auto isRfPred = [&](const NFA::Transition &t) {
+		auto r = t.label.getRelation();
+		return r.has_value() && *r == rfInv;
+	};
+
 	auto emitTransitions = [&](NFA::State *s) {
 		c.line("[[maybe_unused]] auto &g = *lab->getParent();");
 
@@ -661,8 +723,44 @@ void GenMCPrinter::outputTraversal(const NFA &nfa, const DFSParameters &params, 
 					 printTransLabel(t, "pLab", "lab", params.savedParam)};
 		});
 		for (auto &t : ts) {
+			/* Positional relations end the traversal: GenMC gives the event's
+			 * position (alloc_pos() etc.), and its label may no longer exist */
+			if (auto pos = positionalAccessor(t); pos.has_value()) {
+				if (!params.atFinalPos || !t.dest->isStarting() ||
+				    !std::ranges::empty(t.dest->ins()) ||
+				    !t.label.getPostChecks().empty()) {
+					std::cerr << "unsupported use of a positional relation (" << *pos
+						  << ") in " << params.name << "\n";
+					std::exit(EXIT_FAILURE); // NOLINT(concurrency-mt-unsafe)
+				}
+				auto pre = printPredSet("lab", t.label.getPreChecks());
+				if (isSingleEventAccessor(t)) {
+					auto posScope =
+						c.kr("{}if (auto tmpE = g.{}(lab); tmpE)", pre, *pos);
+					params.atFinalPos(c, "*tmpE");
+				} else {
+					auto posScope = c.kr("{}for (auto tmpE : g.{}(lab))", pre, *pos);
+					params.atFinalPos(c, "tmpE");
+				}
+				continue;
+			}
+			/* GenMC keeps the init label out of view calculations: a read
+			 * from init takes the view init holds for the read's location */
+			const bool fromInit = params.initViewIdx.has_value() && isRfPred(t);
+			if (fromInit && !t.dest->isStarting()) {
+				auto initScope = c.kr("{}if (auto *iLab = "
+						      "genmc::dyn_cast_if_present<InitLabel>(g.rf_pred(lab)); "
+						      "iLab)",
+						      printPredSet("lab", t.label.getPreChecks()));
+				c.line("calcRes.update(iLab->locView("
+				       "genmc::cast<ReadLabel>(lab)->getAddr(), {}));",
+				       *params.initViewIdx);
+			}
 			auto transScope =
 				c.kr("{}", printTransLabel(t, "pLab", "lab", params.savedParam));
+			std::optional<CodeBuilder::Scope> notInitScope;
+			if (fromInit)
+				notInitScope.emplace(c.ifStmt("!genmc::isa<InitLabel>(pLab)"));
 			if (!params.visit[t.dest->getId()]) {
 				c.line("worklist.emplace_back({}, pLab);", t.dest->getId());
 				if (params.atTreeE)
@@ -792,11 +890,12 @@ auto GenMCPrinter::printRelation(const std::string &res, const std::string &arg,
 	if (isMutRecRelation(r->getID()))
 		return std::format("if (auto {} = {}; true)", res, arg);
 
-	// FIXME: assumes preds + immediate
+	// A user relation (relation r (genmc_pred: ..., genmc_succ: ...)): GenMC's
+	// hook returns the related labels as a range of pointers
 	assert(getModule().getTheory().hasInfo(*r));
 	const auto &outs = getModule().getTheory().getInfo(*r).genmc;
 	const auto &s = r->isInverse() ? outs.pred : outs.succ;
-	return std::format("if (auto {} = g.{}({}); {})", res, s, arg, res);
+	return std::format("for (auto *{} : g.{}({}))", res, s, arg);
 }
 
 auto GenMCPrinter::printTransLabel(const NFA::Transition &t, const std::string &res,
@@ -937,6 +1036,25 @@ void GenMCPrinter::printConsistency(
 			className);
 		cpp.line("return std::make_unique<{}>(calcPPoRfBefore(lab));",
 			 module.isDepTracking() ? "DepView" : "View");
+	}
+
+	/* The prefix a write's revisits take (rppo, if declared): reads in the
+	 * prefix but not in this one stay revisitable */
+	if (module.getRPPODeclaration() && module.isDepTracking()) {
+		auto rpporfNFA = module.createRPPORF()->toNFA();
+		simplify(rpporfNFA, theory);
+		printPPoRfHpp(rpporfNFA, true, "RPPoRf");
+		printPPoRfCpp(rpporfNFA, true, "RPPoRf");
+	}
+	{
+		auto fun = cpp.function(
+			"std::unique_ptr<VectorClock> {}::calculateRevisitPrefixView(const EventLabel "
+			"*lab) const",
+			className);
+		if (module.getRPPODeclaration() && module.isDepTracking())
+			cpp.line("return std::make_unique<DepView>(calcRPPoRfBefore(lab));");
+		else
+			cpp.line("return calculatePrefixView(lab);");
 	}
 }
 
@@ -1092,7 +1210,11 @@ auto GenMCPrinter::output() -> bool
 				continue;
 			if (let->hasCodeToPrint())
 				c.raw(*let->getCodeToPrint()).raw("\n");
-			c.line("lab->addView({}(lab));", exportedNames[&*let]);
+			/* The slot exists while the view is computed */
+			auto viewScope = c.kr("");
+			c.line("lab->addView({{}});");
+			c.line("lab->setView(std::move({}(lab)), {});", exportedNames[&*let],
+			       getPrintedIdx(&*let));
 		}
 	}
 	{
@@ -1353,6 +1475,9 @@ void GenMCPrinter::printSubset(const SubsetConstraint *subCst, std::string prefi
 		/* Case e <= 0 : we can optimize and return false if any accepting is
 		 * reachable */
 		paramsLHS.atFinal = [](CodeBuilder &c) { c.line("return false;"); };
+		paramsLHS.atFinalPos = [](CodeBuilder &c, const std::string &) {
+			c.line("return false;");
+		};
 	} else if (viewLet != std::ranges::end(lets)) {
 		shouldVisitRHS = false;
 		rhsViewIdx = getPrintedIdx(&**viewLet);
@@ -1366,6 +1491,12 @@ void GenMCPrinter::printSubset(const SubsetConstraint *subCst, std::string prefi
 				c.line("return false;");
 			}
 			c.blank().blank();
+		};
+		paramsLHS.atFinalPos = [counterexample](CodeBuilder &c, const std::string &e) {
+			auto ifContainsScope = c.ifStmt("!v.contains({})", e);
+			if (counterexample)
+				c.line("cexLab = g.getEventLabelIfPresent({});", e);
+			c.line("return false;");
 		};
 	}
 
@@ -1671,6 +1802,7 @@ void GenMCPrinter::printCalculator(const LetStatement *let, std::string prefix, 
 		.status = "visited" + prefix,
 		.extraParams = ", " + paramType + " &calcRes",
 		.savedParam = "calcRes",
+		.initViewIdx = isView ? std::optional<unsigned>(getPrintedIdx(let)) : std::nullopt,
 		.visit = getStateVisitAssignment(nfa),
 	};
 	outputTraversal(nfa, params, TraversalKind::DFS);
@@ -1702,43 +1834,49 @@ void GenMCPrinter::printCalculator(const LetStatement *let, std::string prefix, 
 		c.line("return calcRes;");
 	}
 
-	/* Getter for the saved result. */
-	h.line("auto get{}{}(const EventLabel *lab) const -> const {} & {{ return lab->{}({}); }}",
-	       name, isView ? "View" : "Set", paramType, isView ? "view" : "calculated",
-	       getPrintedIdx(let))
-		.blank();
+	/* Getter for the saved result; views are also addressed by index, and the
+	 * base class provides getHbView() on top of getHbViewIndex() */
+	if (!isView || name != "Hb")
+		h.line("auto get{}{}(const EventLabel *lab) const -> const {} & {{ return "
+		       "lab->{}({}); }}",
+		       name, isView ? "View" : "Set", paramType, isView ? "view" : "calculated",
+		       getPrintedIdx(let));
+	if (isView)
+		h.line("auto get{}ViewIndex() const -> unsigned {{ return {}; }}", name,
+		       getPrintedIdx(let));
+	h.blank();
 }
 
-void GenMCPrinter::printPPoRfHpp(const NFA &nfa, bool deps)
+void GenMCPrinter::printPPoRfHpp(const NFA &nfa, bool deps, const std::string &name)
 {
 	const auto vt = deps ? "DepView" : "View";
 
 	/* visitPPoRfXX for each state */
 	std::for_each(nfa.states_begin(), nfa.states_end(), [&](auto &s) {
-		hppB().line("void visitPPoRf{}(const EventLabel *lab, {} &pporf) const;",
-			    s->getId(), vt);
+		hppB().line("void visit{}{}(const EventLabel *lab, {} &pporf) const;",
+			    name, s->getId(), vt);
 	});
 	hppB().blank();
 
-	/* calcPPoRfBefore for the automaton */
-	hppB().line("{} calcPPoRfBefore(const EventLabel *lab) const;", vt).blank();
+	/* calc<name>Before for the automaton */
+	hppB().line("{} calc{}Before(const EventLabel *lab) const;", vt, name).blank();
 
 	/* status arrays */
 	std::for_each(nfa.states_begin(), nfa.states_end(), [&](auto &s) {
-		hppB().line("mutable std::vector<NodeStatus> visitedPPoRf{};", s->getId());
+		hppB().line("mutable std::vector<NodeStatus> visited{}{};", name, s->getId());
 	});
 	hppB().blank();
 }
 
-void GenMCPrinter::printPPoRfCpp(const NFA &nfa, bool deps)
+void GenMCPrinter::printPPoRfCpp(const NFA &nfa, bool deps, const std::string &name)
 {
 	auto &c = cppB();
 	const auto vt = deps ? "DepView" : "View";
 
 	/* Optimization for non-dep-tracking models */
 	if (!deps) {
-		auto fn = c.function("{} {}::calcPPoRfBefore(const EventLabel *lab) const", vt,
-				     className);
+		auto fn = c.function("{} {}::calc{}Before(const EventLabel *lab) const", vt,
+				     className, name);
 		c.line("[[maybe_unused]] auto &g = *lab->getParent();")
 			.line("View pporf;")
 			.line("pporf.updateIdx(lab->getPos());")
@@ -1760,13 +1898,13 @@ void GenMCPrinter::printPPoRfCpp(const NFA &nfa, bool deps)
 	std::for_each(nfa.states_begin(), nfa.states_end(), [&](auto &s) {
 		{
 			auto fn = c.function(
-				"void {}::visitPPoRf{}(const EventLabel *lab, {} &pporf) const",
-				className, s->getId(), vt);
+				"void {}::visit{}{}(const EventLabel *lab, {} &pporf) const",
+				className, name, s->getId(), vt);
 			c.line("[[maybe_unused]] auto &g = *lab->getParent();")
 				.blank()
-				.line("visitedPPoRf{}[lab->getStamp().get()] = "
+				.line("visited{}{}[lab->getStamp().get()] = "
 				      "NodeStatus::entered;",
-				      s->getId());
+				      name, s->getId());
 			if (s->isStarting()) {
 				c.line("pporf.updateIdx(lab->getPos());");
 			}
@@ -1776,31 +1914,31 @@ void GenMCPrinter::printPPoRfCpp(const NFA &nfa, bool deps)
 				 * indent the body. */
 				auto trans = c.kr("{}", printTransLabel(t, "pLab", "lab", "pporf"));
 				c.line("auto status = "
-				       "visitedPPoRf{}[pLab->getStamp().get()];",
-				       t.dest->getId())
+				       "visited{}{}[pLab->getStamp().get()];",
+				       name, t.dest->getId())
 					.line("if (status == NodeStatus::unseen)")
-					.indented("visitPPoRf{}(pLab, pporf);", t.dest->getId());
+					.indented("visit{}{}(pLab, pporf);", name, t.dest->getId());
 			});
-			c.line("visitedPPoRf{}[lab->getStamp().get()] = NodeStatus::left;",
-			       s->getId());
+			c.line("visited{}{}[lab->getStamp().get()] = NodeStatus::left;",
+			       name, s->getId());
 		}
 	});
 
 	{
-		auto fn = c.function("{} {}::calcPPoRfBefore(const EventLabel *lab) const", vt,
-				     className);
+		auto fn = c.function("{} {}::calc{}Before(const EventLabel *lab) const", vt,
+				     className, name);
 		c.line("[[maybe_unused]] auto &g = *lab->getParent();")
 			.line("{} pporf;", vt)
 			.line("pporf.updateIdx(lab->getPos());");
 		std::for_each(nfa.states_begin(), nfa.states_end(), [&](auto &s) {
-			c.line("visitedPPoRf{}.clear();", s->getId())
-				.line("visitedPPoRf{}.resize(g.getMaxStamp().get() + 1, "
+			c.line("visited{}{}.clear();", name, s->getId())
+				.line("visited{}{}.resize(g.getMaxStamp().get() + 1, "
 				      "NodeStatus::unseen);",
-				      s->getId());
+				      name, s->getId());
 		});
 		c.blank();
 		std::for_each(nfa.accept_begin(), nfa.accept_end(), [&](auto &acc) -> void {
-			c.line("visitPPoRf{}(lab, pporf);", acc->getId());
+			c.line("visit{}{}(lab, pporf);", name, acc->getId());
 		});
 		c.line("return pporf;");
 	}

@@ -67,7 +67,31 @@ export acyclic ar
 // IMM error detection
 // ---------------------------------------------------------------------
 
-let ww_conflict = [W] ; loc-overlap ; [W]
+// Same as RC11's (GenMC 0.19's IMMChecker has these errors as well)
+
 view porf = (po | rf | tc | tj | lin)+
 
-export warning VE_WWRace        unless  ww_conflict <= porf
+let na_conflict =
+	last_na_reads; [W] |
+	last_na_writes; [R | W] |
+	last_at_reads; [NA & W] |
+	last_at_writes; ([NA & R] | [NA & W])
+
+let ww_conflict =
+	last_at_writes; [W & ATOM]
+
+let last_accesses =
+	last_na_reads | last_na_writes | last_at_reads | last_at_writes
+
+// GenMC needs to handle the no-alloc case (access validity)
+
+export error VE_AccessNonMalloc unless  alloc <= hb
+export error VE_DoubleFree      unless  free; [FREE|HPRET] = 0
+
+export error VE_AccessFreed     unless  last_accesses; [FREE] <= hb
+export error VE_AccessFreed     unless  free ; [R | W] = 0
+export error VE_AccessFreed     unless  unprotected ; [HPRET] <= hb
+export error VE_AccessFreed     unless  retire ; [NOTHPPROT] = 0 // FIXME: wrong
+
+export error VE_RaceNotAtomic   unless  na_conflict <= hb
+export warning VE_WWRace        unless  ww_conflict <= porf // hb

@@ -99,6 +99,14 @@ static const std::unordered_map<Relation::BuiltinID, RelationInfo> builtinRelati
 	  .dom = {Predicate::createBuiltin(PB::DEP)},
 	  .codom = {},
 	  .genmc = {"?", "data_preds"}}},
+	/* GenMC -lkmm: control dependencies for the prefix only */
+	{RB::pctrl,
+	 {.name = "pctrl",
+	  .arity = RelArity::UnsuppMany,
+	  .locInfo = RelLocInfo::ChangesLoc,
+	  .dom = {Predicate::createBuiltin(PB::DEP)},
+	  .codom = {},
+	  .genmc = {"?", "pctrl_preds"}}},
 	{RB::si,
 	 {.name = "si",
 	  .arity = RelArity::ManyMany,
@@ -244,14 +252,14 @@ static const std::unordered_map<Relation::BuiltinID, RelationInfo> builtinRelati
 	  .locInfo = RelLocInfo::KeepsLoc,
 	  .dom = {Predicate::createBuiltin(PB::W)},
 	  .codom = {Predicate::createBuiltin(PB::W)},
-	  .genmc = {"?", "?"}}},
+	  .genmc = {"moe_succs", "moe_preds"}}},
 	{RB::moi,
 	 {.name = "moi",
 	  .arity = RelArity::UnsuppMany,
 	  .locInfo = RelLocInfo::KeepsLoc,
 	  .dom = {Predicate::createBuiltin(PB::W)},
 	  .codom = {Predicate::createBuiltin(PB::W)},
-	  .genmc = {"?", "?"}}},
+	  .genmc = {"moi_succs", "moi_preds"}}},
 	{RB::fr_imm,
 	 {.name = "fr-imm",
 	  .arity = RelArity::ManyOne,
@@ -273,14 +281,14 @@ static const std::unordered_map<Relation::BuiltinID, RelationInfo> builtinRelati
 	  .locInfo = RelLocInfo::KeepsLoc,
 	  .dom = {Predicate::createBuiltin(PB::R)},
 	  .codom = {Predicate::createBuiltin(PB::W)},
-	  .genmc = {"?", "?"}}},
+	  .genmc = {"fre_succs", "fre_preds"}}},
 	{RB::fri,
 	 {.name = "fri",
 	  .arity = RelArity::UnsuppMany,
 	  .locInfo = RelLocInfo::KeepsLoc,
 	  .dom = {Predicate::createBuiltin(PB::R)},
 	  .codom = {Predicate::createBuiltin(PB::W)},
-	  .genmc = {"?", "?"}}},
+	  .genmc = {"fri_succs", "fri_preds"}}},
 	{RB::detour,
 	 {.name = "detour",
 	  .arity = RelArity::UnsuppMany,
@@ -342,9 +350,13 @@ static const std::unordered_map<Predicate::BuiltinID, PredicateInfo> builtinPred
 	 {"HPPROT", "genmc::isa<MemAccessLabel>(#) && "
 		    "genmc::dyn_cast<MemAccessLabel>(#)->getAddr().isDynamic() && "
 		    "isHazptrProtected(genmc::dyn_cast<MemAccessLabel>(#))"}},
+	/* Only used as retire;[NOTHPPROT]: asking retire_pos() (a map lookup)
+	 * before isHazptrProtected() (a walk over the thread's prefix) skips the
+	 * walk for locations that were never retired (GenMC fork d8482e4) */
 	{PB::NOTHPPROT,
 	 {"NOTHPPROT", "genmc::isa<MemAccessLabel>(#) && "
 		       "genmc::dyn_cast<MemAccessLabel>(#)->getAddr().isDynamic() && "
+		       "g.retire_pos(#).has_value() && "
 		       "!isHazptrProtected(genmc::dyn_cast<MemAccessLabel>(#))"}},
 
 	{PB::MB, {"MB", "genmc::isa<MethodBeginLabel>(#)"}},
