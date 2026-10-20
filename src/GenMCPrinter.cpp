@@ -106,6 +106,21 @@ static auto splitLocMOAfter(WriteLabel *wLab) -> ExecutionGraph::co_iterator
 			    [&](auto &sLab) { return isHbOptRfBefore(wLab, &sLab); });
 }
 
+/* Whether END is reachable from BEGIN in ADDR's coherence order. It is not
+ * when coherence contradicts hb, which a consistent graph never does, but an
+ * event added before events kept further on in its thread can see before
+ * the graph is checked again, typically because of a kept event the new path
+ * skips (it goes once the thread passes its place): then every position is a
+ * candidate, and GenMC's later checks drop the inconsistent ones */
+static auto isCoRange(ExecutionGraph &g, SAddr addr, ExecutionGraph::co_iterator begin,
+		      ExecutionGraph::co_iterator end) -> bool
+{
+	for (auto it = begin; it != end; ++it)
+		if (it == std::ranges::end(g.co(addr)))
+			return false;
+	return true;
+}
+
 auto #CLASS#::getCoherentStores(ReadLabel *rLab) -> std::vector<EventLabel *>
 {
 	auto &g = *rLab->getParent();
@@ -136,6 +151,12 @@ auto #CLASS#::getCoherentStores(ReadLabel *rLab) -> std::vector<EventLabel *>
 	 * store, or some read that reads from a store.
 	 */
 	auto endIt = (isDepTracking()) ? splitLocMOAfterHb(rLab) : std::ranges::end(g.co(rLab->getAddr()));
+	if (!isCoRange(g, rLab->getAddr(), begIt, endIt)) {
+		stores.clear();
+		stores.push_back(g.getInitLabel());
+		begIt = std::ranges::begin(g.co(rLab->getAddr()));
+		endIt = std::ranges::end(g.co(rLab->getAddr()));
+	}
 	std::transform(begIt, endIt, std::back_inserter(stores), [&](auto &lab){
 		return &lab;
 	});
@@ -264,6 +285,10 @@ auto #CLASS#::getCoherentPlacings(WriteLabel *wLab)
 	/* Otherwise, we calculate the full range and add the store */
 	auto rangeBegin = splitLocMOBefore(wLab->getAddr(), wLab);
 	auto rangeEnd = (isDepTracking()) ? splitLocMOAfter(wLab) : std::ranges::end(g.co(wLab->getAddr()));
+	if (!isCoRange(g, wLab->getAddr(), rangeBegin, rangeEnd)) {
+		rangeBegin = std::ranges::begin(g.co(wLab->getAddr()));
+		rangeEnd = std::ranges::end(g.co(wLab->getAddr()));
+	}
 	auto cos = std::ranges::subrange(rangeBegin, rangeEnd) |
 		   std::views::filter([&](auto &sLab) { return !sLab.isRMW(); }) |
 		   std::views::transform([&](auto &sLab) {
