@@ -35,3 +35,60 @@ assert lkmm-genmc::ppo <= lkmm-genmc::lkppo | po ; [TC | TE] | [TB | TJ] ; po | 
 
 // The prefix a write's revisits take is part of the full one.
 assert lkmm-genmc::rppo <= lkmm-genmc::ppo
+
+// ---------------------------------------------------------------------
+// The error rules
+// ---------------------------------------------------------------------
+
+// The write-write warning, VE_WWRace unless ww_conflict <= hb, compares
+// the last marked writes of the other threads with GenMC's hb view,
+// (po | rf | tc | tj | lin)+. The writes LKMM orders through program order
+// and reads-from are in it, so the rule never flags them: a lock handover
+// (po ; unlock ; rf ; lock ; po, into another thread or back into the
+// same one), smp_store_release()/smp_load_acquire() and the release and
+// acquire RMWs (xchg_release(), xchg_acquire(), ...: the same predicates
+// on an RMW's write and read), a release sequence (cumul-fence), a strong
+// fence before a message, smp_mb__after_unlock_lock() after a handover
+// from another thread, thread creation and join.
+// (Hold since "coherence over a po-only view; GenMC's ppo within po",
+// which checks the rule against hb; the revision before it checked the
+// same rule against a porf view, and they hold against that too. The
+// heuristic that warned about these writes, GenMC #98, counted coherence
+// placings in C++, outside the kat.)
+assert [W] ; lkmm-genmc::po-unlock-lock-po-ext ; [W] <= lkmm-genmc::hb
+assert [W] ; lkmm-genmc::po-unlock-lock-po ; [W] <= lkmm-genmc::hb
+assert [W] ; lkmm-genmc::po-rel ; rf ; lkmm-genmc::acq-po ; [W] <= lkmm-genmc::hb
+assert [W] ; po ; [lkmm-genmc::Rel & EXCL] ; rf ; [lkmm-genmc::Acq & EXCL] ; po ; [W] <= lkmm-genmc::hb
+assert [W] ; lkmm-genmc::cumul-fence ; rfe ; lkmm-genmc::acq-po ; [W] <= lkmm-genmc::hb
+assert [W] ; lkmm-genmc::strong-fence ; rfe ; [ATOM] ; po ; [W] <= lkmm-genmc::hb
+assert [W] ; lkmm-genmc::mb-ext ; [W] <= lkmm-genmc::hb
+assert [W] ; po ; [TC] ; tc ; [TB] ; po ; [W] <= lkmm-genmc::hb
+assert [W] ; po ; [TE] ; tj ; [TJ] ; po ; [W] <= lkmm-genmc::hb
+
+// In general: every chain of LKMM's hb but prop-int orders the writes
+// within the rule's view (lkppo is within po but for mb-ext, a handover).
+assert [W & ATOM] ; ([ATOM] ; (lkmm-genmc::lkppo | lkmm-genmc::thread-po | rfe | tc | tj) ; [ATOM])+ ; [W & ATOM] <= lkmm-genmc::hb
+
+// Beyond the view, and so flagged although LKMM orders them: writes
+// ordered through prop-int (a relation GenMC computes, opaque to Kater,
+// and a path through moe or fre) or pb (which begins with moe or fre);
+// [W & ATOM] ; lkhb+ ; [W & ATOM] <= hb fails on prop-int, and
+// [W & ATOM] ; pb ; [W & ATOM] <= hb on moe. rc11-genmc.kat's rule has
+// the same bound (ww_conflict <= porf). A grace period orders a reader's
+// write in its critical section before an updater's write after
+// synchronize_rcu() (rcu-order, not regular): GenMC decides that by hand
+// (LKMMRcuChecker, GenMC #113).
+
+// The freed-memory rules GenMC hand-writes (LKMMRcuChecker): a free with
+// the last accesses of its block not hb-before it, and an access of a
+// block with a free in the graph that the access is not hb-before, unless
+// RCU orders them. Kater cannot state the second: free ; [R | W] <= hb^-1
+// needs the free's view of the access, and an exported inclusion tests
+// its left end against the view of the new event, the right end; the
+// positional relations (free, alloc, retire, last_*) are printed only at
+// the end of a traversal checked against a view or against 0; `\` and
+// `&` have no NFA conversion (free \ po^-1 cannot be exported); and
+// rcu-order is not regular. What such a rule's premise must exclude, an
+// access po-before the free (a thread re-adding its accesses before a
+// kept free, GenMC #96), is hb-before it:
+assert [R | W] ; po ; [FREE] <= lkmm-genmc::hb
