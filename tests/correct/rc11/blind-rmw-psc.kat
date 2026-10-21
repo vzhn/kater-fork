@@ -1,0 +1,33 @@
+// The blind-RMW reduction's SC-fence condition (GenMC #68, #71): GenMC
+// keeps one coherence order among identical relaxed RMWs whose results
+// the program never uses (U), as long as no SC fence is hb-before any
+// of them: under RC11 their coherence order reaches psc only through
+// such a fence, and a fence hb-after them can only follow them.
+//
+// Kater checks one execution's relations, not two coherence orders
+// against each other, and cannot name the events outside U (`\` has no
+// NFA conversion, and [U] | [NotU] = id is an unsupported assumption),
+// so "psc does not depend on the order within U" is not one inclusion.
+// What it checks are the steps of the argument, on one execution, with
+// the condition as an assumption: a coherence step between two U
+// writes is never psc's own scb step, nor the first step of the eco
+// part of a fence-to-fence psc edge; an eco path that reaches a U write
+// through it reaches the write without it (mo ; mo <= mo, fr ; mo <= fr);
+// and eco visits a write at most once, so an eco path crosses U at one
+// write, entered by mo or fr from an event before U (which precedes
+// every U write, in either order) and left by rf to a read whose
+// hb-successors are its RMW's write's too. tests/wrong/rc11/
+// blind-rmw-psc-fence.kat shows the first two fail without the
+// assumption: an SC fence hb-before a U event lets the order into psc.
+
+include "../../../kat/rc11-genmc.kat"
+
+// The accesses of the blind relaxed RMWs
+predicate U (genmc: "blind")
+disjoint U # SC
+assume [F & SC] ; rc11-genmc::hb ; [U] = 0
+
+assert [SC] ; rc11-genmc::fhb? ; [U] ; mo ; [U] ; rc11-genmc::hbf? ; [SC] = 0
+assert rc11-genmc::FSC ; rc11-genmc::hb ; [U] ; mo ; [U] ; rc11-genmc::eco? ; rc11-genmc::hb ; rc11-genmc::FSC = 0
+assert (mo | fr) ; [U] ; mo ; [U] <= (mo | fr) ; [U]
+assert rc11-genmc::eco <= rf | mo | fr | mo ; rf | fr ; rf
