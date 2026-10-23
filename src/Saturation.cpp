@@ -157,9 +157,14 @@ void saturateLoc(NFA &nfa, const Theory &theory)
 			if (!perloc) {
 				continue;
 			}
+			/* The variant goes the way the relation does, with its checks */
+			auto rloc = theory.getPerLoc(t.label);
+			if (t.label.getRelation()->isInverse())
+				rloc.invert();
 			toRemove.push_back(t);
-			toAdd.push_back(
-				NFA::Transition(TransLabel(theory.getPerLoc(t.label)), t.dest));
+			toAdd.push_back(NFA::Transition(
+				TransLabel(rloc, t.label.getPreChecks(), t.label.getPostChecks()),
+				t.dest));
 		}
 		nfa.removeTransitions(&*s, toRemove.begin(), toRemove.end());
 		nfa.addTransitions(&*s, toAdd.begin(), toAdd.end());
