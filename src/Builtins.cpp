@@ -317,7 +317,7 @@ static auto builtin_rels() { return std::ranges::ref_view(builtinRelations); }
 static const std::unordered_map<Predicate::BuiltinID, PredicateInfo> builtinPredicates = {
 	{PB::NA, {"NA", "#->isNotAtomic()"}},
 	{PB::ATOM, {"ATOM", "!(#->isNotAtomic())"}},
-	{PB::RLX, {"RLX", "#->isRelaxed()"}},
+	{PB::RLX, {"RLX", "#->getOrdering() == MemOrdering::Relaxed"}},
 	{PB::ACQ, {"ACQ", "#->isAtLeastAcquire()"}},
 	{PB::REL, {"REL", "#->isAtLeastRelease()"}},
 	{PB::SC, {"SC", "#->isSC()"}},
@@ -365,9 +365,6 @@ static const std::unordered_map<Predicate::BuiltinID, PredicateInfo> builtinPred
 	{PB::PLK, {"PLK", "genmc::isa<AbstractLockCasReadLabel>(#)"}},
 	{PB::NPLK, {"NPLK", "!(genmc::isa<AbstractLockCasReadLabel>(#))"}},
 
-	{PB::MB, {"MB", "llvm::isa<MethodBeginLabel>(#)"}},
-	{PB::ME, {"ME", "llvm::isa<MethodEndLabel>(#)"}},
-
 	{PB::HEAP,
 	 {"HEAP", "genmc::isa<MemAccessLabel>(#) && "
 		  "genmc::dyn_cast<MemAccessLabel>(#)->getAddr().isDynamic()"}},
@@ -377,7 +374,7 @@ static const std::unordered_map<Predicate::BuiltinID, PredicateInfo> builtinPred
 	       "genmc::dyn_cast<MemAccessLabel>(#)->getAddr().isDurable()"}},
 	{PB::DEP, {"DEP", "#->isDependable()"}},
 	{PB::LOC,
-	 {"LOC", "(genmc::isa<MemAccessLabel(#) || genmc::isa<MallocLabel>(#) || "
+	 {"LOC", "(genmc::isa<MemAccessLabel>(#) || genmc::isa<MallocLabel>(#) || "
 		 "genmc::isa<FreeLabel>(#) || genmc::isa<HpProtectLabel>(#))"}},
 };
 
