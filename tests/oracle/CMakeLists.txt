@@ -11,8 +11,24 @@ add_executable(kater-oracle
   Matrix.cpp
   Search.cpp
   Semantics.cpp
+  Transforms.cpp
   main.cpp
 )
 # ParsingDriver.hpp includes the generated Parser.hpp
 target_include_directories(kater-oracle PRIVATE ${PROJECT_BINARY_DIR}/src)
 target_link_libraries(kater-oracle PRIVATE kater_lib z3::libz3)
+
+# The builtin theory against GenMC's semantics
+add_test(NAME oracle-audit COMMAND kater-oracle audit -n 3)
+# The automaton transformations against their contracts
+add_test(NAME oracle-transforms COMMAND kater-oracle transforms -n 3 --cases 40 --seed 1)
+# Kater proves no assertion of the suite that a small graph refutes
+file(GLOB ORACLE_CORRECT ${PROJECT_SOURCE_DIR}/tests/correct/basic/*.kat
+  ${PROJECT_SOURCE_DIR}/tests/correct/equivalence/*.kat)
+add_test(NAME oracle-check-correct COMMAND kater-oracle check -n 3 ${ORACLE_CORRECT})
+# The soundness regressions are false claims: each has a counterexample
+file(GLOB ORACLE_SOUNDNESS ${PROJECT_SOURCE_DIR}/tests/wrong/soundness/*.kat)
+add_test(NAME oracle-soundness-cases
+  COMMAND kater-oracle check -n 4 --refutable ${ORACLE_SOUNDNESS})
+set_tests_properties(oracle-audit oracle-transforms oracle-check-correct
+  oracle-soundness-cases PROPERTIES LABELS "oracle" TIMEOUT 900)

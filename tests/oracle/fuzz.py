@@ -80,32 +80,40 @@ class Gen:
         return "[" + p + "]"
 
     def leaf(self):
+        """A leaf, and whether it relates events through predicates only"""
         r = self.rng.random()
         if r < 0.65:
             pool = self.relations + self.user_rels * 3
             rel = self.pick(pool)
             if self.chance(0.1):
                 rel = rel + "^-1"
-            return rel
+            return rel, False
         if r < 0.95:
-            return self.pred()
-        return "id"
+            return self.pred(), True
+        return "id", True
 
-    def expr(self, depth):
+    def node(self, depth):
+        """An expression, and whether it accepts a word of predicates only"""
         if depth <= 0 or self.chance(0.25):
             return self.leaf()
         op = self.rng.random()
+        a, pa = self.node(depth - 1)
         if op < 0.40:
-            return "(" + self.expr(depth - 1) + " ; " + self.expr(depth - 1) + ")"
+            b, pb = self.node(depth - 1)
+            return "(" + a + " ; " + b + ")", pa and pb
         if op < 0.60:
-            return "(" + self.expr(depth - 1) + " | " + self.expr(depth - 1) + ")"
+            b, pb = self.node(depth - 1)
+            return "(" + a + " | " + b + ")", pa or pb
         if op < 0.70:
-            return "(" + self.expr(depth - 1) + ")+"
+            return "(" + a + ")+", pa
         if op < 0.78:
-            return "(" + self.expr(depth - 1) + ")*"
+            return "(" + a + ")*", True
         if op < 0.86:
-            return "(" + self.expr(depth - 1) + ")?"
-        return self.pred() + " ; " + "(" + self.expr(depth - 1) + ") ; " + self.pred()
+            return "(" + a + ")?", True
+        return self.pred() + " ; " + "(" + a + ") ; " + self.pred(), pa
+
+    def expr(self, depth):
+        return self.node(depth)[0]
 
     def weaken_token(self, tok):
         """Weakens one token, soundly or not"""
@@ -209,13 +217,11 @@ class Gen:
 
     def case(self):
         lines = self.declarations()
-        lhs = self.expr(self.rng.choice([1, 2, 2, 3]))
-        if "nopredlhs" in self.profile:
-            while not any(is_atom(t) and not t.startswith("[") for t in tokenize(lhs)):
-                lhs = self.expr(self.rng.choice([1, 2, 2, 3]))
+        lhs, pred_word = self.node(self.rng.choice([1, 2, 2, 3]))
         rhs = self.weaken(lhs) if self.chance(0.8) else self.expr(2)
         form = self.rng.random()
-        if form < 0.6:
+        if pred_word and "nopredlhs" in self.profile:
+            form = form * 0.7  # the & id forms drop words of predicates only
             lines.append("assert " + lhs + " <= " + rhs)
         elif form < 0.7:
             lines.append("assert " + lhs + " = " + rhs)
@@ -287,8 +293,8 @@ def main():
     ap.add_argument("--events", type=int, default=4)
     ap.add_argument("--findings", default="fuzz-findings")
     ap.add_argument("--profile", default="",
-                    help="comma-separated extras: deps, comp, total; "
-                    "nopredlhs avoids left-hand sides without relations")
+                    help="comma-separated extras: deps, comp, total; nopredlhs "
+                    "avoids & id over left-hand sides with words of predicates only")
     args = ap.parse_args()
     os.makedirs(args.findings, exist_ok=True)
 

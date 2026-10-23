@@ -145,12 +145,16 @@ void Graph::buildStructure()
 		}
 	}
 
+	/* Two accesses are on the same location if they access the same
+	 * address. Every event is on the same location as itself: that only
+	 * matters for the per-location variants of user relations (the builtin
+	 * ones are irreflexive), and is what Kater's saturateLoc assumes */
 	for (auto i = 0U; i < n_; i++)
 		for (auto j = 0U; j < n_; j++)
 			sameLoc_.set(i, j,
-				     isLocated(i) && isLocated(j) &&
-					     (i == j ? Term::constant(c, true)
-						     : Term(loc_[i] == loc_[j])));
+				     i == j ? Term::constant(c, true)
+					    : isLocated(i) && isLocated(j) &&
+						      Term(loc_[i] == loc_[j]));
 
 	auto distinct = [](unsigned i, unsigned j) { return i != j; };
 	auto forward = [](unsigned i, unsigned j) { return i < j; };
