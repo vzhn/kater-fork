@@ -308,7 +308,7 @@ const char *commonHeaderDeclarations =
 	R"(#ifndef #GUARDNAME#
 #define #GUARDNAME#
 
-#include "genmc/Execution/Consistency/ConsistencyChecker.hpp"
+#include "genmc/Models/ConsistencyChecker.hpp"
 #include "genmc/Execution/EventLabel.hpp"
 #include <cstdint>
 #include <vector>
@@ -945,8 +945,7 @@ void GenMCPrinter::printHeader()
 		.line("#include {}", viewHdr)
 		.line(R"(#include "genmc/Execution/ExecutionGraph.hpp")")
 		.line(R"(#include "genmc/Execution/GraphUtils.hpp")")
-		.line(R"(#include "genmc/Verification/Config.hpp")")
-		.line(R"(#include "genmc/Verification/VerificationError.hpp")")
+		.line(R"(#include "genmc/Support/VerificationError.hpp")")
 		.blank()
 		.line("#include <algorithm>")
 		.blank();
@@ -1466,6 +1465,11 @@ void GenMCPrinter::printSubset(const SubsetConstraint *subCst, std::string prefi
 	/* Can we skip visiting the RHS? If so, change the LHS config*/
 	std::optional<int> rhsViewIdx;
 	auto shouldVisitRHS = true;
+	/* Whether the DFS routines record the accepting states they reach (only
+	 * when they compare the two sides; otherwise they return at the first one
+	 * or compare against a view, and the arrays would cost O(graph) per call
+	 * for nothing) */
+	auto marksAccepting = true;
 	auto lets = getModule().lets();
 	auto viewLet = std::ranges::find_if(lets, [&](auto &let) {
 		return dynamic_cast<const ViewExp *>(let->getSaved()) &&
@@ -1474,12 +1478,20 @@ void GenMCPrinter::printSubset(const SubsetConstraint *subCst, std::string prefi
 	if (subCst->isEmpty()) {
 		/* Case e <= 0 : we can optimize and return false if any accepting is
 		 * reachable */
-		paramsLHS.atFinal = [](CodeBuilder &c) { c.line("return false;"); };
-		paramsLHS.atFinalPos = [](CodeBuilder &c, const std::string &) {
+		marksAccepting = false;
+		paramsLHS.atFinal = [counterexample](CodeBuilder &c) {
+			if (counterexample)
+				c.line("cexLab = lab;");
+			c.line("return false;");
+		};
+		paramsLHS.atFinalPos = [counterexample](CodeBuilder &c, const std::string &e) {
+			if (counterexample)
+				c.line("cexLab = g.getEventLabelIfPresent({});", e);
 			c.line("return false;");
 		};
 	} else if (viewLet != std::ranges::end(lets)) {
 		shouldVisitRHS = false;
+		marksAccepting = false;
 		rhsViewIdx = getPrintedIdx(&**viewLet);
 		/* Case e <= VIEW: return false if any accepting is not in view */
 		paramsLHS.extraParams = ", const View &v";
@@ -1516,9 +1528,10 @@ void GenMCPrinter::printSubset(const SubsetConstraint *subCst, std::string prefi
 	};
 
 	/* Extra arrays used by the DFS routines */
-	hpp.line("mutable std::vector<bool> {}Accepting;", paramsLHS.status);
-	if (shouldVisitRHS) {
-		hpp.line("mutable std::vector<bool> {}Accepting;", paramsRHS.status);
+	if (marksAccepting) {
+		hpp.line("mutable std::vector<bool> {}Accepting;", paramsLHS.status);
+		if (shouldVisitRHS)
+			hpp.line("mutable std::vector<bool> {}Accepting;", paramsRHS.status);
 	}
 
 	/* "visit" function for the automaton (again based on the RHS) */
@@ -1531,15 +1544,18 @@ void GenMCPrinter::printSubset(const SubsetConstraint *subCst, std::string prefi
 		if (shouldVisitRHS) {
 			emitArrayInit(nfaRHS, paramsRHS);
 		}
-		cpp.line("{}Accepting.clear();", paramsLHS.status)
-			.line("{}Accepting.resize(g.getMaxStamp().get() + 1, false);",
-			      paramsLHS.status);
-		if (shouldVisitRHS) {
-			cpp.line("{}Accepting.clear();", paramsRHS.status)
+		if (marksAccepting) {
+			cpp.line("{}Accepting.clear();", paramsLHS.status)
 				.line("{}Accepting.resize(g.getMaxStamp().get() + 1, false);",
-				      paramsRHS.status);
+				      paramsLHS.status);
+			if (shouldVisitRHS) {
+				cpp.line("{}Accepting.clear();", paramsRHS.status)
+					.line("{}Accepting.resize(g.getMaxStamp().get() + 1, "
+					      "false);",
+					      paramsRHS.status);
+			}
+			cpp.blank();
 		}
-		cpp.blank();
 
 		if (!shouldVisitRHS) {
 			if (std::ranges::empty(nfaLHS.accepting()))
@@ -1567,7 +1583,7 @@ void GenMCPrinter::printSubset(const SubsetConstraint *subCst, std::string prefi
 				cpp.indented("return false;").blank();
 			}
 
-			{
+			if (marksAccepting) {
 				auto loopScope =
 					cpp.forLoop("auto i = 0u; i < {}Accepting.size(); i++",
 						    paramsLHS.status);
