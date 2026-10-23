@@ -35,6 +35,11 @@
  *       the claims the Checker proves on the way, and that each definition
  *       the exporter rewrites keeps its meaning.
  *
+ *   kater-oracle certify [-n EVENTS] [-t SECONDS] FILE...
+ *       Has Kater prove FILE's assertions with certificates, checks each
+ *       certificate without searching, and checks the letter inclusions
+ *       they rest on against the semantics.
+ *
  *   kater-oracle explain FILE
  *       Prints the automaton of the left-hand side of each assertion of
  *       FILE through the stages of Kater's inclusion check.
@@ -46,6 +51,7 @@
  */
 
 #include "Audit.hpp"
+#include "Certificate.hpp"
 #include "Export.hpp"
 #include "Search.hpp"
 #include "Transforms.hpp"
@@ -239,6 +245,12 @@ auto main(int argc, char **argv) -> int
 		auto ok = true;
 		for (const auto &f : opts.files)
 			ok &= validateExport(f, opts.search, opts.verbose);
+		return ok ? 0 : 1;
+	}
+	if (cmd == "certify") {
+		auto ok = true;
+		for (const auto &f : opts.files)
+			ok &= certifyFile(f, opts.search, opts.verbose);
 		return ok ? 0 : 1;
 	}
 	if (cmd == "explain") {

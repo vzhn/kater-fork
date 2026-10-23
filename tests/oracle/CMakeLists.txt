@@ -7,6 +7,7 @@ endif()
 
 add_executable(kater-oracle
   Audit.cpp
+  Certificate.cpp
   Export.cpp
   Graph.cpp
   Matrix.cpp
@@ -39,3 +40,8 @@ set_tests_properties(oracle-audit oracle-transforms oracle-check-correct
 file(GLOB ORACLE_GENMC_MODELS ${PROJECT_SOURCE_DIR}/kat/*-genmc.kat)
 add_test(NAME oracle-export COMMAND kater-oracle export -n 3 ${ORACLE_GENMC_MODELS})
 set_tests_properties(oracle-export PROPERTIES LABELS "oracle" TIMEOUT 900)
+
+# Kater's proofs of the suite come with certificates, which check, and the
+# letter inclusions they rest on hold
+add_test(NAME oracle-certify COMMAND kater-oracle certify -n 3 ${ORACLE_CORRECT})
+set_tests_properties(oracle-certify PROPERTIES LABELS "oracle" TIMEOUT 900)
