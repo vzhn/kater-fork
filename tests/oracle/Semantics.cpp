@@ -113,12 +113,38 @@ auto Semantics::eval(const TransLabel &lab) -> Matrix
 	return result;
 }
 
+/* Whether RE refers to a relation of RECS through its inverse */
+static auto refersInverted(const RegExp &re,
+			   const std::ranges::ref_view<const std::vector<Relation>> &recs) -> bool
+{
+	if (const auto *charRE = dynamic_cast<const CharRE *>(&re)) {
+		const auto &rel = charRE->getLabel().getRelation();
+		return rel.has_value() && rel->isInverse() &&
+		       std::ranges::any_of(recs,
+					   [&](auto &r) { return r.getID() == rel->getID(); });
+	}
+	return std::ranges::any_of(re.kids(), [&](auto &k) { return refersInverted(*k, recs); });
+}
+
 auto Semantics::evalMutRec(const MutRecRE &re) -> Matrix
 {
 	auto n = g_->size();
 	auto &c = g_->ctx();
 	auto recs = re.recs();
 	auto k = static_cast<unsigned>(re.getNumKids());
+
+	/* `x^-1` flips the definitions of x in place, so that they refer to
+	 * x^-1: such a definition is the inverse of the one it was flipped from */
+	if (std::ranges::any_of(re.kids(), [&](auto &kid) { return refersInverted(*kid, recs); })) {
+		auto unflipped = re.clone();
+		unflipped->flip();
+		if (const auto *orig = dynamic_cast<const MutRecRE *>(&*unflipped);
+		    orig != nullptr && std::ranges::none_of(orig->kids(), [&](auto &kid) {
+			    return refersInverted(*kid, recs);
+		    }))
+			return evalMutRec(*orig).transpose();
+		throw Unsupported("a recursive definition through both a relation and its inverse");
+	}
 
 	/* Kleene iteration from the empty relations. The definitions are
 	 * left-linear, so a pair is derived through a chain of distinct

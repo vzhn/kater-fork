@@ -175,7 +175,22 @@ class Gen:
                 self.user_preds.append("P1")
         for _ in range(self.rng.choice([0, 0, 1, 1, 2])):
             lines.append("assume " + self.assumption())
+        if "rec" in self.profile and self.chance(0.5):
+            lines += self.recursion()
         return lines
+
+    def recursion(self):
+        """A left-linear recursive definition, then usable as a relation"""
+        names = ["x%d" % len(self.user_rels), "y%d" % len(self.user_rels)]
+        mutual = self.chance(0.3)
+        defs = [names[0] + " = " + self.expr(1) + " | " + names[0] + " ; " + self.expr(1)]
+        if mutual:
+            defs[0] += " | " + names[1] + " ; " + self.expr(1)
+            defs.append(names[1] + " = " + self.expr(1) + " | " + names[0] + " ; " + self.expr(1))
+        self.user_rels.append(names[0])
+        if mutual:
+            self.user_rels.append(names[1])
+        return ["let rec " + " and ".join(defs)]
 
     def assumption(self):
         u = self.pick(self.user_rels) if self.user_rels else None
@@ -308,7 +323,7 @@ def main():
     ap.add_argument("--findings", default="fuzz-findings")
     ap.add_argument("--profile", default="",
                     help="comma-separated extras: deps, comp, total, shapes (odd "
-                    "assumption shapes); nopredlhs "
+                    "assumption shapes), rec (let rec definitions); nopredlhs "
                     "avoids & id over left-hand sides with words of predicates only")
     args = ap.parse_args()
     os.makedirs(args.findings, exist_ok=True)

@@ -52,6 +52,15 @@ public:
 	{
 		if (depth == 0 || chance(25))
 			return CharRE::create(label());
+		/* x = A | x;B, through the NFA construction of recursive definitions */
+		if (chance(8)) {
+			auto x = Relation::createUser();
+			std::vector<std::unique_ptr<RegExp>> defs;
+			defs.push_back(AltRE::createOpt(
+				expr(depth - 1),
+				SeqRE::createOpt(CharRE::create(TransLabel(x)), expr(depth - 1))));
+			return MutRecRE::create(x, std::vector<Relation>{x}, std::move(defs));
+		}
 		auto op = pick(100);
 		if (op < 40)
 			return SeqRE::createOpt(expr(depth - 1), expr(depth - 1));
@@ -149,6 +158,23 @@ struct Given {
 /* A hypothesis about GIVEN, as a formula */
 using GivenQuery = std::function<Term(Graph &, Semantics &, const Given &)>;
 
+/* Splits each state reached by both predicates and relations in two, as
+ * removeConsecutivePredicates does */
+void splitMixedIncoming(NFA &nfa)
+{
+	std::vector<NFA::State *> mixed;
+	for (auto &s : nfa.states()) {
+		auto preds = std::ranges::any_of(s->ins(),
+						 [](auto &t) { return t.label.isPredicate(); });
+		auto rels = std::ranges::any_of(s->ins(),
+						[](auto &t) { return !t.label.isPredicate(); });
+		if (preds && rels)
+			mixed.push_back(&*s);
+	}
+	for (auto *s : mixed)
+		nfa.splitState(s, [](auto &t) { return t.label.isPredicate(); });
+}
+
 struct Transform {
 	std::string name;
 	bool normalizeFirst; /* the pass assumes a normalized automaton */
@@ -188,8 +214,13 @@ auto transforms() -> std::vector<Transform>
 		 [](NFA &n, const Theory &t, const Given &) { compactEdges(n, t); }},
 		{"breakToParts", false, C::Equivalent,
 		 [](NFA &n, const Theory &, const Given &) { breakToParts(n); }},
+		/* Pre: no state is reached by both a predicate and a relation, which
+		 * removeConsecutivePredicates establishes before it calls the pass */
 		{"addTransitivePredicateEdges", false, C::Equivalent,
-		 [](NFA &n, const Theory &t, const Given &) { addTransitivePredicateEdges(n, t); }},
+		 [](NFA &n, const Theory &t, const Given &) {
+			 splitMixedIncoming(n);
+			 addTransitivePredicateEdges(n, t);
+		 }},
 		{"simplify", false, C::Equivalent,
 		 [](NFA &n, const Theory &t, const Given &) { simplify(n, t); }},
 		{"saturateDomains", false, C::Equivalent,
