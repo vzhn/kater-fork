@@ -350,11 +350,12 @@ cmake --build Release -j$(nproc)
           <tr><td><code>audit</code></td><td>Every fact the Theory states about the builtins, against GenMC's meaning</td></tr>
           <tr><td><code>transforms</code></td><td>Each automaton pass of the decision procedure against its contract</td></tr>
           <tr><td><code>export</code></td><td>The claims an export relies on, and that its rewrites keep their meaning</td></tr>
+          <tr><td><code>certify</code></td><td>Kater's proofs, from certificates it emits, without searching</td></tr>
           <tr><td><code>fuzz.py</code></td><td>Random assertions and assumptions, Kater against the oracle</td></tr>
         </tbody>
       </table>
     </div>
-    <p class="col">It found six ways in which Kater proved false claims, and four crashes or code-generation errors, all fixed with regression tests; among them <code>ctrl &lt;= po-loc</code> in the theory, compilation schemes saturated as an empty set, and words dropped by the <code>&amp; id</code> passes. <code>doc/verification.md</code> has the model, the contracts and the findings; <code>ctest -L oracle</code> runs the checks.</p>
+    <p class="col">It found seven ways in which Kater proved false claims, a false fact its normal forms happened to mask, and four crashes or code-generation errors, all fixed with regression tests; among them <code>ctrl &lt;= po-loc</code> in the theory, compilation schemes saturated as an empty set, and words dropped by the <code>&amp; id</code> passes. <code>doc/verification.md</code> has the model, the contracts and the findings; <code>ctest -L oracle</code> runs the checks.</p>
   </section>
 
   <footer>
