@@ -1,0 +1,4 @@
+// A predicate relates events to themselves: its & id is folded away, and
+// its words are cycles of length zero, which rotate
+assert [SC] & id <= rot [SC]
+assert [R;ACQ] & id <= rot ([R] | po)
