@@ -75,8 +75,9 @@ Conventions:
 - `A & id <= B` means `(A & id) ⊆ B`.
 - `A & id <= rot B` means "if A has a cycle, so does B" (a necessary
   consequence of the rotation claim; the oracle cannot see paths).
-- `rot` without `& id` has no meaning (Kater rejects it), and `total r` none
-  either (see [Open issues](#open-issues)).
+- `rot` without `& id` has no meaning: Kater rejects it unless the left-hand
+  side relates events only to themselves (a predicate), whose pairs are all
+  cycles. `total r` has none either (see [Open issues](#open-issues)).
 - `let rec` is a least fixpoint, computed by Kleene iteration.
 - An automaton denotes the pairs (a, b) such that an accepting path reads a,
   ..., b; the oracle computes it as the least fixpoint of reachability over

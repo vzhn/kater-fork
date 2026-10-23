@@ -319,13 +319,14 @@ def main():
         for fut in as_completed(futs):
             seed, verdict, text, report = fut.result()
             counts[verdict] = counts.get(verdict, 0) + 1
-            if verdict in ("UNSOUND", "kater-error"):
+            if verdict in ("UNSOUND", "kater-error", "kater-timeout", "unsupported"):
                 base = os.path.join(args.findings, "%s-%d" % (verdict.lower(), seed))
                 with open(base + ".kat", "w") as f:
                     f.write(text)
                 with open(base + ".txt", "w") as f:
                     f.write(report)
-                print("%s seed=%d\n%s%s" % (verdict, seed, text, report), flush=True)
+                if verdict in ("UNSOUND", "kater-error"):
+                    print("%s seed=%d\n%s%s" % (verdict, seed, text, report), flush=True)
     print("summary:", ", ".join("%s=%d" % kv for kv in sorted(counts.items())), flush=True)
     return 1 if counts.get("UNSOUND") else 0
 

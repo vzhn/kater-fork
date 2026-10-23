@@ -238,12 +238,10 @@ auto Semantics::holdsSubset(const SubsetConstraint &c) -> Term
 	auto &ctx = g_->ctx();
 
 	/* "A & id <= rot B": a cycle of A is a rotation of a cycle of B, so
-	 * B has a cycle whenever A has one */
-	if (c.rotated()) {
-		if (!c.sameEnds())
-			throw Unsupported("rot without & id");
+	 * B has a cycle whenever A has one. Without & id, Kater only accepts an
+	 * A within id, whose pairs are all cycles */
+	if (c.rotated())
 		return implies(lhs.anyReflexive(), rhs.anyReflexive());
-	}
 	if (c.sameEnds()) {
 		std::vector<Term> each;
 		for (auto e = 0U; e < n; e++)
