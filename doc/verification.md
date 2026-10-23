@@ -113,6 +113,13 @@ every claim the Checker proves on the way (recorded with
 `Checker::setObserver`), and that every definition the exporter rewrites keeps
 its meaning.
 
+    kater-oracle certify [-n EVENTS] FILE...
+
+Has Kater prove FILE's assertions with certificates
+(`Checker::setCertificateSink`), checks each certificate without searching
+(below), and checks every letter inclusion the certificates rest on against
+the semantics.
+
     kater-oracle explain FILE...
 
 The left-hand automaton of each assertion through the stages of the inclusion
@@ -129,9 +136,9 @@ assumption shapes (`shapes`) and `let rec` definitions (`rec`). Findings are kep
 as `.kat` files.
 
 The ctests labeled `oracle` (built when Z3 is found) run the audit, the
-transformation contracts, the correct suite against counterexamples, the
-soundness regressions with `--refutable`, and the export check of every
-`kat/*-genmc.kat` model:
+transformation contracts, the correct suite against counterexamples and with
+certificates, the soundness regressions with `--refutable`, and the export
+check of every `kat/*-genmc.kat` model:
 
     ctest -L oracle
 
@@ -155,9 +162,32 @@ contract, on every graph satisfying the hypotheses H:
 | `Theory::isIncludedIn`, `composes` | true of every graph (the audit) |
 | letter-wise matching | a matched word's relation is within the matching word's |
 
-`kater-oracle transforms` tests the first four rows directly. The saturations
-of the right-hand side are tested end to end, by the fuzzer, since they need
-hypotheses.
+`kater-oracle transforms` tests these rows directly: the right-hand-side
+saturations under their hypotheses (`[[A]] = 0` for `saturateEmpty`,
+`[[A]] <= id`, `r;r <= r`, `[[A]] <= r`, `[[A]] <= [[w]]`), the others
+unconditionally.
+
+### Certificates
+
+When the final check succeeds, `Checker` can hand out a certificate: the two
+automata, the simulation it used on the left one, the pairs (left state, set
+of right states) it explored, and the letter inclusions the theory answered.
+`kater-oracle certify` checks, without searching, that
+
+1. the simulation is reflexive, transitive, and a simulation: a simulator
+   accepts where the simulated state does, and follows each of its steps;
+2. a pair covers each starting state: some pair (s, Q) has s simulating the
+   start and Q within the right automaton's starting states;
+3. each pair whose left state accepts has an accepting right state;
+4. each step p --a--> p' out of a pair (p, P) lands on a pair the simulation
+   subsumes: some (s, Q) with s simulating p' and Q within the states P
+   reaches by the letters a is included in.
+
+By induction over a word of the left automaton, a pair subsumes its run at
+every step, so (3) makes the word accepted by the right automaton letter by
+letter. Together with the letter inclusions, which the oracle checks, the
+certificate proves the inclusion between the two automata. What it leaves to
+trust is how those automata came from the expressions: the contracts above.
 
 ## Findings
 
@@ -241,8 +271,15 @@ refutes each (`ctest -L oracle`).
     predicates; until then it made compilation schemes skip the case of a
     fence. Found by reading the code; a unit test covers it.
 
-Items 1–4, 7, 8 and 11 made Kater prove false claims; the others crashed it,
-read memory it should not, or produced code GenMC rejects. Under the sanitizers the
+12. **A predicate letter was within relation letters** ("Theory: a predicate
+    letter is not within a relation letter"): `isIncludedIn` held `[R] <= po`,
+    since it compared only the checks when the first letter had no relation.
+    The alternation of predicate and relation letters in normal forms kept the
+    inclusion check from using it. Found by checking the letter inclusions the
+    certificates record.
+
+Items 1–4, 7, 8 and 11 made Kater prove false claims, and 12 could have; the
+others crashed it, read memory it should not, or produced code GenMC rejects. Under the sanitizers the
 whole suite, the unit tests, 4000 fuzzed files and the export of every
 `kat/*-genmc.kat` model now run without a report, and the exported checkers are
 the same as without them.
@@ -287,13 +324,12 @@ After the fixes:
 
 ## Next steps
 
-1. **Certificates.** Kater can emit, for each proved assertion, the automata
-   it compared and the simulation relation `isDFASubLanguageOfNFA` built (the
-   antichain is an inductive invariant: it contains the initial pair, is
-   closed under the left automaton's transitions, and matches its accepting
-   states). Checking such a certificate is a pass over the relation, with no
-   search; together with the contracts above, which are proved once, it makes
-   the C++ untrusted.
+1. **Certificates.** Kater emits certificates of its final step, and
+   `kater-oracle certify` checks them (see [Certificates](#certificates)).
+   What remains is a checker whose correctness is itself proved, and
+   certificates for the steps before: the passes, which could either be
+   proved once from their contracts or emit evidence of their own (the
+   saturations, for instance, which paths they added for which hypothesis).
 2. **Formalization.** The model above is the specification: graphs and their
    axioms, the meaning of the builtins, of expressions and of automata. The
    contracts of the passes and the audit's facts are the lemmas. The oracle's
