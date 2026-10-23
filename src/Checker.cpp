@@ -427,8 +427,13 @@ void expandAssumption(NFA &rhs, const AssumeStatement *assm, const KatModule &mo
 		return;
 	}
 	if (const auto *tc = dynamic_cast<const TotalityConstraint *>(cst)) {
-		saturateTotal(rhs,
-			      *dynamic_cast<const CharRE *>(tc->getRE())->getLabel().getRelation());
+		/* Only a relation of its own can be total */
+		const auto *charRE = dynamic_cast<const CharRE *>(tc->getRE());
+		if (charRE == nullptr || !charRE->getLabel().isRelation()) {
+			warnUnsupportedAssumption(assm, module.getTheory());
+			return;
+		}
+		saturateTotal(rhs, *charRE->getLabel().getRelation());
 		return;
 	}
 	if (const auto *ec = dynamic_cast<const SubsetConstraint *>(cst)) {
