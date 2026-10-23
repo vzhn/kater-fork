@@ -348,15 +348,14 @@ static auto expandSubsetAssumption(NFA &rhs, const SubsetConstraint *assm, const
 
 	/* Transform `A ; A <= A` to `transitive A` */
 	auto *seqRE = dynamic_cast<const SeqRE *>(lRE);
-	if (seqRE && *rRE == *seqRE->getKid(0) && *rRE == *seqRE->getKid(1) &&
-	    dynamic_cast<const CharRE *>(rRE)) {
+	if (seqRE && *rRE == *seqRE->getKid(0) && *rRE == *seqRE->getKid(1) && rRE->isRelation()) {
 		auto rel = *dynamic_cast<const CharRE *>(rRE)->getLabel().getRelation();
 		saturateTransitive(rhs, rel);
 		return true;
 	}
 	/* Transform `A+ <= A` to `transitive A` */
 	auto *plusRE = dynamic_cast<const PlusRE *>(&*lRE);
-	if (plusRE && *rRE == *plusRE->getKid(0) && dynamic_cast<const CharRE *>(rRE)) {
+	if (plusRE && *rRE == *plusRE->getKid(0) && rRE->isRelation()) {
 		auto rel = *dynamic_cast<const CharRE *>(rRE)->getLabel().getRelation();
 		saturateTransitive(rhs, rel);
 		return true;
