@@ -78,7 +78,8 @@ Conventions:
 - `rot` without `& id` has no meaning: Kater rejects it unless the left-hand
   side relates events only to themselves (a predicate), whose pairs are all
   cycles. `total r` has none either (see [Open issues](#open-issues)).
-- `let rec` is a least fixpoint, computed by Kleene iteration.
+- `let rec` is a least fixpoint, computed by Kleene iteration; the inverse of
+  a recursive relation is the inverse of that fixpoint.
 - An automaton denotes the pairs (a, b) such that an accepting path reads a,
   ..., b; the oracle computes it as the least fixpoint of reachability over
   (state, event) pairs.
@@ -123,7 +124,8 @@ Random files with one assertion and a few assumptions; the right-hand side
 is a random weakening of the left-hand side, mixing sound steps (`rfe` to
 `rf`, adding alternatives) with unsound ones (`po` to `po-loc`, `ATOM` to
 `ACQ`). Every assertion Kater proves goes to `kater-oracle check`. Profiles
-add compilation schemes (`comp`) and dependencies (`deps`). Findings are kept
+add compilation schemes (`comp`), dependencies (`deps`), `total`, odd
+assumption shapes (`shapes`) and `let rec` definitions (`rec`). Findings are kept
 as `.kat` files.
 
 The ctests labeled `oracle` (built when Z3 is found) run the audit, the
@@ -231,8 +233,16 @@ refutes each (`ctest -L oracle`).
     `&*unless_` for exports without an `unless` clause. It happened to yield
     `nullptr`; under `_GLIBCXX_ASSERTIONS` every export of every model aborted.
 
-Items 1–4, 7 and 8 made Kater prove false claims; the others crashed it, read
-memory it should not, or produced code GenMC rejects. Under the sanitizers the
+11. **The inclusion check split a letter into one case twice** ("Checker:
+    split a letter into both of its cases"). When the right-hand side tests a
+    negated predicate `~p`, each letter is checked with `~p` and with `p`; the
+    second case merged `~p` again, so the case of `p` was never checked.
+    Dormant since the fix of item 2, which removed the only source of negated
+    predicates; until then it made compilation schemes skip the case of a
+    fence. Found by reading the code; a unit test covers it.
+
+Items 1–4, 7, 8 and 11 made Kater prove false claims; the others crashed it,
+read memory it should not, or produced code GenMC rejects. Under the sanitizers the
 whole suite, the unit tests, 4000 fuzzed files and the export of every
 `kat/*-genmc.kat` model now run without a report, and the exported checkers are
 the same as without them.
@@ -263,6 +273,12 @@ After the fixes:
   with up to 5 events either; two of them state assumptions Kater ignores
   (`po?;[R] <= [F];po;[R]` even rules out reads), the others need larger
   graphs.
+- **Inverses of recursive relations.** `x^-1` for a `let rec x` flips the
+  definitions in place, and Kater's automaton construction does not recognize
+  the flipped self-reference `x^-1` as the recursion: it treats it as an
+  unknown relation. That is sound (what holds for every relation in its place
+  holds for `x^-1`) but incomplete: Kater cannot prove that the inverse of
+  `let rec x = po | x;rf` is within `(po^-1 | rf^-1)+`.
 - **Performance.** A few small random assertions take Kater over 30 seconds.
 - **Not checked by the oracle**: `isPPOIntersectionInPPO`, which the exporter
   uses to prune acyclicity checks (it is not a constraint the observer sees);
