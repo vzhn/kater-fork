@@ -7,6 +7,7 @@ endif()
 
 add_executable(kater-oracle
   Audit.cpp
+  Export.cpp
   Graph.cpp
   Matrix.cpp
   Search.cpp
@@ -32,3 +33,9 @@ add_test(NAME oracle-soundness-cases
   COMMAND kater-oracle check -n 4 --refutable ${ORACLE_SOUNDNESS})
 set_tests_properties(oracle-audit oracle-transforms oracle-check-correct
   oracle-soundness-cases PROPERTIES LABELS "oracle" TIMEOUT 900)
+
+# What the export of each GenMC model relies on: the Checker's claims, and
+# that the rewritten definitions keep their meaning
+file(GLOB ORACLE_GENMC_MODELS ${PROJECT_SOURCE_DIR}/kat/*-genmc.kat)
+add_test(NAME oracle-export COMMAND kater-oracle export -n 3 ${ORACLE_GENMC_MODELS})
+set_tests_properties(oracle-export PROPERTIES LABELS "oracle" TIMEOUT 900)

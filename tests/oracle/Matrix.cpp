@@ -159,4 +159,15 @@ auto Matrix::includedIn(const Matrix &other) const -> Term
 	return allOf(ctx(), each);
 }
 
+auto Matrix::differsFrom(const Matrix &other) const -> Term
+{
+	assert(size() == other.size());
+	std::vector<Term> cells;
+	for (auto i = 0U; i < n_; i++)
+		for (auto j = 0U; j < n_; j++)
+			cells.push_back(((*this)(i, j) && !other(i, j)) ||
+					(!(*this)(i, j) && other(i, j)));
+	return anyOf(ctx(), cells);
+}
+
 } // namespace oracle

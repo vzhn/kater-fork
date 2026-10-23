@@ -18,6 +18,7 @@
 
 #include "Search.hpp"
 
+#include <algorithm>
 #include <cassert>
 #include <sstream>
 
@@ -35,6 +36,26 @@ static void minimize(z3::solver &solver, const Graph &g)
 	}
 	[[maybe_unused]] auto res = solver.check();
 	assert(res == z3::sat);
+}
+
+auto Hypotheses::operator()(Graph & /*g*/, Semantics &sem) const -> Term
+{
+	auto t = sem.declarationAxioms(disjoint);
+	for (const auto &a : assumptions)
+		t = t && sem.holds(*a);
+	return t;
+}
+
+auto takeHypotheses(const KatModule &module) -> Hypotheses
+{
+	Hypotheses h;
+	for (const auto &assm : module.getAssumptions())
+		if (assm->getDbgInfo().has_value())
+			h.assumptions.push_back(assm->getConstraint()->clone());
+	for (const auto &set : module.getTheory().disjointPredicateSets())
+		if (std::ranges::any_of(set, [](auto id) { return id < 0; }))
+			h.disjoint.insert(set);
+	return h;
 }
 
 auto search(const KatModule &module, const Query &hypotheses, const Query &violation,

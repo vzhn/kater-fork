@@ -154,21 +154,11 @@ auto transforms() -> std::vector<Transform>
 	};
 }
 
-/* (a & !b) | (!a & b), cell by cell */
-auto differ(const Matrix &a, const Matrix &b) -> Term
-{
-	std::vector<Term> cells;
-	for (auto i = 0U; i < a.size(); i++)
-		for (auto j = 0U; j < a.size(); j++)
-			cells.push_back((a(i, j) && !b(i, j)) || (!a(i, j) && b(i, j)));
-	return anyOf(a.ctx(), cells);
-}
-
 auto violation(Contract c, const Matrix &before, const Matrix &after) -> Term
 {
 	switch (c) {
 	case Contract::Equivalent:
-		return differ(before, after);
+		return before.differsFrom(after);
 	case Contract::KeepsCycles: {
 		std::vector<Term> lost;
 		for (auto e = 0U; e < before.size(); e++)
@@ -214,7 +204,7 @@ auto testTransforms(const TransformOptions &opts) -> bool
 			auto s = search(
 				*module, noHypotheses,
 				[&](Graph & /*g*/, Semantics &sem) {
-					return differ(sem.eval(*re), sem.eval(nfa));
+					return sem.eval(*re).differsFrom(sem.eval(nfa));
 				},
 				opts.search);
 			if (s.outcome == Search::Outcome::Counterexample) {

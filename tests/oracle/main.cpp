@@ -30,6 +30,11 @@
  *       Checks every fact Kater's Theory states about the builtin relations
  *       and predicates against their meaning in GenMC.
  *
+ *   kater-oracle export [-n EVENTS] [-t SECONDS] FILE...
+ *       Exports FILE as GenMC code and checks what the export relies on:
+ *       the claims the Checker proves on the way, and that each definition
+ *       the exporter rewrites keeps its meaning.
+ *
  *   kater-oracle explain FILE
  *       Prints the automaton of the left-hand side of each assertion of
  *       FILE through the stages of Kater's inclusion check.
@@ -41,6 +46,7 @@
  */
 
 #include "Audit.hpp"
+#include "Export.hpp"
 #include "Search.hpp"
 #include "Transforms.hpp"
 
@@ -120,29 +126,6 @@ auto parseOptions(int argc, char **argv, int first) -> Options
 	return opts;
 }
 
-/* The hypotheses of a module: its user assumptions and disjointness declarations */
-struct Hypotheses {
-	std::vector<std::unique_ptr<Constraint>> assumptions;
-	VSet<VSet<Predicate::ID>> disjoint;
-};
-
-/*
- * Kater folds some assumptions into its theory, and drops them, before it
- * checks anything: the hypotheses have to be taken before that. Built-in
- * assumptions are not hypotheses but claims about GenMC; audit checks them.
- */
-auto takeHypotheses(const KatModule &module) -> Hypotheses
-{
-	Hypotheses h;
-	for (const auto &assm : module.getAssumptions())
-		if (assm->getDbgInfo().has_value())
-			h.assumptions.push_back(assm->getConstraint()->clone());
-	for (const auto &set : module.getTheory().disjointPredicateSets())
-		if (std::ranges::any_of(set, [](auto id) { return id < 0; }))
-			h.disjoint.insert(set);
-	return h;
-}
-
 auto describe(const Search &s) -> std::string
 {
 	switch (s.outcome) {
@@ -176,12 +159,7 @@ auto checkFile(const std::string &file, const Options &opts) -> bool
 	Checker checker(*module, {.parallel = false});
 
 	auto sound = true;
-	auto hypotheses = [&](Graph &g, Semantics &sem) -> Term {
-		auto t = sem.declarationAxioms(hyps.disjoint);
-		for (const auto &a : hyps.assumptions)
-			t = t && sem.holds(*a);
-		return t;
-	};
+	auto hypotheses = [&](Graph &g, Semantics &sem) { return hyps(g, sem); };
 
 	auto i = 0U;
 	for (const auto &assrt : module->asserts()) {
@@ -257,6 +235,12 @@ auto main(int argc, char **argv) -> int
 	}
 	if (cmd == "audit")
 		return audit(opts.search, opts.verbose) ? 0 : 1;
+	if (cmd == "export") {
+		auto ok = true;
+		for (const auto &f : opts.files)
+			ok &= validateExport(f, opts.search, opts.verbose);
+		return ok ? 0 : 1;
+	}
 	if (cmd == "explain") {
 		auto ok = true;
 		for (const auto &f : opts.files)

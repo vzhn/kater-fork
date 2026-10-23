@@ -151,6 +151,9 @@ public:
 	/* Whether every pair of this is a pair of OTHER */
 	[[nodiscard]] auto includedIn(const Matrix &other) const -> Term;
 
+	/* Whether some pair is in exactly one of this and OTHER */
+	[[nodiscard]] auto differsFrom(const Matrix &other) const -> Term;
+
 private:
 	z3::context *ctx_;
 	unsigned n_;

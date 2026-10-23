@@ -23,7 +23,9 @@
 #include "Semantics.hpp"
 
 #include <functional>
+#include <memory>
 #include <string>
+#include <vector>
 
 namespace oracle {
 
@@ -43,6 +45,23 @@ struct Search {
 
 /* A formula over a graph and the semantics of the module on it */
 using Query = std::function<Term(Graph &, Semantics &)>;
+
+/*
+ * The hypotheses of a module: its user assumptions and disjointness
+ * declarations. Kater folds some assumptions into its theory, and drops
+ * them, before it checks anything, so they have to be taken before that.
+ * The built-in assumptions are not hypotheses but claims about GenMC,
+ * which `audit` checks.
+ */
+struct Hypotheses {
+	std::vector<std::unique_ptr<Constraint>> assumptions;
+	VSet<VSet<Predicate::ID>> disjoint;
+
+	/* That they all hold in the graph */
+	auto operator()(Graph &g, Semantics &sem) const -> Term;
+};
+
+auto takeHypotheses(const KatModule &module) -> Hypotheses;
 
 struct SearchOptions {
 	unsigned minEvents = 1;
