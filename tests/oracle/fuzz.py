@@ -186,6 +186,8 @@ class Gen:
             kinds.append("comp")
         if "total" in self.profile and u:
             kinds.append("total")
+        if "shapes" in self.profile:
+            kinds += ["trans-any", "plus-any", "total-any", "below-pred", "cycles"]
         k = self.pick(kinds)
         if k == "empty":
             return self.expr(2) + " <= 0"
@@ -213,6 +215,18 @@ class Gen:
             return a + " ; po ; " + b + " <= " + a + " ; po ; " + c + " ; po ; " + b
         if k == "total":
             return "total " + u
+        if k == "trans-any":
+            x = self.leaf()[0]
+            return x + " ; " + x + " <= " + x
+        if k == "plus-any":
+            x = self.leaf()[0]
+            return x + "+ <= " + x
+        if k == "total-any":
+            return "total " + self.expr(1)
+        if k == "below-pred":
+            return self.expr(2) + " <= " + self.pred()
+        if k == "cycles":
+            return self.expr(2) + " & id <= " + self.expr(2)
         raise AssertionError(k)
 
     def case(self):
@@ -293,7 +307,8 @@ def main():
     ap.add_argument("--events", type=int, default=4)
     ap.add_argument("--findings", default="fuzz-findings")
     ap.add_argument("--profile", default="",
-                    help="comma-separated extras: deps, comp, total; nopredlhs "
+                    help="comma-separated extras: deps, comp, total, shapes (odd "
+                    "assumption shapes); nopredlhs "
                     "avoids & id over left-hand sides with words of predicates only")
     args = ap.parse_args()
     os.makedirs(args.findings, exist_ok=True)

@@ -64,6 +64,30 @@ public:
 		return QMarkRE::createOpt(expr(depth - 1));
 	}
 
+	/* A builtin relation, possibly inverted */
+	auto relation() -> Relation
+	{
+		static const std::vector<RB> pool = {
+			RB::po,	 RB::po_loc, RB::rf,  RB::rfe, RB::rfi, RB::mo,	   RB::moe,
+			RB::moi, RB::fr,     RB::fre, RB::fri, RB::rmw, RB::detour};
+		auto r = Relation::createBuiltin(pool[pick(pool.size())]);
+		if (chance(10))
+			r.invert();
+		return r;
+	}
+
+	/* A word of alternating predicate checks and bare relations */
+	auto word() -> std::vector<TransLabel>
+	{
+		std::vector<TransLabel> w;
+		w.emplace_back(std::nullopt, predicates());
+		for (auto k = 1 + pick(2); k > 0; k--) {
+			w.emplace_back(relation());
+			w.emplace_back(std::nullopt, predicates());
+		}
+		return w;
+	}
+
 private:
 	auto pick(unsigned n) -> unsigned
 	{
@@ -111,46 +135,113 @@ enum class Contract {
 	Equivalent,   /* [[B]] = [[A]] */
 	KeepsCycles,  /* [[B]] & id >= [[A]] & id */
 	AddsNoCycles, /* B has a cycle only if A has one */
+	Weaker,	      /* [[B]] <= [[A]], under the transformation's hypothesis */
 };
+
+/* What a saturation of a right-hand side is given: a hypothesis about an
+ * expression, a relation, or a word */
+struct Given {
+	std::unique_ptr<RegExp> expr;
+	Relation rel;
+	std::vector<TransLabel> word;
+};
+
+/* A hypothesis about GIVEN, as a formula */
+using GivenQuery = std::function<Term(Graph &, Semantics &, const Given &)>;
 
 struct Transform {
 	std::string name;
 	bool normalizeFirst; /* the pass assumes a normalized automaton */
 	Contract contract;
-	std::function<void(NFA &, const Theory &)> apply;
+	std::function<void(NFA &, const Theory &, const Given &)> apply;
+	GivenQuery hypothesis = nullptr;
 };
+
+/* The automaton of an expression, normalized as the decision procedure does */
+auto normalized(const RegExp &re, const Theory &theory) -> NFA
+{
+	auto nfa = re.toNFA();
+	normalize(nfa, theory);
+	return nfa;
+}
+
+/* The relation a word denotes */
+auto evalWord(Semantics &sem, Graph &g, const std::vector<TransLabel> &word) -> Matrix
+{
+	auto m = Matrix::identity(g.ctx(), g.size());
+	for (const auto &l : word)
+		m = m.compose(sem.eval(l));
+	return m;
+}
 
 auto transforms() -> std::vector<Transform>
 {
 	using C = Contract;
 	return {
 		{"removeDeadStates", false, C::Equivalent,
-		 [](NFA &n, const Theory &) { removeDeadStates(n); }},
+		 [](NFA &n, const Theory &, const Given &) { removeDeadStates(n); }},
 		{"removeSimilarTransitions", false, C::Equivalent,
-		 [](NFA &n, const Theory &) { removeSimilarTransitions(n); }},
+		 [](NFA &n, const Theory &, const Given &) { removeSimilarTransitions(n); }},
 		{"removeRedundantSelfLoops", false, C::Equivalent,
-		 [](NFA &n, const Theory &) { removeRedundantSelfLoops(n); }},
+		 [](NFA &n, const Theory &, const Given &) { removeRedundantSelfLoops(n); }},
 		{"compactEdges", false, C::Equivalent,
-		 [](NFA &n, const Theory &t) { compactEdges(n, t); }},
+		 [](NFA &n, const Theory &t, const Given &) { compactEdges(n, t); }},
 		{"breakToParts", false, C::Equivalent,
-		 [](NFA &n, const Theory &) { breakToParts(n); }},
+		 [](NFA &n, const Theory &, const Given &) { breakToParts(n); }},
 		{"addTransitivePredicateEdges", false, C::Equivalent,
-		 [](NFA &n, const Theory &t) { addTransitivePredicateEdges(n, t); }},
-		{"simplify", false, C::Equivalent, [](NFA &n, const Theory &t) { simplify(n, t); }},
+		 [](NFA &n, const Theory &t, const Given &) { addTransitivePredicateEdges(n, t); }},
+		{"simplify", false, C::Equivalent,
+		 [](NFA &n, const Theory &t, const Given &) { simplify(n, t); }},
 		{"saturateDomains", false, C::Equivalent,
-		 [](NFA &n, const Theory &t) { saturateDomains(n, t); }},
+		 [](NFA &n, const Theory &t, const Given &) { saturateDomains(n, t); }},
 		{"removeConsecutivePredicates", false, C::Equivalent,
-		 [](NFA &n, const Theory &t) { removeConsecutivePredicates(n, t); }},
+		 [](NFA &n, const Theory &t, const Given &) { removeConsecutivePredicates(n, t); }},
 		{"normalize", false, C::Equivalent,
-		 [](NFA &n, const Theory &t) { normalize(n, t); }},
+		 [](NFA &n, const Theory &t, const Given &) { normalize(n, t); }},
 		{"to_DFA", true, C::Equivalent,
-		 [](NFA &n, const Theory &) { n = n.to_DFA().first; }},
+		 [](NFA &n, const Theory &, const Given &) { n = n.to_DFA().first; }},
 		{"saturateInitFinalPreds", true, C::KeepsCycles,
-		 [](NFA &n, const Theory &t) { saturateInitFinalPreds(n, t); }},
+		 [](NFA &n, const Theory &t, const Given &) { saturateInitFinalPreds(n, t); }},
 		{"saturateLoc", true, C::KeepsCycles,
-		 [](NFA &n, const Theory &t) { saturateLoc(n, t); }},
+		 [](NFA &n, const Theory &t, const Given &) { saturateLoc(n, t); }},
 		{"saturateRotate", true, C::AddsNoCycles,
-		 [](NFA &n, const Theory &t) { saturateRotate(n, t); }},
+		 [](NFA &n, const Theory &t, const Given &) { saturateRotate(n, t); }},
+
+		/* The saturations of a right-hand side, each under its hypothesis */
+		{"saturateEmpty", true, C::Weaker,
+		 [](NFA &n, const Theory &t, const Given &g) {
+			 saturateEmpty(n, normalized(*g.expr, t));
+		 },
+		 [](Graph & /*g*/, Semantics &sem, const Given &g) {
+			 return sem.eval(*g.expr).isEmpty();
+		 }},
+		{"saturateID", true, C::Weaker,
+		 [](NFA &n, const Theory &t, const Given &g) {
+			 saturateID(n, normalized(*g.expr, t));
+		 },
+		 [](Graph &g, Semantics &sem, const Given &giv) {
+			 return sem.eval(*giv.expr).includedIn(Matrix::identity(g.ctx(), g.size()));
+		 }},
+		{"saturateTransitive", true, C::Weaker,
+		 [](NFA &n, const Theory &, const Given &g) { saturateTransitive(n, g.rel); },
+		 [](Graph & /*g*/, Semantics &sem, const Given &g) {
+			 auto r = sem.eval(g.rel);
+			 return r.compose(r).includedIn(r);
+		 }},
+		{"saturateBuiltin", true, C::Weaker,
+		 [](NFA &n, const Theory &t, const Given &g) {
+			 saturateBuiltin(n, g.rel, normalized(*g.expr, t), t);
+		 },
+		 [](Graph & /*g*/, Semantics &sem, const Given &g) {
+			 return sem.eval(*g.expr).includedIn(sem.eval(g.rel));
+		 }},
+		{"saturateSubword", true, C::Weaker,
+		 [](NFA &n, const Theory &t, const Given &g) {
+			 saturateSubword(n, normalized(*g.expr, t), g.word, t);
+		 },
+		 [](Graph &g, Semantics &sem, const Given &giv) {
+			 return sem.eval(*giv.expr).includedIn(evalWord(sem, g, giv.word));
+		 }},
 	};
 }
 
@@ -167,6 +258,8 @@ auto violation(Contract c, const Matrix &before, const Matrix &after) -> Term
 	}
 	case Contract::AddsNoCycles:
 		return after.anyReflexive() && !before.anyReflexive();
+	case Contract::Weaker:
+		return !after.includedIn(before);
 	}
 	return Term::constant(before.ctx(), false);
 }
@@ -197,6 +290,7 @@ auto testTransforms(const TransformOptions &opts) -> bool
 	for (auto c = 0U; c < opts.cases; c++) {
 		auto re = gen.expr(opts.depth);
 		auto text = toString(*re, theory);
+		Given given{.expr = gen.expr(2), .rel = gen.relation(), .word = gen.word()};
 
 		/* toNFA itself: the automaton of RE denotes what RE does */
 		if (opts.only.empty() || opts.only == "toNFA") {
@@ -222,10 +316,14 @@ auto testTransforms(const TransformOptions &opts) -> bool
 			if (t.normalizeFirst)
 				normalize(before, theory);
 			auto after = copy(before);
-			t.apply(after, theory);
+			t.apply(after, theory, given);
 
 			auto s = search(
-				*module, noHypotheses,
+				*module,
+				[&](Graph &g, Semantics &sem) {
+					return t.hypothesis ? t.hypothesis(g, sem, given)
+							    : Term::constant(g.ctx(), true);
+				},
 				[&](Graph & /*g*/, Semantics &sem) {
 					return violation(t.contract, sem.eval(before),
 							 sem.eval(after));
@@ -234,11 +332,16 @@ auto testTransforms(const TransformOptions &opts) -> bool
 			if (s.outcome == Search::Outcome::Counterexample) {
 				ok = false;
 				if (failures[t.name]++ < 3 || opts.verbose)
-					std::cout << "VIOLATION " << t.name << " on " << text
-						  << "\n  before:\n"
-						  << render(before) << "  after:\n"
-						  << render(after) << "  graph:\n"
-						  << s.detail << "\n";
+					std::cout
+						<< "VIOLATION " << t.name << " on " << text
+						<< (t.hypothesis
+							    ? "\n  given: " +
+								      toString(*given.expr, theory)
+							    : std::string())
+						<< "\n  before:\n"
+						<< render(before) << "  after:\n"
+						<< render(after) << "  graph:\n"
+						<< s.detail << "\n";
 			} else if (s.outcome == Search::Outcome::Unknown) {
 				std::cout << "unknown: " << t.name << " on " << text << "\n";
 			}
