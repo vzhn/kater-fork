@@ -63,6 +63,30 @@ formatted with `clang-format` and free of `clang-tidy` warnings on the diff. Run
 `lint.sh` checks `clang-format` over all of `src/` and runs `clang-tidy` on the
 changes relative to the merge base. Both checks gate CI.
 
+## Source layout
+
+`src/` is built as a stack of layers, each a static library that may depend
+only on the layers below it:
+
+| Layer (library)  | Files                                                        | Contract                                                              |
+|------------------|--------------------------------------------------------------|-----------------------------------------------------------------------|
+| `kater_support`  | `Config`, `Error`, `DbgInfo`, `Logger`, `VSet`, `AdjList`, `Visitor` | No crashes, no undefined behaviour                            |
+| `kater_theory`   | `Predicate`, `Relation`, `TransLabel`, `Theory`              | Every structural fact (domains, inclusions, disjointness) holds in all executions |
+| `kater_automata` | `NFA`, `NFAUtils`, `StatePair`, `Counterexample`, `Utils`    | Each operation keeps, or computes, exactly the stated language         |
+| `kater_lang`     | `RegExp`, `Constraint`, `Statement`, `SavedExp`, `KatModule`, `Assumptions`, `Builtins`, the flex/bison parser | The parsed module means what the `.kat` text says; `RegExp::toNFA()` preserves the language |
+| `kater_decision` | `Saturation`, `Checker`                                      | A "holds" verdict means the constraint holds under the theory and the assumptions |
+| `kater_export`   | `Exporter`, `Printer`, `GenMCPrinter`, `CodeBuilder`         | The generated checker accepts exactly the consistent executions       |
+
+`Checker` is the decision procedure and `Exporter` the code generator; the
+exporter asks the checker to prove the side conditions its optimizations rely
+on, never the other way round. `Theory` holds structural facts only; the
+hypotheses stated as constraints (built-in and user `assume`s) live in
+`Assumptions`, which folds the ones that are plain facts into the theory.
+
+`scripts/check-layers.sh` verifies that no file includes a header from a layer
+above its own, and runs as the `check-layers` ctest. When adding a file, add it
+to its layer both in `src/CMakeLists.txt` and in that script.
+
 ## Code conventions
 
 ### Comments
