@@ -363,11 +363,14 @@ static auto expandSubsetAssumption(NFA &rhs, const SubsetConstraint *assm, const
 	if (charRE && dynamic_cast<const QMarkRE *>(&*rRE) && *rRE->getKid(0) == *charRE) {
 		return true;
 	}
-	/* Handle `A <= builtin` assumption */
+	/* Handle `A <= builtin` assumption; `A <= [P]` gives `A <= id` */
 	auto *charRHS = dynamic_cast<const CharRE *>(&*rRE);
+	if (charRHS && charRHS->getLabel().isPredicate()) {
+		saturateID(rhs, std::move(lNFA));
+		return true;
+	}
 	if (charRHS) {
-		saturateBuiltin(rhs, *dynamic_cast<const CharRE *>(rRE)->getLabel().getRelation(),
-				std::move(lNFA), theory);
+		saturateBuiltin(rhs, *charRHS->getLabel().getRelation(), std::move(lNFA), theory);
 		return true;
 	}
 	/* Handle `[A];po;[B] <= [A];po;[C];po;[B]` assumption: wherever the RHS

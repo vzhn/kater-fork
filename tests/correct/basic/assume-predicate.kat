@@ -1,0 +1,5 @@
+// A <= [R] makes A part of the identity; an assumption with a predicate
+// on its right-hand side used to read a relation that is not there
+relation A
+assume A <= [R]
+assert A <= id
