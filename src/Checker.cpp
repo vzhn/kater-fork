@@ -325,6 +325,11 @@ static auto expandSubsetAssumption(NFA &rhs, const SubsetConstraint *assm, const
 	auto *lRE = assm->getLHS();
 	auto *rRE = assm->getRHS();
 
+	/* `A & id <= B` only says something about the cycles of A, and no
+	 * saturation below can use that: `r & id <= 0` is not `r <= 0` */
+	if (assm->sameEnds() || assm->rotated())
+		return false;
+
 	/* If `any` is used in the assumption, realize it as `any*` */
 	auto lNFA = starifyAny(lRE->clone())->toNFA();
 	normalize(lNFA, theory);
@@ -426,7 +431,6 @@ void expandAssumption(NFA &rhs, const AssumeStatement *assm, const KatModule &mo
 			      *dynamic_cast<const CharRE *>(tc->getRE())->getLabel().getRelation());
 		return;
 	}
-	// FIXME: What about SubsetSameEnds???
 	if (const auto *ec = dynamic_cast<const SubsetConstraint *>(cst)) {
 		if (!expandSubsetAssumption(rhs, ec, module))
 			warnUnsupportedAssumption(assm, module.getTheory());

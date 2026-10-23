@@ -38,7 +38,9 @@ auto Assumptions::tryIncorporateDomAssumption(const AssumeStatement *assm, Theor
 	 */
 	const auto *cst = assm->getConstraint();
 	const auto *subsetC = dynamic_cast<const SubsetConstraint *>(cst);
-	if (!subsetC || !dynamic_cast<const CharRE *>(subsetC->getLHS()) ||
+	/* `r & id <= [A];r;[B]` is about the cycles of r alone */
+	if (!subsetC || subsetC->sameEnds() || subsetC->rotated() ||
+	    !dynamic_cast<const CharRE *>(subsetC->getLHS()) ||
 	    (!dynamic_cast<const SeqRE *>(subsetC->getRHS()) &&
 	     !dynamic_cast<const CharRE *>(subsetC->getRHS())))
 		return false;

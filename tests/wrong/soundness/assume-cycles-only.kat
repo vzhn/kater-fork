@@ -1,0 +1,5 @@
+// `r & id <= 0` says r is irreflexive, not that it is empty: assumptions
+// used to be applied without their & id
+relation r
+assume r & id <= 0
+assert r <= 0
