@@ -16,56 +16,51 @@
  * http://www.gnu.org/licenses/gpl-3.0.html.
  */
 
-#ifndef KATER_KATER_HPP
-#define KATER_KATER_HPP
+#ifndef KATER_EXPORTER_HPP
+#define KATER_EXPORTER_HPP
 
+#include "Checker.hpp"
 #include "Config.hpp"
 #include "KatModule.hpp"
 
 /*
- * Given a KatModule resulted from parsing, transforms all regexps to
- * NFAs that will be used for code printing
+ * Code export: turns a module's export statements into a consistency
+ * checker for a model checker.
+ *
+ * Export first proves, through the Checker, the side conditions that the
+ * generated code relies on (the module's relations are closed the way the
+ * incremental calculations assume), then rewrites the module for faster
+ * generated code, and finally prints it.
+ *
+ * The exporter is downstream of the decision procedure: it may ask the
+ * Checker questions, but the Checker never depends on it.
  */
-class Kater {
+class Exporter {
 
 public:
-	Kater() = delete;
-	Kater(const Config &conf, std::unique_ptr<KatModule> mod)
-		: config(conf), module(std::move(mod))
+	Exporter() = delete;
+	Exporter(KatModule &mod, Checker &checker, const Config &conf)
+		: module(&mod), checker(&checker), config(&conf)
 	{
 	}
-
-	[[nodiscard]] auto getModule() const -> const KatModule & { return *module; }
-	auto getModule() -> KatModule & { return *module; }
-
-	/* Check any user assertions and report errors.
-	 * Returns whether any assertion was violated */
-	auto checkAssertions() -> bool;
 
 	auto exportCode() -> bool;
 
 private:
-	struct InclusionResult {
-		bool result{};
-		Counterexample cex{};
-	};
-
-	[[nodiscard]] auto getConf() const -> const Config & { return config; }
-
+	[[nodiscard]] auto getModule() const -> const KatModule & { return *module; }
+	auto getModule() -> KatModule & { return *module; }
+	[[nodiscard]] auto getChecker() const -> Checker & { return *checker; }
+	[[nodiscard]] auto getConf() const -> const Config & { return *config; }
 	[[nodiscard]] auto getTheory() const -> const Theory & { return getModule().getTheory(); }
-
-	auto isPPOIntersectionInPPO(const AcyclicConstraint *acyc) const -> InclusionResult;
-	auto isDFASubLanguageOfNFA(NFA &nfa, const NFA &other) const -> InclusionResult;
-	[[nodiscard]] auto checkInclusion(SubsetConstraint &subsetC) const -> InclusionResult;
-	auto checkAssertion(Constraint &cst) -> InclusionResult;
 
 	void optimizeModuleForExport();
 	void makeViewsIncremental();
 	auto checkSavedRelsExportRequirements(const RegExp &pporf) -> bool;
 	auto checkExportRequirements() -> bool;
 
-	const Config &config;
-	std::unique_ptr<KatModule> module;
+	KatModule *module;
+	Checker *checker;
+	const Config *config;
 };
 
-#endif /* KATER_KATER_HPP */
+#endif /* KATER_EXPORTER_HPP */

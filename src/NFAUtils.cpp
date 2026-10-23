@@ -22,6 +22,7 @@
 #include "NFA.hpp"
 #include "Predicate.hpp"
 #include "Relation.hpp"
+#include "StatePair.hpp"
 #include "Theory.hpp"
 #include "TransLabel.hpp"
 

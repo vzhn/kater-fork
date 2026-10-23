@@ -1,0 +1,346 @@
+<title>Kater Components</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: a folded technical leaflet — one narrow reading column, a full-width pipeline band, then a component catalogue in two columns. */
+:root {
+  --paper: #f5f7f8;
+  --sheet: #ffffff;
+  --ink: #17232b;
+  --muted: #5a6a73;
+  --rule: #d7dfe3;
+  --accent: #0e6a6e;      /* relation edges, links */
+  --accent-soft: #dcefee;
+  --trust: #a2560b;       /* trusted-for-soundness marker */
+  --trust-soft: #f7ead9;
+  --code-bg: #eef2f4;
+  --f-display: "Bricolage Grotesque", "Avenir Next", "Segoe UI", sans-serif;
+  --f-body: "Source Serif 4", Georgia, "Times New Roman", serif;
+  --f-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper: #0f171c; --sheet: #162128; --ink: #e3eaee; --muted: #93a3ac; --rule: #2a3a43;
+    --accent: #5cc4c2; --accent-soft: #163a3c; --trust: #e5a35a; --trust-soft: #3a2a17; --code-bg: #1a272e;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --paper: #0f171c; --sheet: #162128; --ink: #e3eaee; --muted: #93a3ac; --rule: #2a3a43;
+  --accent: #5cc4c2; --accent-soft: #163a3c; --trust: #e5a35a; --trust-soft: #3a2a17; --code-bg: #1a272e;
+  color-scheme: dark;
+}
+
+body {
+  background: var(--paper);
+  color: var(--ink);
+  font: 17px/1.6 var(--f-body);
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 40px 64px;
+}
+.wrap { max-width: 1040px; margin: 0 auto; display: grid; gap: 56px; }
+.col { max-width: 66ch; }
+h1, h2, h3 { font-family: var(--f-display); text-wrap: balance; margin: 0; line-height: 1.15; }
+h1 { font-size: clamp(2.6rem, 7vw, 4.4rem); font-weight: 700; letter-spacing: -0.02em; }
+h2 { font-size: 1.7rem; font-weight: 700; }
+h3 { font-size: 1.15rem; font-weight: 700; }
+p { margin: 0; }
+code, pre, .mono { font-family: var(--f-mono); font-size: 0.86em; }
+code { background: var(--code-bg); padding: 0.08em 0.35em; border-radius: 4px; }
+a { color: var(--accent); }
+a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.eyebrow { font-family: var(--f-mono); font-size: 0.72rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); }
+section { display: grid; gap: 20px; }
+
+/* hero */
+.hero { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); gap: 40px; align-items: end; }
+.hero .lede { font-size: 1.2rem; color: var(--ink); max-width: 34ch; }
+.hero .stack { display: grid; gap: 18px; }
+.sample { background: var(--sheet); border: 1px solid var(--rule); border-radius: 8px; overflow: hidden; min-width: 0; }
+.sample .bar { display: flex; justify-content: space-between; gap: 12px; padding: 8px 14px; border-bottom: 1px solid var(--rule); font-family: var(--f-mono); font-size: 0.75rem; color: var(--muted); }
+.sample pre { margin: 0; padding: 16px; overflow-x: auto; line-height: 1.55; }
+.sample .verdict { padding: 10px 14px; border-top: 1px dashed var(--rule); font-family: var(--f-mono); font-size: 0.78rem; color: var(--accent); }
+.kw { color: var(--accent); font-weight: 600; }
+.cm { color: var(--muted); }
+
+/* two jobs */
+.jobs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 32px; }
+.job { display: grid; gap: 10px; align-content: start; border-top: 2px solid var(--ink); padding-top: 14px; }
+.job p { color: var(--ink); }
+.job .out { font-family: var(--f-mono); font-size: 0.8rem; color: var(--muted); }
+
+/* pipeline */
+.pipe-box { background: var(--sheet); border: 1px solid var(--rule); border-radius: 8px; padding: 20px 16px; overflow-x: auto; }
+.pipe-box svg { display: block; min-width: 860px; width: 100%; height: auto; }
+.pipe-box text { font-family: var(--f-mono); }
+.legend { display: flex; flex-wrap: wrap; gap: 18px; font-size: 0.85rem; color: var(--muted); }
+.legend span { display: inline-flex; align-items: center; gap: 8px; }
+.sw { width: 14px; height: 14px; border-radius: 3px; display: inline-block; border: 1.5px solid; }
+
+/* components */
+.cat { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 28px 40px; }
+.comp { display: grid; gap: 8px; align-content: start; padding-top: 14px; border-top: 1px solid var(--rule); min-width: 0; }
+.comp header { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.layer { font-family: var(--f-mono); font-size: 0.75rem; color: var(--muted); }
+.files { font-family: var(--f-mono); font-size: 0.76rem; color: var(--muted); line-height: 1.5; overflow-wrap: anywhere; }
+.contract { font-size: 0.92rem; padding: 8px 12px; background: var(--code-bg); border-radius: 6px; }
+.contract b { font-family: var(--f-display); font-weight: 500; font-size: 0.78rem; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); margin-right: 6px; }
+.pill { font-family: var(--f-mono); font-size: 0.68rem; letter-spacing: 0.06em; text-transform: uppercase; padding: 2px 8px; border-radius: 999px; white-space: nowrap; }
+.pill.trusted { background: var(--trust-soft); color: var(--trust); }
+.pill.checked { background: var(--accent-soft); color: var(--accent); }
+.pill.support { background: var(--code-bg); color: var(--muted); }
+
+/* language table */
+.tbl-wrap { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-size: 0.95rem; }
+th, td { text-align: left; padding: 9px 12px 9px 0; border-bottom: 1px solid var(--rule); vertical-align: top; }
+th { font-family: var(--f-display); font-weight: 500; font-size: 0.78rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+td:first-child { white-space: nowrap; }
+
+/* models */
+.models { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 24px; }
+.models div { display: grid; gap: 6px; align-content: start; }
+.models ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 3px; font-family: var(--f-mono); font-size: 0.84rem; }
+.models .g { color: var(--accent); }
+
+/* use */
+.use { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 32px; }
+.use pre { margin: 0; background: var(--code-bg); padding: 14px 16px; border-radius: 6px; overflow-x: auto; line-height: 1.6; }
+.use > div { display: grid; gap: 10px; align-content: start; min-width: 0; }
+
+footer { border-top: 1px solid var(--rule); padding-top: 16px; font-size: 0.85rem; color: var(--muted); display: flex; flex-wrap: wrap; justify-content: space-between; gap: 12px; }
+
+@media (max-width: 760px) {
+  .hero, .jobs, .cat, .use { grid-template-columns: minmax(0, 1fr); }
+  .models { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  body { font-size: 16px; }
+}
+</style>
+
+<div class="wrap">
+
+  <header class="hero">
+    <div class="stack">
+      <span class="eyebrow">Weak memory model toolkit · GPLv3</span>
+      <h1>Kater</h1>
+      <p class="lede">Proves facts about weak memory models, and generates the consistency checkers that the GenMC model checker runs.</p>
+    </div>
+    <figure class="sample" style="margin:0">
+      <div class="bar"><span>tests/correct/equivalence/eq-eco.kat</span><span>input</span></div>
+<pre><span class="kw">let</span> eco1 = (rf | mo | fr)+
+<span class="kw">let</span> eco2 = (rf | mo;rf? | fr;rf?)
+
+<span class="kw">assert</span> eco1 &lt;= eco2
+<span class="kw">assert</span> eco2 &lt;= eco1</pre>
+      <div class="verdict">→ both inclusions hold: eco1 = eco2</div>
+    </figure>
+  </header>
+
+  <section>
+    <span class="eyebrow">What it does</span>
+    <div class="jobs">
+      <div class="job">
+        <h3>Metatheory</h3>
+        <p>A model is written as relations over execution graphs (<code>po</code>, <code>rf</code>, <code>mo</code>, <code>fr</code>, …) built with sequence, union, intersection and closure. Kater turns each <code>assert</code> into a question about automata and answers it: the inclusion holds, or here is a counterexample path.</p>
+        <p class="out">Output: verdict per assertion, or a counterexample</p>
+      </div>
+      <div class="job">
+        <h3>GenMC export</h3>
+        <p>With <code>-e</code>, the <code>export</code> statements of a model become C++ for GenMC: an acyclicity check, coherence, incremental views, and error and warning detectors. Kater first proves the side conditions its optimisations rely on.</p>
+        <p class="out">Output: a <code>ConsistencyChecker</code> subclass for GenMC</p>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <span class="eyebrow">Pipeline</span>
+    <h2>From a .kat file to a verdict or a checker</h2>
+    <div class="pipe-box">
+      <svg viewBox="0 0 980 300" role="img" aria-label="Kater pipeline: the .kat source is parsed into a KatModule with a Theory; expressions become NFAs that are saturated and checked for inclusion, giving a verdict or counterexample; the export path optimises the module and prints a GenMC checker.">
+        <defs>
+          <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" style="fill: var(--muted)"/>
+          </marker>
+        </defs>
+        <g style="font-size:12px">
+          <!-- row 1: front end -->
+          <rect x="10" y="20" width="120" height="58" rx="6" style="fill: var(--code-bg); stroke: var(--rule)"/>
+          <text x="70" y="45" text-anchor="middle" style="fill: var(--ink); font-weight:600">.kat source</text>
+          <text x="70" y="63" text-anchor="middle" style="fill: var(--muted)">kat/*.kat</text>
+
+          <rect x="170" y="20" width="150" height="58" rx="6" style="fill: var(--code-bg); stroke: var(--rule)"/>
+          <text x="245" y="45" text-anchor="middle" style="fill: var(--ink); font-weight:600">Parser</text>
+          <text x="245" y="63" text-anchor="middle" style="fill: var(--muted)">flex · bison · driver</text>
+
+          <rect x="360" y="20" width="160" height="58" rx="6" style="fill: var(--trust-soft); stroke: var(--trust)"/>
+          <text x="440" y="45" text-anchor="middle" style="fill: var(--ink); font-weight:600">KatModule + Theory</text>
+          <text x="440" y="63" text-anchor="middle" style="fill: var(--muted)">relations · assumptions</text>
+
+          <line x1="130" y1="49" x2="166" y2="49" style="stroke: var(--muted); stroke-width:1.5" marker-end="url(#ah)"/>
+          <line x1="320" y1="49" x2="356" y2="49" style="stroke: var(--muted); stroke-width:1.5" marker-end="url(#ah)"/>
+
+          <!-- row 2: decision -->
+          <rect x="360" y="130" width="160" height="58" rx="6" style="fill: var(--trust-soft); stroke: var(--trust)"/>
+          <text x="440" y="155" text-anchor="middle" style="fill: var(--ink); font-weight:600">RegExp → NFA</text>
+          <text x="440" y="173" text-anchor="middle" style="fill: var(--muted)">translation</text>
+
+          <rect x="560" y="130" width="150" height="58" rx="6" style="fill: var(--trust-soft); stroke: var(--trust)"/>
+          <text x="635" y="155" text-anchor="middle" style="fill: var(--ink); font-weight:600">Saturation</text>
+          <text x="635" y="173" text-anchor="middle" style="fill: var(--muted)">apply the theory</text>
+
+          <rect x="750" y="130" width="140" height="58" rx="6" style="fill: var(--trust-soft); stroke: var(--trust)"/>
+          <text x="820" y="155" text-anchor="middle" style="fill: var(--ink); font-weight:600">Inclusion</text>
+          <text x="820" y="173" text-anchor="middle" style="fill: var(--muted)">DFA ⊆ NFA</text>
+
+          <line x1="440" y1="78" x2="440" y2="126" style="stroke: var(--muted); stroke-width:1.5" marker-end="url(#ah)"/>
+          <text x="448" y="106" style="fill: var(--muted); font-size:11px">assert</text>
+          <line x1="520" y1="159" x2="556" y2="159" style="stroke: var(--muted); stroke-width:1.5" marker-end="url(#ah)"/>
+          <line x1="710" y1="159" x2="746" y2="159" style="stroke: var(--muted); stroke-width:1.5" marker-end="url(#ah)"/>
+
+          <rect x="750" y="20" width="220" height="58" rx="6" style="fill: var(--sheet); stroke: var(--accent); stroke-width:1.5"/>
+          <text x="860" y="45" text-anchor="middle" style="fill: var(--accent); font-weight:600">holds · or counterexample</text>
+          <text x="860" y="63" text-anchor="middle" style="fill: var(--muted)">verdict per assertion</text>
+          <line x1="820" y1="130" x2="820" y2="82" style="stroke: var(--accent); stroke-width:1.5" marker-end="url(#ah)"/>
+
+          <!-- row 3: export -->
+          <rect x="360" y="232" width="160" height="58" rx="6" style="fill: var(--accent-soft); stroke: var(--accent)"/>
+          <text x="440" y="257" text-anchor="middle" style="fill: var(--ink); font-weight:600">Export optimiser</text>
+          <text x="440" y="275" text-anchor="middle" style="fill: var(--muted)">views · requirements</text>
+
+          <rect x="560" y="232" width="150" height="58" rx="6" style="fill: var(--accent-soft); stroke: var(--accent)"/>
+          <text x="635" y="257" text-anchor="middle" style="fill: var(--ink); font-weight:600">GenMCPrinter</text>
+          <text x="635" y="275" text-anchor="middle" style="fill: var(--muted)">C++ code builder</text>
+
+          <rect x="750" y="232" width="220" height="58" rx="6" style="fill: var(--sheet); stroke: var(--accent); stroke-width:1.5"/>
+          <text x="860" y="257" text-anchor="middle" style="fill: var(--accent); font-weight:600">GenMC consistency checker</text>
+          <text x="860" y="275" text-anchor="middle" style="fill: var(--muted)">.hpp / .cpp</text>
+
+          <path d="M372 78 C 330 140, 320 250, 356 261" style="fill:none; stroke: var(--muted); stroke-width:1.5" marker-end="url(#ah)"/>
+          <text x="232" y="200" style="fill: var(--muted); font-size:11px">export (-e)</text>
+          <line x1="520" y1="261" x2="556" y2="261" style="stroke: var(--muted); stroke-width:1.5" marker-end="url(#ah)"/>
+          <line x1="710" y1="261" x2="746" y2="261" style="stroke: var(--muted); stroke-width:1.5" marker-end="url(#ah)"/>
+          <path d="M500 232 Q 520 210 560 195" style="fill:none; stroke: var(--trust); stroke-width:1.2; stroke-dasharray:4 3" marker-end="url(#ah)"/>
+          <text x="530" y="222" style="fill: var(--trust); font-size:11px">side conditions</text>
+        </g>
+      </svg>
+    </div>
+    <div class="legend">
+      <span><i class="sw" style="background: var(--trust-soft); border-color: var(--trust)"></i>Decides whether a verdict is sound</span>
+      <span><i class="sw" style="background: var(--accent-soft); border-color: var(--accent)"></i>Decides what GenMC accepts</span>
+      <span><i class="sw" style="background: var(--code-bg); border-color: var(--rule)"></i>Front end</span>
+    </div>
+  </section>
+
+  <section>
+    <span class="eyebrow">Components</span>
+    <h2>Six layers in src/</h2>
+    <p class="col">About 11,000 lines of C++23, built as six static libraries, one per layer, under a thin <code>main.cpp</code>. A layer may include headers only from itself and the layers below it; <code>scripts/check-layers.sh</code> enforces this and runs as a test. Each layer has a single contract it must meet.</p>
+    <div class="cat">
+
+      <article class="comp">
+        <header><h3>Syntax</h3><span class="pill support">front end</span></header>
+        <p>Reads a <code>.kat</code> file into a <code>KatModule</code>: named relations, saved expressions, constraints and statements. <code>Builtins</code> declares the predefined relations and predicates (<code>po</code>, <code>rf</code>, <code>[W]</code>, <code>[ATOM]</code>, …).</p>
+        <p class="files">kater_lang: Lexer.lpp · Parser.ypp · ParsingDriver · Builtins · KatModule · Assumptions · RegExp · Constraint · Statement · SavedExp</p>
+        <p class="contract"><b>Contract</b>The parsed module means what the text says.</p>
+      </article>
+
+      <article class="comp">
+        <header><h3>Theory</h3><span class="pill trusted">trusted</span></header>
+        <p>The structural facts Kater may assume about execution graphs: domains and codomains of relations, per-location variants, and which predicates include or exclude one another. Hypotheses stated as formulae, the built-in ones and the user's <code>assume</code> lines such as <code>assume rf ; [F] = 0</code>, live in <code>Assumptions</code> next to the module; the ones that are plain facts are folded into the theory.</p>
+        <p class="files">kater_theory: Theory · Predicate · Relation · TransLabel</p>
+        <p class="contract"><b>Contract</b>Every hypothesis is true of all executions of the model.</p>
+      </article>
+
+      <article class="comp">
+        <header><h3>Automata</h3><span class="pill trusted">trusted</span></header>
+        <p>Nondeterministic automata whose edges are relations and predicate tests. Provides reachability, state merging (<code>findSimilarStates</code>), edge joining, minimisation, and counterexample paths.</p>
+        <p class="files">kater_automata: NFA · NFAUtils · StatePair · Counterexample · Utils</p>
+        <p class="contract"><b>Contract</b>Each operation keeps, or computes, exactly the stated language.</p>
+      </article>
+
+      <article class="comp">
+        <header><h3>Decision procedure</h3><span class="pill trusted">trusted</span></header>
+        <p>Saturates the right-hand automaton with the module's assumptions, then checks whether the left-hand DFA's language is contained in it. <code>Checker</code> holds the rewrites (<code>normalize</code>, <code>reduce</code>, <code>pruneNFA</code>, <code>expandRfs</code>), realises each assumption as a saturation step, and runs assertions in parallel when TBB is present. It is configured by a two-field <code>CheckerOptions</code>, not by the command line.</p>
+        <p class="files">kater_decision: Checker · Saturation</p>
+        <p class="contract"><b>Contract</b>A "holds" verdict means the inclusion holds under the theory.</p>
+      </article>
+
+      <article class="comp">
+        <header><h3>Export</h3><span class="pill checked">generated code</span></header>
+        <p>Rewrites the module for speed and prints a GenMC checker: incremental views, the <code>ppo</code>/<code>rf</code> prefix, coherence, and the <code>error</code> and <code>warning</code> detectors. Before optimising it asks the decision procedure to prove its side conditions, for example <code>isPPOIntersectionInPPO</code>.</p>
+        <p class="files">kater_export: Exporter · GenMCPrinter · Printer · CodeBuilder</p>
+        <p class="contract"><b>Contract</b>The checker accepts exactly the consistent executions.</p>
+      </article>
+
+      <article class="comp">
+        <header><h3>Support</h3><span class="pill support">infrastructure</span></header>
+        <p>Command-line configuration, error reporting with source locations, a thread-safe logger with <code>-v</code> levels and debug types, and small containers used throughout.</p>
+        <p class="files">kater_support: Config · Error · DbgInfo · Logger · AdjList · VSet · Visitor</p>
+        <p class="contract"><b>Contract</b>No crashes and no undefined behaviour.</p>
+      </article>
+
+    </div>
+  </section>
+
+  <section>
+    <span class="eyebrow">The .kat language</span>
+    <h2>Statements at a glance</h2>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>Statement</th><th>Meaning</th><th>Example</th></tr></thead>
+        <tbody>
+          <tr><td><code>let</code></td><td>Name a relation</td><td class="mono">let ppo = po</td></tr>
+          <tr><td><code>view</code></td><td>A relation GenMC tracks as a vector clock</td><td class="mono">view hb = (po | [ATOM];rf;[ATOM] | tc | tj)+</td></tr>
+          <tr><td><code>assume</code></td><td>Add a hypothesis to the theory</td><td class="mono">assume [F] ; rf = 0</td></tr>
+          <tr><td><code>assert</code></td><td>A fact to prove: inclusion, equality or acyclicity</td><td class="mono">assert eco1 &lt;= eco2</td></tr>
+          <tr><td><code>export acyclic</code></td><td>The consistency axiom GenMC checks</td><td class="mono">export acyclic sc</td></tr>
+          <tr><td><code>export coherence</code></td><td>The relation used for coherence placement</td><td class="mono">export coherence hb</td></tr>
+          <tr><td><code>export error … unless</code></td><td>A bug detector reported by GenMC</td><td class="mono">export error VE_RaceNotAtomic unless na_conflict &lt;= hb</td></tr>
+          <tr><td><code>save</code>, <code>rec</code>, <code>include</code></td><td>Reuse a saved relation, define mutually recursive relations, import another file</td><td class="mono">save[ppo] ppo</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <span class="eyebrow">Shipped models · kat/</span>
+    <h2>22 memory models</h2>
+    <p class="col">Files ending in <span class="mono g">-genmc</span> are written for export and carry GenMC's error detectors. The others are for metatheory, such as the equivalence proofs in <code>tests/correct/equivalence</code>.</p>
+    <div class="models">
+      <div><span class="eyebrow">Baseline</span><ul><li>sc</li><li>sc-fm</li><li class="g">sc-genmc</li></ul></div>
+      <div><span class="eyebrow">Hardware</span><ul><li>tso · tso-fm</li><li class="g">tso-genmc</li><li>pex86</li><li>arm8</li><li>power-fm (+3 variants)</li><li>power-weak</li></ul></div>
+      <div><span class="eyebrow">Languages</span><ul><li>rc11 · rc112</li><li class="g">rc11-genmc</li><li class="g">ra-genmc</li><li>imm</li><li class="g">imm-genmc</li><li>c11-old</li></ul></div>
+      <div><span class="eyebrow">Linux kernel</span><ul><li>lkmm2</li><li class="g">lkmm-genmc</li></ul></div>
+    </div>
+  </section>
+
+  <section>
+    <span class="eyebrow">Using it</span>
+    <div class="use">
+      <div>
+        <h3>Build and run</h3>
+<pre>cmake -DCMAKE_BUILD_TYPE=Release -B Release -S .
+cmake --build Release -j$(nproc)
+
+./Release/kater tests/correct/equivalence/eq-eco.kat
+./Release/kater -e -n sc -p out/ kat/sc-genmc.kat</pre>
+        <p>Needs a C++23 compiler, CMake, flex and bison. TBB is optional and enables parallel assertion checking.</p>
+      </div>
+      <div>
+        <h3>Tests</h3>
+        <p><code>tests/correct</code> and <code>tests/wrong</code> hold models that must pass or fail, grouped as basic, compilation, equivalence and parsing. <code>tests/unit</code> covers the NFA and regular-expression code.</p>
+<pre>cd scripts &amp;&amp; ./checkall.sh
+./scripts/lint.sh</pre>
+        <p><code>check-drivers.sh</code> exports checkers from <code>kat/</code> and builds them against a GenMC checkout.</p>
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    <span>Kater · by Michalis Kokologiannakis, MPI-SWS · GPLv3 or later</span>
+    <span class="mono">github.com/MPI-SWS/genmc</span>
+  </footer>
+
+</div>

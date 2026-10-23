@@ -183,7 +183,7 @@ public:
 	// Handle "assume c" declaration in the input file
 	void registerAssume(std::unique_ptr<AssumeStatement> assm)
 	{
-		getModule()->getTheory().registerAssume(std::move(assm));
+		getModule()->getAssumptions().add(std::move(assm));
 	}
 
 	void registerDisjointPreds(VSet<Predicate::ID> disjoint)

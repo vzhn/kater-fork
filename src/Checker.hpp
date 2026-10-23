@@ -1,0 +1,89 @@
+/*
+ * KATER -- Automating Weak Memory Model Metatheory
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, you can access it online at
+ * http://www.gnu.org/licenses/gpl-3.0.html.
+ */
+
+#ifndef KATER_CHECKER_HPP
+#define KATER_CHECKER_HPP
+
+#include "Counterexample.hpp"
+#include "KatModule.hpp"
+
+#include <string>
+
+/*
+ * The decision procedure: decides constraints over a module's relations
+ * under the hypotheses of its theory.
+ *
+ * A constraint is decided by translating both sides to automata,
+ * saturating the right-hand side with the theory's assumptions, and
+ * checking language inclusion. A positive answer is a claim that the
+ * constraint holds in every execution of the model; a negative answer
+ * comes with a counterexample path.
+ *
+ * This is the only component whose correctness decides whether a "holds"
+ * verdict is sound. It depends on the theory and the automata layers, and
+ * on nothing else: not on the command line, nor on code export.
+ */
+struct CheckerOptions {
+	/* Decide the module's assertions in parallel */
+	bool parallel = true;
+	/* Report each assertion as it is being checked */
+	bool trace = false;
+};
+
+class Checker {
+
+public:
+	using Options = CheckerOptions;
+
+	struct InclusionResult {
+		bool result{};
+		Counterexample cex;
+	};
+
+	Checker() = delete;
+	Checker(KatModule &mod, Options opts = {}) : module(&mod), options(opts) {}
+
+	[[nodiscard]] auto getModule() const -> const KatModule & { return *module; }
+	auto getModule() -> KatModule & { return *module; }
+
+	/* Check the module's user assertions and report the violated ones.
+	 * Returns whether all of them hold */
+	auto checkAssertions() -> bool;
+
+	/* Decide a subset or equality constraint */
+	auto checkAssertion(Constraint &cst) -> InclusionResult;
+
+	/* Whether ACYC's extension with eco edges stays within ppo; the
+	 * code exporter relies on this to prune its acyclicity checks */
+	auto isPPOIntersectionInPPO(const AcyclicConstraint *acyc) const -> InclusionResult;
+
+private:
+	[[nodiscard]] auto getTheory() const -> const Theory & { return getModule().getTheory(); }
+	[[nodiscard]] auto getOptions() const -> const Options & { return options; }
+
+	auto isDFASubLanguageOfNFA(NFA &nfa, const NFA &other) const -> InclusionResult;
+	[[nodiscard]] auto checkInclusion(SubsetConstraint &subsetC) const -> InclusionResult;
+
+	KatModule *module;
+	Options options;
+};
+
+/* A diagnostic note describing CEX, to be appended to an error message */
+auto cexNote(const Counterexample &cex, const Theory &theory) -> std::string;
+
+#endif /* KATER_CHECKER_HPP */

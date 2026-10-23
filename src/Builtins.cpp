@@ -514,24 +514,24 @@ void registerBuiltins(KatModule &module)
 			SeqRE::createOpt(REFromString("fr"), REFromString("mo")),
 			REFromString("fr"), false, false),
 		false);
-	theory.registerAssume(std::move(frmoIsFR));
+	module.getAssumptions().add(std::move(frmoIsFR));
 
 	auto transPO = AssumeStatement::create(
 		SubsetConstraint::createOpt(
 			SeqRE::createOpt(REFromString("po"), REFromString("po")),
 			REFromString("po"), false, false),
 		false);
-	theory.registerAssume(std::move(transPO));
+	module.getAssumptions().add(std::move(transPO));
 	auto transMO = AssumeStatement::create(
 		SubsetConstraint::createOpt(
 			SeqRE::createOpt(REFromString("mo"), REFromString("mo")),
 			REFromString("mo"), false, false),
 		false);
-	theory.registerAssume(std::move(transMO));
+	module.getAssumptions().add(std::move(transMO));
 
 	auto seq = SeqRE::createOpt(REFromString("rf"), REFromString("fr"));
 	auto rffrIsMO = AssumeStatement::create(
 		SubsetConstraint::createOpt(std::move(seq), REFromString("mo"), false, false),
 		false);
-	theory.registerAssume(std::move(rffrIsMO));
+	module.getAssumptions().add(std::move(rffrIsMO));
 }

@@ -19,8 +19,8 @@
 #ifndef KATER_KAT_MODULE_HPP
 #define KATER_KAT_MODULE_HPP
 
+#include "Assumptions.hpp"
 #include "DbgInfo.hpp"
-#include "Parser.hpp"
 #include "Theory.hpp"
 
 class KatModule {
@@ -66,6 +66,9 @@ public:
 
 	auto getTheory() const -> const Theory & { return theory_; }
 	auto getTheory() -> Theory & { return theory_; }
+
+	auto getAssumptions() const -> const Assumptions & { return assumptions_; }
+	auto getAssumptions() -> Assumptions & { return assumptions_; }
 
 	void registerRelation(Relation r, RelationInfo info, bool perLoc = true)
 	{
@@ -166,6 +169,7 @@ private:
 	std::vector<std::unique_ptr<AssertStatement>> asserts_{};
 	std::vector<std::unique_ptr<ExportStatement>> exports_{};
 	Theory theory_{};
+	Assumptions assumptions_{};
 
 	/* Store some commonly used expressions for easy access */
 	LetStatement *ppo_{};
