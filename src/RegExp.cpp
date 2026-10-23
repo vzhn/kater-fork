@@ -20,9 +20,7 @@
 #include "Error.hpp"
 #include "Logger.hpp"
 #include "Relation.hpp"
-#include "Saturation.hpp"
 #include "Theory.hpp"
-#include "Utils.hpp"
 
 #include <cstdlib>
 #include <string_view>

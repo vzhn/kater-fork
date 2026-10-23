@@ -21,7 +21,6 @@
 
 #include "Assumptions.hpp"
 #include "DbgInfo.hpp"
-#include "Parser.hpp"
 #include "Theory.hpp"
 
 class KatModule {

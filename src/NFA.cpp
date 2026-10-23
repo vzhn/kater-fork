@@ -17,7 +17,6 @@
  */
 
 #include "NFA.hpp"
-#include "Config.hpp"
 #include "Error.hpp"
 #include "StatePair.hpp"
 #include <algorithm>
