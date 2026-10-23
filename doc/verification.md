@@ -95,9 +95,9 @@ error: for files of false claims Kater has to reject.
 
     kater-oracle audit [-n EVENTS]
 
-Every fact the Theory states about the builtins: inclusions between relations
-(`Theory::isIncludedIn`), domains and codomains, inclusions and disjointness
-between predicates, the label pairs that do not compose, the relations treated
+Every fact the Theory states about the builtins: inclusions between relations,
+predicates and whole letters (`Theory::isIncludedIn`), domains and codomains,
+disjointness between predicates, the label pairs that do not compose, the relations treated
 as eco, the per-location variants, and the built-in assumptions
 (`fr;mo <= fr`, `po;po <= po`, `mo;mo <= mo`, `rf;fr <= mo`).
 
@@ -287,7 +287,8 @@ exported checkers are the same as without them.
 
 After the fixes:
 
-- the audit finds no false fact (2108 hold, up to 4 events);
+- the audit finds no false fact (2108 hold, up to 4 events; 2960 with the
+  inclusions between whole letters, up to 3);
 - the transformation contracts hold on random expressions: over 1000 at
   depth 3 and 1600 at depth 4 for every pass, up to 4 events (the predicate
   passes in the context `normalize` calls them in);
