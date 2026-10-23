@@ -1,0 +1,2 @@
+// The [R] branch relates each read to itself, and po does not
+assert (po | [R]) & id <= po

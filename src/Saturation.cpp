@@ -39,6 +39,13 @@ void duplicateStatesForInitPreds(NFA &nfa)
 	}
 	nfa.flip();
 
+	/* ... and starting states no incoming ones: the predicates a starting
+	 * state is left by are then the first letters of words, not the
+	 * letters after a loop back to it */
+	for (auto *s : nfa.starting() | RV::filter([](auto *s) { return s->hasIncoming(); })) {
+		nfa.splitState(s, [](auto & /*t*/) { return false; });
+	}
+
 	std::set<PredicateSet> preds;
 	for (auto *s : nfa.starting()) {
 		for (auto &t :
@@ -86,6 +93,19 @@ void saturateInitFinalPreds(NFA &nfa, const Theory &theory)
 	if (ipreds.empty()) {
 		return;
 	}
+
+	/* The states on words without an initial predicate: the starting states
+	 * (a final predicate leaving one is a word on its own) and the states
+	 * after a first relation. A final predicate leaving one of them has to
+	 * stay as it is, as there is no initial predicate to merge it with */
+	std::vector<NFA::State *> afterRelation;
+	for (auto *s : nfa.starting())
+		for (auto &t : s->outs() | RV::filter([](auto &t) { return t.label.isRelation(); }))
+			afterRelation.push_back(t.dest);
+	auto unmerged = calculateReachableFrom(nfa, afterRelation);
+	for (auto *s : nfa.starting())
+		unmerged[s->getId()] = true;
+
 	std::for_each(nfa.accept_begin(), nfa.accept_end(), [&](auto *s) {
 		std::vector<NFA::Transition> toAdd;
 		std::vector<NFA::Transition> toRemove;
@@ -94,7 +114,8 @@ void saturateInitFinalPreds(NFA &nfa, const Theory &theory)
 				continue;
 			}
 
-			toRemove.push_back(*tIt);
+			if (!unmerged[tIt->dest->getId()])
+				toRemove.push_back(*tIt);
 			auto reaching = calculateReachingTo(nfa, {tIt->dest});
 			std::for_each(ipreds.begin(), ipreds.end(), [&](auto &ip) {
 				auto t = *tIt;
