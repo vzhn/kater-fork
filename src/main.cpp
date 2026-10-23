@@ -16,12 +16,14 @@
  * http://www.gnu.org/licenses/gpl-3.0.html.
  */
 
+#include "Checker.hpp"
 #include "Config.hpp"
 #include "Error.hpp"
-#include "Kater.hpp"
+#include "Exporter.hpp"
 #include "ParsingDriver.hpp"
 #include "Printer.hpp"
 
+#include <cstdlib>
 #include <cstring>
 #include <iostream>
 #include <memory>
@@ -44,12 +46,13 @@ auto main(int argc, char **argv) -> int
 		std::cerr << "Done.\n";
 	}
 
-	Kater kater(config, parser.takeModule());
+	auto module = parser.takeModule();
+	Checker checker(*module, {.parallel = config.parallel, .trace = config.verbose >= 2});
 
 	if (config.verbose >= 1) {
 		std::cerr << "Checking assertions... ";
 	}
-	if (!kater.checkAssertions()) {
+	if (!checker.checkAssertions()) {
 		exit(ECHECK);
 	}
 	if (config.verbose >= 1) {
@@ -60,7 +63,8 @@ auto main(int argc, char **argv) -> int
 		if (config.verbose >= 1) {
 			std::cerr << "Exporting code... ";
 		}
-		if (!kater.exportCode()) {
+		Exporter exporter(*module, checker, config);
+		if (!exporter.exportCode()) {
 			exit(EPRINT);
 		}
 		if (config.verbose >= 1) {

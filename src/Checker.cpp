@@ -16,36 +16,41 @@
  * http://www.gnu.org/licenses/gpl-3.0.html.
  */
 
-#include "Kater.hpp"
+#include "Checker.hpp"
 
-#include "AdjList.hpp"
-#include "Config.hpp"
+#include "Constraint.hpp"
+#include "Counterexample.hpp"
 #include "Error.hpp"
-#include "GenMCPrinter.hpp"
+#include "KatModule.hpp"
 #include "Logger.hpp"
+#include "NFA.hpp"
 #include "NFAUtils.hpp"
+#include "Predicate.hpp"
+#include "RegExp.hpp"
 #include "RegExpUtils.hpp"
 #include "Relation.hpp"
 #include "Saturation.hpp"
-#include "SavedExp.hpp"
 #include "Statement.hpp"
 #include "Utils.hpp"
 #include "VSet.hpp"
 #include "Visitor.hpp"
 
 #include <algorithm>
+#include <cassert>
 #include <cstddef>
 #include <cstdint>
 #include <deque>
 #include <execution>
 #include <iostream>
 #include <map>
-#include <numeric>
+#include <memory>
 #include <optional>
+#include <ranges>
 #include <string>
 #include <utility>
+#include <vector>
 
-#define DEBUG_TYPE "kater"
+#define DEBUG_TYPE "checker"
 
 /*************************************************************
  *              Types and generic utils functions
@@ -461,7 +466,7 @@ void completeCounterexample(const NFA &nfa, NFA::State *s, Counterexample &cex)
 	}
 }
 
-static auto cexNote(const Counterexample &cex, const Theory &theory) -> std::string
+auto cexNote(const Counterexample &cex, const Theory &theory) -> std::string
 {
 	return "\n  counterexample: " + toString(cex, theory);
 }
@@ -686,7 +691,7 @@ static auto antichainInsert(const SimState &state,
 	return true;
 }
 
-auto Kater::isDFASubLanguageOfNFA(NFA &nfa, const NFA &other) const -> InclusionResult
+auto Checker::isDFASubLanguageOfNFA(NFA &nfa, const NFA &other) const -> InclusionResult
 {
 	KATER_DEBUG(std::cout << "Checking inclusion between automata:" << std::endl;
 		    std::cout << nfa << "and " << other << std::endl;);
@@ -751,7 +756,7 @@ auto Kater::isDFASubLanguageOfNFA(NFA &nfa, const NFA &other) const -> Inclusion
 	return {.result = true, .cex = {}};
 }
 
-auto Kater::checkInclusion(SubsetConstraint &subsetC) const -> InclusionResult
+auto Checker::checkInclusion(SubsetConstraint &subsetC) const -> InclusionResult
 {
 	auto &module = getModule();
 	auto &theory = module.getTheory();
@@ -789,9 +794,9 @@ auto Kater::checkInclusion(SubsetConstraint &subsetC) const -> InclusionResult
 	return isDFASubLanguageOfNFA(lhs, nfa2);
 }
 
-auto Kater::checkAssertion(Constraint &cst) -> InclusionResult
+auto Checker::checkAssertion(Constraint &cst) -> InclusionResult
 {
-	if (getConf().verbose >= 2) {
+	if (getOptions().trace) {
 		std::cerr << "Checking assertion " << WithTheory(cst, getTheory()) << "\n";
 	}
 
@@ -814,7 +819,7 @@ auto Kater::checkAssertion(Constraint &cst) -> InclusionResult
 	return result;
 }
 
-auto Kater::checkAssertions() -> bool
+auto Checker::checkAssertions() -> bool
 {
 	/*
 	 * First, simplify the module.
@@ -827,7 +832,8 @@ auto Kater::checkAssertions() -> bool
 	/* Helper function to dispatch checkers as the different policies do not share a type */
 	auto maybe_parallelize = [&]<typename F>(F f) {
 #ifdef __cpp_lib_execution
-		return getConf().parallel ? f(std::execution::par_unseq) : f(std::execution::seq);
+		return getOptions().parallel ? f(std::execution::par_unseq)
+					     : f(std::execution::seq);
 #else
 		return f(false); // ifdef types don't match but this is OK (false remains unused)
 #endif
@@ -860,126 +866,7 @@ auto Kater::checkAssertions() -> bool
 	return status;
 }
 
-/*************************************************************
- *              Code export
- ************************************************************/
-
-/*
- * Checks whether each kid of some MutRecRE is using productive recursive calls.
- * E.g., :
- *  - let rec x = x        => not productive
- *  - let rec x = x? ; po  => productive
- *  - let rec x = y | po
- *        and y = [REL]    => productive (x non productive, y productive)
- *
- * Returns a vector of pairs denoting whether each kid is productive, and its starting rec symbols
- */
-auto collectProductiveRecursions(const MutRecRE *re) -> std::vector<std::pair<bool, VSet<Relation>>>
-{
-	/* Helper lambda to recurse to all kids */
-	auto checkProdRec = [&](const RegExp *re, const VSet<Relation> &recs,
-				auto &funRef) -> std::pair<bool, VSet<Relation>> {
-		if (auto *charRE = dynamic_cast<const CharRE *>(re)) {
-			/* [] are non-productive */
-			if (charRE->isPredicate())
-				return {false, {}};
-			/* r in recs is also non productive, because it can only appear at the
-			 * leftmost place of composition */
-			if (recs.contains(*charRE->getLabel().getRelation()))
-				return {false, {*charRE->getLabel().getRelation()}};
-			/* all other relations are productive */
-			return {true, {}};
-		}
-		/* r?, r* are non-productive */
-		auto *qmarkRE = dynamic_cast<const QMarkRE *>(re);
-		auto *starRE = dynamic_cast<const StarRE *>(re);
-		if (qmarkRE || starRE) {
-			return {false, funRef(re->getKid(0), recs, funRef).second};
-		}
-		/* r=r1;...;rn is productive if tail(r) is productive */
-		if (auto *seqRE = dynamic_cast<const SeqRE *>(re)) {
-			assert(seqRE->getNumKids() > 1);
-			auto tailProductive =
-				std::any_of(seqRE->kid_begin() + 1, seqRE->kid_end(), [&](auto &k) {
-					return funRef(&*k, recs, funRef).first;
-				});
-			return {tailProductive, funRef(seqRE->getKid(0), recs, funRef).second};
-		}
-
-		/* In all other cases, just accumulate kid results */
-		return std::accumulate(
-			re->kid_begin(), re->kid_end(), std::pair<bool, VSet<Relation>>(true, {}),
-			[&](auto acc, auto &elem) {
-				auto result = funRef(&*elem, recs, funRef);
-				if (!result.first)
-					acc.second.insert(result.second);
-				return std::make_pair(acc.first && result.first, acc.second);
-			});
-	};
-
-	auto recs = re->recs();
-	VSet<Relation> rels(std::ranges::begin(recs), std::ranges::end(recs));
-	return std::accumulate(re->kid_begin(), re->kid_end(),
-			       std::vector<std::pair<bool, VSet<Relation>>>(),
-			       [&](auto acc, auto &elem) {
-				       acc.push_back(checkProdRec(&*elem, rels, checkProdRec));
-				       return std::move(acc);
-			       });
-}
-
-/*
- * Returns a "call-graph" of productive calls:
- *  whenever a recursive relation X non-productively calls Y (see checkProductiveRecusion),
- *  the graph contains an edge Y->X
- */
-auto constructRecCallGraph(const MutRecRE *re) -> AdjList<Relation, RelationHasher>
-{
-	auto recs = re->recs();
-	std::vector<Relation> rels(std::ranges::begin(recs), std::ranges::end(recs));
-	AdjList<Relation, RelationHasher> graph(rels);
-	auto i = 0U;
-	for (auto &[prod, starting] : collectProductiveRecursions(re)) {
-		if (!prod) {
-			for (auto &rel : starting)
-				graph.addEdge(rel, re->getRec(i));
-		}
-		i++;
-	}
-	return graph;
-}
-
-auto containsMandatoryRegistrations(const KatModule &module) -> bool
-{
-	auto ppo = module.getPPODeclaration();
-	if (!ppo) {
-		LOG(VerbosityLevel::Error) << "no top-level 'ppo' definition provided";
-		return false;
-	}
-	auto hb = module.getHBDeclaration();
-	if (!hb) {
-		LOG(VerbosityLevel::Error) << "no top-level 'hb' definition provided";
-		return false;
-	}
-	if (!dynamic_cast<const ViewExp *>(hb->getSaved())) {
-		LOG_AT(VerbosityLevel::Error, hb->getDbgInfo())
-			<< "'hb' must be stored in a view\n"
-			   "  note: declare it as \"view hb = ...\" instead of \"let hb = ...\"";
-		return false;
-	}
-	auto coh = module.getCOHDeclaration();
-	if (!coh) {
-		LOG(VerbosityLevel::Error) << "no coherence constraint provided";
-		return false;
-	}
-	if (!dynamic_cast<const ViewExp *>(coh->getSaved())) {
-		LOG_AT(VerbosityLevel::Error, coh->getDbgInfo())
-			<< "coherence constraint must take a view argument";
-		return false;
-	}
-	return true;
-}
-
-auto Kater::isPPOIntersectionInPPO(const AcyclicConstraint *acyc) const -> InclusionResult
+auto Checker::isPPOIntersectionInPPO(const AcyclicConstraint *acyc) const -> InclusionResult
 {
 	auto &theory = getModule().getTheory();
 	auto nfa = acyc->getRE()->toNFA();
@@ -1046,404 +933,4 @@ auto Kater::isPPOIntersectionInPPO(const AcyclicConstraint *acyc) const -> Inclu
 	removeDeadStates(nfa2);
 	normalize(nfa2, theory);
 	return isDFASubLanguageOfNFA(lhs, nfa2);
-}
-
-/**
- * Ensure that all saved relations are included in pporf and are transitive.
- * For mutually recursive relations: Check that some possible export order exists */
-auto Kater::checkSavedRelsExportRequirements(const RegExp &pporf) -> bool
-{
-	auto status = true;
-	auto &module = getModule();
-	const auto *ppo = module.getPPODeclaration()->getRE();
-	for (auto &let : module.lets()) {
-		if (dynamic_cast<const NoSavedExp *>(let->getSaved()) != nullptr)
-			continue;
-
-		const auto *view = dynamic_cast<const ViewExp *>(let->getSaved());
-		const auto *mutRec = dynamic_cast<const MutRecRE *>(let->getRE());
-
-		auto require = [&](std::unique_ptr<Constraint> cst, const char *what) -> bool {
-			auto result = checkAssertion(*cst);
-			if (result.result)
-				return true;
-			LOG_AT(VerbosityLevel::Error, let->getDbgInfo())
-				<< what << ": " << WithTheory(*let->getRE(), getTheory())
-				<< cexNote(result.cex, getTheory());
-			return false;
-		};
-
-		if (view == nullptr)
-			status &= require(SubsetConstraint::create(let->getRE()->clone(),
-								   StarRE::createOpt(pporf.clone()),
-								   false, false),
-					  "saved relation not included in pporf");
-		else
-			status &= require(
-				SubsetConstraint::create(
-					let->getRE()->clone(),
-					AltRE::createOpt(StarRE::createOpt(module.createPORF()),
-							 RegExp::createId()),
-					false, false),
-				"view not included in porf | id");
-
-		// FIXME: prefix should be the reduced RE if we ever allow custom reductions
-		status &= require(SubsetConstraint::createOpt(
-					  SeqRE::createOpt(ppo->clone(), let->getRE()->clone()),
-					  let->getRE()->clone(), false, false),
-				  "reduced relation not transitive");
-
-		/* For mutually recursive views, check that we can export them in some order
-		 */
-		if (view != nullptr && mutRec != nullptr) {
-			if (!constructRecCallGraph(mutRec).transClosure().isIrreflexive()) {
-				LOG_AT(VerbosityLevel::Error, let->getDbgInfo())
-					<< "could not resolve view calculation order: "
-					<< WithTheory(*let->getRE(), getTheory());
-				status = false;
-			}
-		}
-	}
-	return status;
-}
-
-auto Kater::checkExportRequirements() -> bool
-{
-	auto &module = getModule();
-
-	if (!containsMandatoryRegistrations(module))
-		return false;
-
-	/* Ensure that pporf is implied by the acyclicity constraints */
-	auto pporf = module.createPPORF();
-	auto acycsView =
-		module.exports() | std::views::filter([&](auto &stmt) {
-			return dynamic_cast<const AcyclicConstraint *>(stmt->getConstraint());
-		}) |
-		std::views::transform([&](auto &stmt) {
-			return dynamic_cast<const AcyclicConstraint *>(stmt->getConstraint());
-		});
-	auto acycDisj = std::accumulate(acycsView.begin(), acycsView.end(), RegExp::createFalse(),
-					[&](auto re1, auto *acyc) {
-						return AltRE::createOpt(re1->clone(),
-									acyc->getRE()->clone());
-					});
-	auto noOOTA = SubsetConstraint::create(
-		pporf->clone(), StarRE::createOpt(std::move(acycDisj)), false, false);
-	auto [status, cex] = checkAssertion(*noOOTA);
-	if (!status) {
-		LOG(VerbosityLevel::Warning)
-			<< "acyclicity constraints do not preclude OOTA" << note
-			<< "OOTA has to be enforced by the model checker"
-			<< cexNote(cex, getTheory());
-		status = true; /* treat as a soft error */
-	}
-
-	/* Check extensibility */
-	for (auto *ac : acycsView) {
-		if (auto [ok, cex] = isPPOIntersectionInPPO(ac); !ok) {
-			LOG(VerbosityLevel::Error)
-				<< "acyclic constraint /\\ ar is not included in ppo: "
-				<< WithTheory(*ac, getTheory()) << cexNote(cex, getTheory());
-			status = false;
-		}
-	}
-
-	/* Check correctness of "unless" clauses in acyclicity constraints */
-	for (auto &stmt : module.exports()) {
-		auto *currentCst = dynamic_cast<const AcyclicConstraint *>(stmt->getConstraint());
-		if (!currentCst || !stmt->getUnless())
-			continue;
-
-		/* A: all acyclicity constraints */
-		auto acycDisj = std::accumulate(acycsView.begin(), acycsView.end(),
-						RegExp::createFalse(), [&](auto re1, auto *ac) {
-							return AltRE::createOpt(
-								re1->clone(), ac->getRE()->clone());
-						});
-		/* A_R: acyclicity constraints w/o the current one */
-		auto acycDisjRest = std::accumulate(
-			acycsView.begin(), acycsView.end(), RegExp::createFalse(),
-			[&](auto re1, auto *ac) {
-				return *ac->getRE() == *currentCst->getRE()
-					       ? std::move(re1)
-					       : AltRE::createOpt(re1->clone(),
-								  ac->getRE()->clone());
-			});
-
-		/* A <= A_R | id; the id case is sound only if A is irreflexive */
-		module.getTheory().registerAssume(
-			AssumeStatement::create(stmt->getUnless()->clone(), true));
-		auto unlessOK = SubsetConstraint::create(
-			std::move(acycDisj),
-			AltRE::createOpt(std::move(acycDisjRest), RegExp::createId()), false,
-			false);
-		auto [unlessStatus, cex] = checkAssertion(*unlessOK);
-		if (!unlessStatus) {
-			LOG_AT(VerbosityLevel::Error, stmt->getDbgInfo())
-				<< "\"unless\" clause does not imply acyclicity constraint: "
-				<< WithTheory(*currentCst, getTheory())
-				<< cexNote(cex, getTheory());
-			status = false;
-		}
-		module.getTheory().clearTempAssumes();
-	}
-
-	if (!checkSavedRelsExportRequirements(*pporf))
-		status = false;
-	return status;
-}
-
-/* Helper function that, given an expression r ~ A | C;b+ applies FUN to b+ */
-template <typename F> void foreachTrailingTransBuiltin(std::unique_ptr<RegExp> &reUP, F &&fun)
-{
-	if (auto *charRE = dynamic_cast<const CharRE *>(&*reUP))
-		return;
-
-	/* If r ~ A | B or r ~ A? or r ~ A* or r ~ r;A, recurse to kids */
-	auto *qmarkRE = dynamic_cast<const QMarkRE *>(&*reUP);
-	auto *altRE = dynamic_cast<const AltRE *>(&*reUP);
-	auto *starRE = dynamic_cast<const StarRE *>(&*reUP);
-	auto *mutRecRE = dynamic_cast<const MutRecRE *>(&*reUP);
-	if (qmarkRE || altRE || starRE || mutRecRE) {
-		for (auto &kRE : reUP->kids())
-			foreachTrailingTransBuiltin(kRE, fun);
-		return;
-	}
-
-	/* If r ~ A;...;C recurse to C */
-	if (auto *seqRE = dynamic_cast<const SeqRE *>(&*reUP)) {
-		foreachTrailingTransBuiltin(reUP->getKid(reUP->getNumKids() - 1), fun);
-		return;
-	}
-
-	/* If r ~ B+ apply FUN if B is builtin; recurse otherwise */
-	auto *plusRE = dynamic_cast<const PlusRE *>(&*reUP);
-	assert(plusRE);
-	if (auto *charRE = dynamic_cast<const CharRE *>(plusRE->getKid(0))) {
-		if (charRE->isRelation() && charRE->getLabel().getRelation()->isBuiltin())
-			fun(reUP);
-		return;
-	}
-	foreachTrailingTransBuiltin(reUP->getKid(0), fun);
-}
-
-/*
- * Given the definition of a recursive expression r,
- * returns all builtins b such that r ~ r?;A;...;b+
- * Quits if r is not of the form r ~ r1;A;...;b+ | ... | rN;A;...;b+
- */
-auto collectTrailingTransBuiltins(Relation rel, std::unique_ptr<RegExp> &re)
-	-> VSet<std::unique_ptr<CharRE>>
-{
-	/* Helper function to determine whether we should collect trailing builtins */
-	auto collectSeqREs = [&](std::unique_ptr<RegExp> &re) {
-		std::vector<const SeqRE *> res;
-		if (auto *seqRE = dynamic_cast<const SeqRE *>(&*re)) {
-			res.push_back(seqRE);
-			return res;
-		}
-		auto *altRE = dynamic_cast<const AltRE *>(&*re);
-		if (!altRE || std::ranges::any_of(altRE->kids(), [](auto &kid) {
-			    return !dynamic_cast<const SeqRE *>(&*kid);
-		    }))
-			return res;
-		for (auto &k : altRE->kids())
-			res.push_back(dynamic_cast<const SeqRE *>(&*k));
-		return res;
-	};
-
-	/* If it's not a sequence, quit */
-	auto seqs = collectSeqREs(re);
-	if (seqs.empty())
-		return {};
-
-	/* Otherwise, collect CharRE UPs, as we might want to edit those REs in place later */
-	VSet<std::unique_ptr<CharRE>> result;
-
-	/* Helper function that will be applied to collect builtins (re ~ b+) */
-	auto collectTrailingFun = [&](std::unique_ptr<RegExp> &re) {
-		result.insert(std::unique_ptr<CharRE>(
-			dynamic_cast<CharRE *>(re->getKid(0)->clone().release())));
-	};
-
-	for (auto *seqRE : seqs) {
-		/* If r is a sequence, it has to start with r or r? (i.e., be recursive) */
-		if (auto *charRE = dynamic_cast<const CharRE *>(seqRE->getKid(0))) {
-			if (charRE->isRelation() && *charRE->getLabel().getRelation() == rel)
-				foreachTrailingTransBuiltin(re->getKid(1), collectTrailingFun);
-		}
-		if (auto *qmarkRE = dynamic_cast<const QMarkRE *>(seqRE->getKid(0))) {
-			auto *charRE = dynamic_cast<const CharRE *>(qmarkRE->getKid(0));
-			if (charRE && charRE->isRelation() &&
-			    *charRE->getLabel().getRelation() == rel)
-				foreachTrailingTransBuiltin(re->getKid(1), collectTrailingFun);
-		}
-	}
-	return result;
-}
-
-static void warnNonIncrementalView(const LetStatement &let, const RegExp *builtin,
-				   const Theory &theory)
-{
-	auto reason = builtin != nullptr ? "it is not closed under " + toString(*builtin, theory)
-					 : std::string("it does not end in a transitive relation");
-	LOG_AT(VerbosityLevel::Warning, let.getDbgInfo())
-		<< "view '" << let.getName() << "' cannot be computed incrementally: " << reason
-		<< note
-		<< "the generated checker will walk the whole chain for every event, which is "
-		   "quadratic in the thread length";
-}
-
-void Kater::optimizeModuleForExport()
-{
-	auto &module = getModule();
-	auto &theory = module.getTheory();
-
-	/* Calculate export order for views */
-	// FIXME: When we update to C++23, consider chunk_by()
-	auto svars = module.lets();
-	for (auto it = svars.begin(), ie = svars.end(); it != ie; ++it) {
-		if (!dynamic_cast<const MutRecRE *>((*it)->getRE())) {
-			continue;
-		}
-
-		auto prevIt = it;
-		auto *mutRecRE = dynamic_cast<const MutRecRE *>((*it)->getRE());
-		auto recs = mutRecRE->recs();
-		auto graph = constructRecCallGraph(mutRecRE).transClosure();
-		while (it != ie && dynamic_cast<const MutRecRE *>((*it)->getRE()) &&
-		       std::ranges::find(recs, dynamic_cast<const MutRecRE *>((*it)->getRE())
-						       ->getRelation()) != recs.end()) {
-			++it;
-		}
-		std::sort(prevIt, it, [&](auto &let1, auto &let2) {
-			auto rel1 = dynamic_cast<const MutRecRE *>(let1->getRE())->getRelation();
-			auto rel2 = dynamic_cast<const MutRecRE *>(let2->getRE())->getRelation();
-			return graph(rel1, rel2);
-		});
-		--it;
-	}
-
-	/* Optimize calculation for transitive views */
-	for (auto &let : module.lets()) {
-		auto *plusRE = dynamic_cast<const PlusRE *>(let->getRE());
-		if (!plusRE || !dynamic_cast<const ViewExp *>(let->getSaved())) {
-			continue;
-		}
-
-		auto rel = Relation::createUser();
-		theory.registerRelation(
-			rel, RelationInfo{.name = let->getName(), .dbg = let->getDbgInfo()});
-		auto newViewRE =
-			SeqRE::createOpt(QMarkRE::createOpt(CharRE::create(TransLabel(rel))),
-					 plusRE->getKid(0)->clone());
-		std::vector<std::unique_ptr<RegExp>> defs;
-		defs.emplace_back(newViewRE->clone());
-		auto newRE = MutRecRE::createOpt(rel, {rel}, std::move(defs));
-		LOG_AT(VerbosityLevel::Note, let->getDbgInfo())
-			<< "rewriting transitive view '" << let->getName()
-			<< "' as a recursive definition" << note
-			<< "before: " << WithTheory(*let->getRE(), theory) << note
-			<< "after:  " << WithTheory(*newRE, theory);
-
-		auto oldRE = plusRE->clone(); // copy so that it doesn't get replaced in place
-		module.replaceAllUsesWith(&*oldRE, &*newRE);
-		for (auto &let : module.lets()) {
-			auto *viewExp = dynamic_cast<ViewExp *>(let->getSaved());
-			if (!viewExp)
-				continue;
-			if (*viewExp->getRE() == *newRE)
-				viewExp->setRE(newViewRE->clone());
-		}
-	}
-
-	/* Replace builtins with their transitive counterparts for more efficient codegen */
-	auto oldPo = module.getRegisteredRE("po")->clone();
-	auto newPo = PlusRE::createOpt(module.getRegisteredRE("po-imm")->clone());
-	auto oldPoloc = module.getRegisteredRE("po-loc")->clone();
-	auto newPoloc = PlusRE::createOpt(module.getRegisteredRE("po-loc-imm")->clone());
-	auto oldMo = module.getRegisteredRE("mo")->clone();
-	auto newMo = PlusRE::createOpt(module.getRegisteredRE("mo-imm")->clone());
-	auto oldFr = module.getRegisteredRE("fr")->clone();
-	auto newFr = SeqRE::createOpt(module.getRegisteredRE("fr-imm")->clone(),
-				      StarRE::createOpt(module.getRegisteredRE("mo-imm")->clone()));
-	auto oldRmw = module.getRegisteredRE("rmw")->clone();
-	auto newRmw = SeqRE::createOpt(module.getRegisteredRE("UR")->clone(),
-				       module.getRegisteredRE("po-imm")->clone(),
-				       module.getRegisteredRE("UW")->clone());
-	module.replaceAllUsesWith(&*oldPo, &*newPo);
-	module.replaceAllUsesWith(&*oldPoloc, &*newPoloc);
-	module.replaceAllUsesWith(&*oldMo, &*newMo);
-	module.replaceAllUsesWith(&*oldFr, &*newFr);
-	module.replaceAllUsesWith(&*oldRmw, &*newRmw);
-
-	makeViewsIncremental();
-}
-
-/*
- * Rewrites each recursive view to step along an immediate relation where it is
- * closed under it, so that the generated calculation does not re-walk the whole
- * transitive chain for every event.
- */
-void Kater::makeViewsIncremental()
-{
-	auto &module = getModule();
-	auto &theory = module.getTheory();
-
-	for (auto &let : module.lets()) {
-		auto *mutRecRE = dynamic_cast<MutRecRE *>(let->getRE());
-		auto *viewExp = dynamic_cast<ViewExp *>(let->getSaved());
-		if (!mutRecRE || !viewExp) {
-			continue;
-		}
-
-		/* Helper function to check if a relation is closed w.r.t. some builtin */
-		auto isRecREClosedWRTBuiltin = [&](const auto &builtinRE) -> bool {
-			auto recBuiltin = SeqRE::createOpt(mutRecRE->clone(), builtinRE->clone());
-			auto recBuiltinInRec = SubsetConstraint::create(
-				std::move(recBuiltin), mutRecRE->clone(), false, false);
-			return checkAssertion(*recBuiltinInRec).result;
-		};
-
-		/* Get the respective recursive def */
-		std::vector<std::pair<std::unique_ptr<RegExp>, std::unique_ptr<RegExp>>> toRepl;
-		auto builtins =
-			collectTrailingTransBuiltins(mutRecRE->getRelation(), viewExp->getRERef());
-		if (builtins.empty())
-			warnNonIncrementalView(*let, nullptr, theory);
-		for (const auto &builtinRE : builtins) {
-			if (!isRecREClosedWRTBuiltin(builtinRE)) {
-				warnNonIncrementalView(*let, &*builtinRE, theory);
-				continue;
-			}
-			auto newRE = viewExp->getRE()->clone();
-			auto toReplaceRE = PlusRE::create(builtinRE->clone());
-			foreachTrailingTransBuiltin(newRE, [&](std::unique_ptr<RegExp> &builtin) {
-				replaceREWith(builtin, &*toReplaceRE, &*builtinRE);
-			});
-			const auto name = toString(*builtinRE, theory);
-			LOG_AT(VerbosityLevel::Note, let->getDbgInfo())
-				<< "computing '" << let->getName() << "' along " << name
-				<< " instead of its transitive " << name << "+" << note
-				<< "before: " << WithTheory(*viewExp->getRE(), theory) << note
-				<< "after:  " << WithTheory(*newRE, theory);
-
-			toRepl.emplace_back(viewExp->getRE()->clone(), std::move(newRE));
-		}
-
-		for (auto &[from, to] : toRepl)
-			module.replaceAllUsesWith(&*from, &*to);
-	}
-}
-
-auto Kater::exportCode() -> bool
-{
-	if (!checkExportRequirements())
-		return false;
-
-	optimizeModuleForExport();
-
-	GenMCPrinter p(getModule(), getConf());
-	return p.output();
 }

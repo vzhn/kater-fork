@@ -6,7 +6,8 @@ set(SOURCES
   DbgInfo.cpp
   Error.cpp
   GenMCPrinter.cpp
-  Kater.cpp
+  Checker.cpp
+  Exporter.cpp
   KatModule.cpp
   Logger.cpp
   NFA.cpp
