@@ -74,4 +74,19 @@ void saturateDomains(NFA &nfa, const Theory &theory);
  */
 void saturateRotate(NFA &nfa, const Theory &theory);
 
+/*
+ * Saturates the NFA given a hypothesis E <= WORD: wherever the NFA reads
+ * WORD from a state P to a state Q, adds a path from P to Q that reads E.
+ * This is sound because E <= WORD gives u;E;v <= u;WORD;v.
+ *
+ * The NFA reads WORD when each relation of WORD is included in the relation
+ * the NFA reads there, and each predicate the NFA checks on the way is
+ * implied by the predicates of WORD at that event. Each letter of WORD is a
+ * predicate check or a bare relation.
+ *
+ * Pre: NFA is in normal form
+ */
+void saturateSubword(NFA &nfa, const NFA &e, const std::vector<TransLabel> &word,
+		     const Theory &theory);
+
 #endif /* KATER_SATURATION_HPP */

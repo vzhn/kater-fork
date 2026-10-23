@@ -21,7 +21,10 @@
 #include "NFAUtils.hpp"
 #include "Theory.hpp"
 
+#include <algorithm>
 #include <ranges>
+#include <set>
+#include <vector>
 
 namespace RV = std::views;
 
@@ -335,6 +338,71 @@ void saturateDomains(NFA &nfa, const Theory &theory)
 		nfa.removeTransitions(&*s, toRemove.begin(), toRemove.end());
 		nfa.addTransitions(&*s, toAdd.begin(), toAdd.end());
 	});
+}
+
+void saturateSubword(NFA &nfa, const NFA &e, const std::vector<TransLabel> &word,
+		     const Theory &theory)
+{
+	/* Where the search is: the NFA's state, how much of WORD it has read, and
+	 * what WORD's predicates say about the current event */
+	struct Position {
+		NFA::State *state;
+		size_t read;
+		PredicateSet known;
+
+		auto operator<=>(const Position &) const = default;
+	};
+
+	std::vector<std::pair<NFA::State *, NFA::State *>> shortcuts;
+	for (auto &startUP : nfa.states()) {
+		std::set<Position> visited;
+		std::vector<Position> work;
+		auto visit = [&](Position pos) {
+			if (visited.insert(pos).second)
+				work.push_back(std::move(pos));
+		};
+
+		visit({&*startUP, 0, {}});
+		while (!work.empty()) {
+			auto pos = work.back();
+			work.pop_back();
+
+			if (pos.read == word.size())
+				shortcuts.emplace_back(&*startUP, pos.state);
+
+			/* WORD checks a predicate: it knows more about the event */
+			if (pos.read < word.size() && word[pos.read].isPredicate()) {
+				const auto &checks = word[pos.read].getPreChecks();
+				if (pos.known.size() + checks.size() <=
+				    PredicateSet::inlineCapacity) {
+					auto known = pos.known;
+					known.insert(checks);
+					visit({pos.state, pos.read + 1, known});
+				}
+				continue;
+			}
+
+			for (const auto &t : pos.state->outs()) {
+				/* The NFA checks a predicate WORD implies */
+				if (t.label.isPredicate()) {
+					if (theory.isIncludedIn(pos.known, t.label.getPreChecks()))
+						visit({t.dest, pos.read, pos.known});
+					continue;
+				}
+				/* Both read a relation, WORD's in the NFA's */
+				if (pos.read < word.size() &&
+				    theory.isIncludedIn(
+					    TransLabel(word[pos.read].getRelation(), pos.known),
+					    t.label))
+					visit({t.dest, pos.read + 1, {}});
+			}
+		}
+	}
+
+	std::ranges::sort(shortcuts);
+	shortcuts.erase(std::ranges::unique(shortcuts).begin(), shortcuts.end());
+	for (auto [p, q] : shortcuts)
+		addNFAPath(nfa, e, p, q);
 }
 
 void saturateRotate(NFA &nfa, const Theory &theory)

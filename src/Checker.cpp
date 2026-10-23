@@ -302,28 +302,19 @@ std::pair<bool, CompSchemeRHS> isSupportedCompScheme(const SubsetConstraint *ass
 	return {true, rhs};
 }
 
-NFA createCompilationNFA(const CompSchemeRHS &rhs, const Theory &theory)
+/* The word [A];po;[C];po;[B] of a compilation scheme */
+static auto compilationWord(const CompSchemeRHS &rhs) -> std::vector<TransLabel>
 {
-	std::vector<std::unique_ptr<RegExp>> disj;
-	for (auto &p : rhs.fence) {
-		auto pc = p;
-		pc.complement();
-		disj.push_back(CharRE::create(TransLabel(std::nullopt, {pc})));
-	}
-	assert(!disj.empty());
-	auto fenceExp = disj.size() == 1 ? std::move(disj[0]) : AltRE::create(std::move(disj));
-	auto po = CharRE::create(TransLabel(Relation::createBuiltin(Relation::BuiltinID::po)));
-	PredicateSet pre = rhs.pre.has_value() ? *rhs.pre : PredicateSet{};
-	PredicateSet post = rhs.post.has_value() ? *rhs.post : PredicateSet{};
-
-	auto reC = SeqRE::createOpt(
-		CharRE::create(TransLabel(std::nullopt, pre)),
-		StarRE::createOpt(SeqRE::createOpt(po->clone(), std::move(fenceExp))), po->clone(),
-		CharRE::create(TransLabel(std::nullopt, post)));
-
-	auto lNFA = reC->toNFA();
-	normalize(lNFA, theory);
-	return lNFA;
+	auto po = TransLabel(Relation::createBuiltin(Relation::BuiltinID::po));
+	std::vector<TransLabel> word;
+	if (rhs.pre.has_value())
+		word.emplace_back(std::nullopt, *rhs.pre);
+	word.push_back(po);
+	word.emplace_back(std::nullopt, rhs.fence);
+	word.push_back(po);
+	if (rhs.post.has_value())
+		word.emplace_back(std::nullopt, *rhs.post);
+	return word;
 }
 
 /* Saturates RHS with ASSM; returns whether the assumption was of a supported shape */
@@ -379,10 +370,20 @@ static auto expandSubsetAssumption(NFA &rhs, const SubsetConstraint *assm, const
 				std::move(lNFA), theory);
 		return true;
 	}
-	/* Handle `[A];po;[B] <= [A];po;[C];po;[B]` assumption */
+	/* Handle `[A];po;[B] <= [A];po;[C];po;[B]` assumption: wherever the RHS
+	 * reads [A];po;[C];po;[B], it may read [A];po;[B], i.e. [A];po+;[B] as
+	 * po is transitive. The + lets the shortcut read the po-chains of LHSs */
 	auto [supported, compRHS] = isSupportedCompScheme(assm, module.getRegisteredRE("po"));
 	if (supported) {
-		saturateEmpty(rhs, createCompilationNFA(compRHS, theory));
+		auto chain = SeqRE::createOpt(
+			CharRE::create(
+				TransLabel(std::nullopt, compRHS.pre.value_or(PredicateSet{}))),
+			PlusRE::createOpt(module.getRegisteredRE("po")->clone()),
+			CharRE::create(
+				TransLabel(std::nullopt, compRHS.post.value_or(PredicateSet{}))));
+		auto chainNFA = chain->toNFA();
+		normalize(chainNFA, theory);
+		saturateSubword(rhs, chainNFA, compilationWord(compRHS), theory);
 		return true;
 	}
 
