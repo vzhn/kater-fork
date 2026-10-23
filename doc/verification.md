@@ -226,6 +226,17 @@ refutes each (`ctest -L oracle`).
    Kater under ASan, UBSan and `_GLIBCXX_ASSERTIONS` on the test suite and on
    fuzzed assumptions.
 
+10. **Every export dereferenced a null pointer** ("Statement: no null
+    dereference for a missing unless or constraint"): `getUnless()` returned
+    `&*unless_` for exports without an `unless` clause. It happened to yield
+    `nullptr`; under `_GLIBCXX_ASSERTIONS` every export of every model aborted.
+
+Items 1–4, 7 and 8 made Kater prove false claims; the others crashed it, read
+memory it should not, or produced code GenMC rejects. Under the sanitizers the
+whole suite, the unit tests, 4000 fuzzed files and the export of every
+`kat/*-genmc.kat` model now run without a report, and the exported checkers are
+the same as without them.
+
 After the fixes:
 
 - the audit finds no false fact (2108 hold, up to 4 events);
