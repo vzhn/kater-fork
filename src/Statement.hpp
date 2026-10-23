@@ -46,9 +46,9 @@ public:
 	auto operator=(const Statement &) -> Statement & = delete;
 	virtual ~Statement() = default;
 
-	/** Returns the constraint carried by the statement */
-	[[nodiscard]] auto getConstraint() const -> const Constraint * { return &*constraint_; }
-	[[nodiscard]] auto getConstraint() -> Constraint * { return &*constraint_; }
+	/** Returns the constraint carried by the statement (none for a let) */
+	[[nodiscard]] auto getConstraint() const -> const Constraint * { return constraint_.get(); }
+	[[nodiscard]] auto getConstraint() -> Constraint * { return constraint_.get(); }
 	[[nodiscard]] auto getConstraintRef() const -> const std::unique_ptr<Constraint> &
 	{
 		return constraint_;
@@ -216,8 +216,8 @@ public:
 	[[nodiscard]] auto getID() const -> unsigned { return id_; }
 
 	/** Returns the "unless" clause accompanying the export */
-	auto getUnless() -> Constraint * { return &*unless_; }
-	[[nodiscard]] auto getUnless() const -> const Constraint * { return &*unless_; }
+	auto getUnless() -> Constraint * { return unless_.get(); }
+	[[nodiscard]] auto getUnless() const -> const Constraint * { return unless_.get(); }
 
 	/** Returns the code that should be printed before the generation of the export */
 	auto getCodeToPrint() -> std::optional<std::string> & { return codeToPrint_; }
