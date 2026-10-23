@@ -138,9 +138,16 @@ auto Theory::isIncludedIn(const PredicateSet &a, const PredicateSet &b) const ->
 
 auto Theory::isIncludedIn(const TransLabel &a, const TransLabel &b) const -> bool
 {
-	return isIncludedIn(a.getPreChecks(), b.getPreChecks()) &&
-	       (!a.isRelation() ||
-		(b.isRelation() && isIncludedIn(*a.getRelation(), *b.getRelation()))) &&
+	/* A predicate relates events to themselves, which, of the relations,
+	 * only `any` is sure to do: [R] is not within po */
+	auto relationIncluded = [&] {
+		if (a.isRelation())
+			return b.isRelation() && isIncludedIn(*a.getRelation(), *b.getRelation());
+		return b.isPredicate() ||
+		       (b.getRelation()->isBuiltin() &&
+			b.getRelation()->toBuiltin() == Relation::BuiltinID::any);
+	};
+	return isIncludedIn(a.getPreChecks(), b.getPreChecks()) && relationIncluded() &&
 	       isIncludedIn(a.getPostChecks(), b.getPostChecks());
 }
 
