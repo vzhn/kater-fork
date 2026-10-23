@@ -820,6 +820,8 @@ auto Checker::checkAssertion(Constraint &cst) -> InclusionResult
 			}
 		});
 	visitor(cst);
+	if (observer)
+		observer(cst, result);
 	return result;
 }
 

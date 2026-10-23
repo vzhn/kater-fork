@@ -22,6 +22,7 @@
 #include "Counterexample.hpp"
 #include "KatModule.hpp"
 
+#include <functional>
 #include <string>
 
 /*
@@ -55,6 +56,10 @@ public:
 		Counterexample cex;
 	};
 
+	/* Called with each constraint checkAssertion decides, and its verdict:
+	 * a record of what Kater claims, for checking it independently */
+	using Observer = std::function<void(const Constraint &, const InclusionResult &)>;
+
 	Checker() = delete;
 	Checker(KatModule &mod, Options opts = {}) : module(&mod), options(opts) {}
 
@@ -67,6 +72,8 @@ public:
 
 	/* Decide a subset or equality constraint */
 	auto checkAssertion(Constraint &cst) -> InclusionResult;
+
+	void setObserver(Observer obs) { observer = std::move(obs); }
 
 	/* Whether ACYC's extension with eco edges stays within ppo; the
 	 * code exporter relies on this to prune its acyclicity checks */
@@ -81,6 +88,7 @@ private:
 
 	KatModule *module;
 	Options options;
+	Observer observer;
 };
 
 /* A diagnostic note describing CEX, to be appended to an error message */
