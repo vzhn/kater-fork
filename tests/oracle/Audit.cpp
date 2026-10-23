@@ -191,6 +191,32 @@ auto audit(const SearchOptions &opts, bool verbose) -> bool
 		}
 	}
 
+	/* Inclusions between whole letters: predicate letters, relation letters,
+	 * and relation letters with a check, as the inclusion check compares them */
+	std::vector<TransLabel> letters;
+	for (const auto &p : preds)
+		letters.emplace_back(std::nullopt, PredicateSet{p});
+	for (const auto &r : rels) {
+		letters.emplace_back(r);
+		letters.emplace_back(r, PredicateSet{Predicate::createBuiltin(PB::R)});
+		letters.emplace_back(r, PredicateSet{},
+				     PredicateSet{Predicate::createBuiltin(PB::W)});
+	}
+	for (const auto &l1 : letters) {
+		for (const auto &l2 : letters) {
+			if (l1 == l2 || !theory.isIncludedIn(l1, l2))
+				continue;
+			/* The inclusions of relations alone are checked above */
+			if (l1.isRelation() && l2.isRelation() && !l1.hasPreChecks() &&
+			    !l1.hasPostChecks() && !l2.hasPreChecks() && !l2.hasPostChecks())
+				continue;
+			a.claim("letter " + a.name(l1) + " <= " + a.name(l2),
+				[&](Graph & /*g*/, Semantics &sem) {
+					return notIncluded(sem.eval(l1), sem.eval(l2));
+				});
+		}
+	}
+
 	/* Labels that do not compose: relation;relation, relation;[p] and [p];relation */
 	auto emptyComposition = [&](const TransLabel &l1, const TransLabel &l2) {
 		if (theory.composes(l1, l2))
