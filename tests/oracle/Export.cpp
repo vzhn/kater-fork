@@ -18,6 +18,7 @@
 
 #include "Export.hpp"
 
+#include "Certificate.hpp"
 #include "Checker.hpp"
 #include "Config.hpp"
 #include "Exporter.hpp"
@@ -32,6 +33,7 @@
 #include <iostream>
 #include <map>
 #include <memory>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -178,6 +180,18 @@ auto validateExport(const std::string &file, const SearchOptions &opts, bool ver
 		claims.push_back(std::move(claim));
 	});
 
+	/* ... and the certificates of the ones it proved */
+	std::vector<std::string> invalid;
+	std::set<std::pair<TransLabel, TransLabel>> inclusions;
+	checker.setCertificateSink(
+		[&](const SubsetConstraint &c, const Checker::Certificate &cert) {
+			if (auto why = checkCertificate(cert))
+				invalid.push_back(toString(c, module->getTheory()) + ": " + *why);
+			for (const auto &[a, b] : cert.inclusions)
+				if (a != b)
+					inclusions.emplace(a, b);
+		});
+
 	/* Export into a scratch directory: only the module's rewriting matters here */
 	auto dir = std::filesystem::temp_directory_path() /
 		   ("kater-oracle-export-" + std::to_string(getpid()));
@@ -241,8 +255,18 @@ auto validateExport(const std::string &file, const SearchOptions &opts, bool ver
 				sameMeaning("rewrite in an export", *olds[k], *news[k]);
 	}
 
+	/* The certificates of the claims, and the letter inclusions they rest on */
+	for (const auto &why : invalid)
+		std::cout << "INVALID certificate for " << why << "\n";
+	for (const auto &[a, b] : inclusions)
+		v.expectNone("letter inclusion " + toString(a, theory) +
+				     " <= " + toString(b, theory),
+			     noExtra, [&](Graph & /*g*/, Semantics &sem) {
+				     return !sem.eval(a).includedIn(sem.eval(b));
+			     });
+
 	v.summary(file);
-	return v.ok();
+	return v.ok() && invalid.empty();
 }
 
 } // namespace oracle
