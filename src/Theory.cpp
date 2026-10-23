@@ -70,8 +70,9 @@ auto Theory::isIncludedIn(const Relation &a, const Relation &b) const -> bool
 		return false;
 	}
 
-	/* r&loc <= r */
-	if (hasPerLoc(b) && getPerLoc(b) == a) {
+	/* r&loc <= r. The variant of po-imm is the exception: po-loc-imm is the
+	 * next event on the same location, which need not be the next event */
+	if (hasPerLoc(b) && getPerLoc(b) == a && !(b.isBuiltin() && b.toBuiltin() == RB::po_imm)) {
 		return true;
 	}
 
@@ -96,9 +97,15 @@ auto Theory::isIncludedIn(const Relation &a, const Relation &b) const -> bool
 		return true;
 	}
 
-	/* moi, rfi, fri, po_imm, po_loc_imm, po_loc, rmw <= po,po-loc */
-	if ((rb == RB::po || rb == RB::po_loc) && RB::WithinPoBegin <= lb &&
-	    lb <= RB::WithinPoLast) {
+	/* The relations within a thread are in po. Those that keep the location
+	 * (rfi, moi, fri, detour, rmw, po-loc-imm) are in po-loc too; the
+	 * dependencies and po-imm are not */
+	const auto withinPo = RB::WithinPoBegin <= lb && lb <= RB::WithinPoLast;
+	if (rb == RB::po && withinPo) {
+		return true;
+	}
+	if (rb == RB::po_loc && withinPo && hasInfo(a) &&
+	    getInfo(a).locInfo == RelLocInfo::KeepsLoc) {
 		return true;
 	}
 	return false;
