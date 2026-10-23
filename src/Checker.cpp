@@ -775,7 +775,7 @@ auto Checker::checkInclusion(SubsetConstraint &subsetC) const -> InclusionResult
 
 	auto nfa2 = subsetC.getRHS()->toNFA();
 	normalize(nfa2, theory);
-	for (const auto &assm : theory.assumes()) {
+	for (const auto &assm : module.getAssumptions()) {
 		expandAssumption(nfa2, &*assm, module);
 		normalize(nfa2, theory);
 	}
@@ -827,7 +827,7 @@ auto Checker::checkAssertions() -> bool
 	 * decide to do so, the relevant routines should be placed in
 	 * a new file.
 	 */
-	getModule().getTheory().simplify();
+	getModule().getAssumptions().incorporateInto(getModule().getTheory());
 
 	/* Helper function to dispatch checkers as the different policies do not share a type */
 	auto maybe_parallelize = [&]<typename F>(F f) {
@@ -925,7 +925,7 @@ auto Checker::isPPOIntersectionInPPO(const AcyclicConstraint *acyc) const -> Inc
 			    RegExp::createId())
 			    ->toNFA();
 	normalize(nfa2, theory);
-	for (const auto &assm : theory.assumes()) {
+	for (const auto &assm : getModule().getAssumptions()) {
 		expandAssumption(nfa2, &*assm, getModule());
 		normalize(nfa2, theory);
 	}

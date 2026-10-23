@@ -1,4 +1,5 @@
 set(SOURCES
+  Assumptions.cpp
   Builtins.cpp
   Config.cpp
   Constraint.cpp

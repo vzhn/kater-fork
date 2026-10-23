@@ -52,7 +52,7 @@ void KatModule::replaceAllUsesWith(const RegExp *from, const RegExp *to)
 		else if (auto *sexp = dynamic_cast<SetExp *>(&*savedUP))
 			replaceREWith(sexp->getRERef(), from, to);
 	}
-	for (auto &assm : getTheory().assumes()) {
+	for (auto &assm : getAssumptions()) {
 		visitor(*assm->getConstraint());
 	}
 	for (auto &assrt : asserts()) {

@@ -281,7 +281,7 @@ auto Exporter::checkExportRequirements() -> bool
 			});
 
 		/* A <= A_R | id; the id case is sound only if A is irreflexive */
-		module.getTheory().registerAssume(
+		module.getAssumptions().add(
 			AssumeStatement::create(stmt->getUnless()->clone(), true));
 		auto unlessOK = SubsetConstraint::create(
 			std::move(acycDisj),
@@ -295,7 +295,7 @@ auto Exporter::checkExportRequirements() -> bool
 				<< cexNote(cex, getTheory());
 			status = false;
 		}
-		module.getTheory().clearTempAssumes();
+		module.getAssumptions().clearTemporary();
 	}
 
 	if (!checkSavedRelsExportRequirements(*pporf))

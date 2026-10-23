@@ -21,17 +21,22 @@
 
 #include "Predicate.hpp"
 #include "Relation.hpp"
-#include "Statement.hpp"
+#include "TransLabel.hpp"
 #include "VSet.hpp"
 
 #include <cassert>
 #include <ranges>
 
 /*
- * Represents some amount of built-in knowledge.
+ * Represents the structural knowledge about a model's relations and
+ * predicates: their names, domains and codomains, per-location variants,
+ * which predicates include or exclude one another, and which relations
+ * are included in which.
  *
- *  - Currently represents all knowledge available to Kater, but
- *    it could be a particular subset too.
+ * Every answer the Theory gives is a hypothesis the decision procedure
+ * builds on, so this is part of the trusted base. Hypotheses stated as
+ * constraints between expressions live in Assumptions instead.
+ *
  *  - A Theory object could hold knowledge taken from different
  *    modules, if we ever decide to support this (currently a single
  *    module is supported).
@@ -42,17 +47,7 @@ public:
 	/** Creates an empty theory */
 	Theory() = default;
 
-	auto assume_begin() { return assumes_.begin(); }
-	auto assume_end() { return assumes_.end(); }
-	auto assumes() { return std::ranges::ref_view(assumes_); }
-
-	[[nodiscard]] auto assume_begin() const { return assumes_.begin(); }
-	[[nodiscard]] auto assume_end() const { return assumes_.end(); }
-	[[nodiscard]] auto assumes() const { return std::ranges::ref_view(assumes_); }
-
 	[[nodiscard]] auto relations() const { return std::ranges::ref_view(relations_); }
-
-	auto getAssumeNum() const -> size_t { return assumes_.size(); }
 
 	void registerRelation(Relation r, RelationInfo info)
 	{
@@ -95,19 +90,6 @@ public:
 	{
 		assert(relations_.contains(r.getID()));
 		relations_[r.getID()].codom.insert(codom);
-	}
-
-	// Registers an "assume c" declaration
-	void registerAssume(std::unique_ptr<AssumeStatement> assm)
-	{
-		assumes_.push_back(std::move(assm));
-	}
-
-	void clearTempAssumes()
-	{
-		assumes_.erase(std::remove_if(assume_begin(), assume_end(),
-					      [&](auto &stmtUP) { return stmtUP->isTemporary(); }),
-			       assume_end());
 	}
 
 	void registerDisjointPreds(VSet<Predicate::ID> preds)
@@ -209,20 +191,7 @@ public:
 		return r.isInverse() ? info.dom : info.codom;
 	}
 
-	/** Tries to simplify the theory by dropping or transforming assumptions.
-	 * Idempotent. */
-	auto simplify() -> Theory &;
-
 private:
-	/** If CST contains domain/codomain information, incorporates it
-	 * to the relevant assumptions. Returns whether that was the case. */
-	auto tryIncorporateDomAssumption(const AssumeStatement *assm) -> bool;
-
-	/** If CST contains information about incompatible predicates,
-	 * it incorporates it to the relevant assumptions. Returns whether
-	 * that was the case. */
-	auto tryIncorporateIncompatAssumption(const AssumeStatement *assm) -> bool;
-
 	/* It is tempting to use Relation as Key below; doing so, however,
 	 * would force us to store duplicate information (for the reverse relation) */
 	std::unordered_map<Relation::ID, RelationInfo> relations_{};
@@ -231,8 +200,6 @@ private:
 	std::unordered_map<Predicate::ID, VSet<Predicate::ID>> subsetPreds_{};
 	VSet<VSet<Predicate::ID>> disjointPreds_{};
 	VSet<VSet<Predicate::ID>> invalidPreds_{};
-
-	std::vector<std::unique_ptr<AssumeStatement>> assumes_{};
 };
 
 #endif /* KATER_THEORY_HPP */
