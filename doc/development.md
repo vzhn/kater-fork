@@ -43,6 +43,16 @@ Environment variables affecting the testing scripts:
   KATERFLAGS="--flag --another"  # extra flags passed to every kater invocation
 ```
 
+With Z3 installed, the build also has `kater-oracle`, which checks Kater's
+verdicts, its builtin theory, its automaton passes and its exports against a
+reference semantics of execution graphs. Its tests are labeled `oracle`:
+
+```shell
+cd Release && ctest -L oracle
+```
+
+See [verification.md](verification.md) for what it checks and what it found.
+
 Other helpers under `scripts/`:
 
  - `check-drivers.sh`: exports GenMC consistency checkers from the `kat/` models
