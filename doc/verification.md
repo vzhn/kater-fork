@@ -289,8 +289,8 @@ After the fixes:
 
 - the audit finds no false fact (2108 hold, up to 4 events);
 - the transformation contracts hold on random expressions: over 1000 at
-  depth 3 and 800 at depth 4 for every pass, up to 4 events, and 1600 more at
-  depth 4 for the predicate passes;
+  depth 3 and 1600 at depth 4 for every pass, up to 4 events (the predicate
+  passes in the context `normalize` calls them in);
 - the fuzzer finds no unsound proof in 25500 files, of which Kater proved
   8521, across all profiles;
 - every assertion of `tests/correct` has no counterexample with up to 5
@@ -311,9 +311,10 @@ After the fixes:
 - **Incompleteness.** `tests/wrong/equivalence/eq-ra1-ra2-no-universe.kat`
   has no counterexample with up to 5 events: it is probably true, but outside
   what Kater can prove. The four files of `tests/wrong/compilation` have none
-  with up to 5 events either; two of them state assumptions Kater ignores
-  (`po?;[R] <= [F];po;[R]` even rules out reads), the others need larger
-  graphs.
+  with up to 6 events either; two of them state assumptions Kater ignores
+  (`po?;[R] <= [F];po;[R]` even rules out reads), and the two compilations of
+  C11 to POWER either need larger graphs or are true once the right-hand
+  sides exclude the uninteresting counterexamples they do.
 - **`addTransitivePredicateEdges` depends on the order of states.** It
   merges two consecutive predicates into a shortcut, adding the shortcut as
   soon as it visits the first state and removing the second step at the end.
@@ -322,7 +323,7 @@ After the fixes:
   so the path is lost; the contract test found this on automata straight from
   `toNFA`. In the context `normalize` calls it in (after `simplify`,
   `saturateDomains` and `breakToParts`), no violation showed in 1600
-  expressions of depth 4, and `normalize` itself none in 800 more, so it
+  expressions of depth 4, and `normalize` itself none in 1600 more, so it
   does not seem reachable; the contract tests now run the pass in that
   context. Computing the closure of predicate paths first, then replacing,
   would remove the dependence.
