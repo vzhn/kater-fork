@@ -310,13 +310,29 @@ After the fixes:
   with up to 5 events either; two of them state assumptions Kater ignores
   (`po?;[R] <= [F];po;[R]` even rules out reads), the others need larger
   graphs.
+- **`addTransitivePredicateEdges` depends on the order of states.** It
+  merges two consecutive predicates into a shortcut, adding the shortcut as
+  soon as it visits the first state and removing the second step at the end.
+  Through three consecutive predicates (`0 -[]-> 2 -[ACQ&F]-> 16 -[]-> 18`) a
+  shortcut can be added to a state and later removed with that state's steps,
+  so the path is lost; the contract test found this on automata straight from
+  `toNFA`. In the context `normalize` calls it in (after `simplify`,
+  `saturateDomains` and `breakToParts`), no violation showed in 1600
+  expressions of depth 4, and `normalize` itself none in 1600 more, so it
+  does not seem reachable; the contract tests now run the pass in that
+  context. Computing the closure of predicate paths first, then replacing,
+  would remove the dependence.
 - **Inverses of recursive relations.** `x^-1` for a `let rec x` flips the
   definitions in place, and Kater's automaton construction does not recognize
   the flipped self-reference `x^-1` as the recursion: it treats it as an
   unknown relation. That is sound (what holds for every relation in its place
   holds for `x^-1`) but incomplete: Kater cannot prove that the inverse of
   `let rec x = po | x;rf` is within `(po^-1 | rf^-1)+`.
-- **Performance.** A few small random assertions take Kater over 30 seconds.
+- **Performance.** Four of 10000 random files took Kater over 30 seconds. All
+  four assume a relation equal to a predicate or within `id`
+  (`assume data = [EXCL]`, `assume po-loc = [DEP]`, ...): `saturateID` adds a
+  copy of the assumption's automaton at every state of the right-hand side,
+  and the result grows past what the inclusion check handles.
 - **Not checked by the oracle**: `isPPOIntersectionInPPO`, which the exporter
   uses to prune acyclicity checks (it is not a constraint the observer sees);
   and the printed code of `GenMCPrinter`, beyond type-checking it.
