@@ -191,9 +191,10 @@ trust is how those automata came from the expressions: the contracts above.
 
 ## Findings
 
-All found by the oracle and fixed, with a regression test each. The files in
-`tests/wrong/soundness` are false claims Kater used to prove; the oracle
-refutes each (`ctest -L oracle`).
+All fixed, with a regression test each. Most were found by the oracle, the
+others by running Kater under sanitizers, by type-checking exported checkers,
+and by reading the code. The files in `tests/wrong/soundness` are false claims
+Kater used to prove; the oracle refutes each (`ctest -L oracle`).
 
 1. **Dependencies and `po-imm` were in `po-loc`** (`Theory::isIncludedIn`;
    fixed in "Theory: dependencies and po-imm are not in po-loc, po-loc-imm not
@@ -279,22 +280,25 @@ refutes each (`ctest -L oracle`).
     certificates record.
 
 Items 1–4, 7, 8 and 11 made Kater prove false claims, and 12 could have; the
-others crashed it, read memory it should not, or produced code GenMC rejects. Under the sanitizers the
-whole suite, the unit tests, 4000 fuzzed files and the export of every
-`kat/*-genmc.kat` model now run without a report, and the exported checkers are
-the same as without them.
+others crashed it, read memory it should not, or produced code GenMC rejects.
+Under the sanitizers the whole suite, the unit tests, 4000 fuzzed files and the
+export of every `kat/*-genmc.kat` model now run without a report, and the
+exported checkers are the same as without them.
 
 After the fixes:
 
 - the audit finds no false fact (2108 hold, up to 4 events);
-- the transformation contracts hold on random expressions (1000 at depth 3
-  and 1600 at depth 4, up to 4 events);
-- the fuzzer finds no unsound proof in 8000 cases (2697 proved), nor in the
-  overnight runs;
+- the transformation contracts hold on random expressions: over 1000 at
+  depth 3 and 800 at depth 4 for every pass, up to 4 events, and 1600 more at
+  depth 4 for the predicate passes;
+- the fuzzer finds no unsound proof in 25500 files, of which Kater proved
+  8521, across all profiles;
 - every assertion of `tests/correct` has no counterexample with up to 5
-  events;
+  events, and every proof of it has a valid certificate (54, resting on 498
+  letter inclusions that hold);
 - the export of every `kat/*-genmc.kat` model passes: 215 claims and
-  rewrites with up to 4 events;
+  rewrites with up to 5 events, and 488 letter inclusions of the claims'
+  certificates;
 - the exported checkers of all six models type-check against GenMC
   (0.19.0-vzhn.10) and are byte-identical to the ones before the fixes.
 
@@ -318,7 +322,7 @@ After the fixes:
   so the path is lost; the contract test found this on automata straight from
   `toNFA`. In the context `normalize` calls it in (after `simplify`,
   `saturateDomains` and `breakToParts`), no violation showed in 1600
-  expressions of depth 4, and `normalize` itself none in 1600 more, so it
+  expressions of depth 4, and `normalize` itself none in 800 more, so it
   does not seem reachable; the contract tests now run the pass in that
   context. Computing the closure of predicate paths first, then replacing,
   would remove the dependence.
