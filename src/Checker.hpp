@@ -60,6 +60,26 @@ public:
 	 * a record of what Kater claims, for checking it independently */
 	using Observer = std::function<void(const Constraint &, const InclusionResult &)>;
 
+	/*
+	 * What the proof of an inclusion rests on, for checking it without
+	 * searching: the automata the check compared, the simulation it used on
+	 * the left one, the pairs (left state, set of right states) it explored,
+	 * and the letter inclusions it took from the theory. The proof holds if
+	 * the pairs cover the starting ones, every accepting left state of a
+	 * pair meets an accepting right state, and every step out of a pair
+	 * lands on a pair the simulation subsumes.
+	 */
+	struct Certificate {
+		NFA lhs;
+		NFA rhs;
+		/* simulation[simulated * |lhs| + simulator] */
+		std::vector<uint8_t> simulation;
+		std::vector<std::pair<unsigned, VSet<unsigned>>> pairs;
+		/* (a, b): letter a is included in letter b */
+		std::vector<std::pair<TransLabel, TransLabel>> inclusions;
+	};
+	using CertificateSink = std::function<void(const SubsetConstraint &, const Certificate &)>;
+
 	Checker() = delete;
 	Checker(KatModule &mod, Options opts = {}) : module(&mod), options(opts) {}
 
@@ -75,6 +95,9 @@ public:
 
 	void setObserver(Observer obs) { observer = std::move(obs); }
 
+	/* Called with the certificate of each inclusion checkAssertion proves */
+	void setCertificateSink(CertificateSink sink) { certificateSink = std::move(sink); }
+
 	/* Whether ACYC's extension with eco edges stays within ppo; the
 	 * code exporter relies on this to prune its acyclicity checks */
 	auto isPPOIntersectionInPPO(const AcyclicConstraint *acyc) const -> InclusionResult;
@@ -83,12 +106,14 @@ private:
 	[[nodiscard]] auto getTheory() const -> const Theory & { return getModule().getTheory(); }
 	[[nodiscard]] auto getOptions() const -> const Options & { return options; }
 
-	auto isDFASubLanguageOfNFA(NFA &nfa, const NFA &other) const -> InclusionResult;
+	auto isDFASubLanguageOfNFA(NFA &nfa, const NFA &other, Certificate *cert = nullptr) const
+		-> InclusionResult;
 	[[nodiscard]] auto checkInclusion(SubsetConstraint &subsetC) const -> InclusionResult;
 
 	KatModule *module;
 	Options options;
 	Observer observer;
+	CertificateSink certificateSink;
 };
 
 /* A diagnostic note describing CEX, to be appended to an error message */

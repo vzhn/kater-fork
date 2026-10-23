@@ -555,6 +555,17 @@ public:
 					   [&](auto id) -> bool { return accepting[id] != 0; });
 	}
 
+	/* The letter inclusions the theory answered yes to so far */
+	[[nodiscard]] auto inclusions() const -> std::vector<std::pair<TransLabel, TransLabel>>
+	{
+		std::vector<std::pair<TransLabel, TransLabel>> result;
+		for (const auto &[label, answers] : included)
+			for (auto i = 0U; i < answers.size(); i++)
+				if (answers[i] != 0)
+					result.emplace_back(label, labels[static_cast<int>(i)]);
+		return result;
+	}
+
 private:
 	auto indexOf(const TransLabel &label) const -> unsigned
 	{
@@ -662,6 +673,8 @@ public:
 		return related[pid];
 	}
 
+	[[nodiscard]] auto matrix() const -> const std::vector<uint8_t> & { return similar; }
+
 private:
 	unsigned nrStates;
 	std::vector<uint8_t> similar;
@@ -703,14 +716,27 @@ static auto antichainInsert(const SimState &state,
 	return true;
 }
 
-auto Checker::isDFASubLanguageOfNFA(NFA &nfa, const NFA &other) const -> InclusionResult
+auto Checker::isDFASubLanguageOfNFA(NFA &nfa, const NFA &other, Certificate *cert) const
+	-> InclusionResult
 {
 	KATER_DEBUG(std::cout << "Checking inclusion between automata:" << std::endl;
 		    std::cout << nfa << "and " << other << std::endl;);
 
 	if (other.getNumStarting() == 0) {
 		Counterexample cex;
-		return {.result = nfa.acceptsNoString(cex), .cex = cex};
+		auto empty = nfa.acceptsNoString(cex);
+		/* The certificate of an empty language: no reachable state accepts */
+		if (empty && cert != nullptr) {
+			std::vector<NFA::State *> starts(nfa.start_begin(), nfa.start_end());
+			auto reachable = calculateReachableFrom(nfa, starts);
+			for (auto id = 0U; id < reachable.size(); id++)
+				if (reachable[id])
+					cert->pairs.emplace_back(id, VSet<unsigned>{});
+			cert->lhs = copy(nfa);
+			cert->rhs = copy(other);
+			cert->simulation = Simulation(nfa).matrix();
+		}
+		return {.result = empty, .cex = cex};
 	}
 
 	auto negatedOf = collectNegatedOutgoing(other);
@@ -729,6 +755,8 @@ auto Checker::isDFASubLanguageOfNFA(NFA &nfa, const NFA &other) const -> Inclusi
 	std::for_each(nfa.start_begin(), nfa.start_end(), [&](auto *s1) {
 		visited[s1->getId()].push_back(start);
 		workList.push_back({{s1, start}, Counterexample()});
+		if (cert != nullptr)
+			cert->pairs.emplace_back(s1->getId(), start);
 	});
 	while (!workList.empty()) {
 		auto [state, cex] = std::move(workList.front());
@@ -761,9 +789,18 @@ auto Checker::isDFASubLanguageOfNFA(NFA &nfa, const NFA &other) const -> Inclusi
 				SimState next = {t.dest, std::move(nextRHS)};
 				if (!antichainInsert(next, visited, sim))
 					continue;
+				if (cert != nullptr)
+					cert->pairs.emplace_back(next.getLHS()->getId(),
+								 next.getRHS());
 				workList.emplace_back(std::move(next), nextCex);
 			}
 		}
+	}
+	if (cert != nullptr) {
+		cert->lhs = copy(nfa);
+		cert->rhs = copy(other);
+		cert->simulation = sim.matrix();
+		cert->inclusions = rhs.inclusions();
 	}
 	return {.result = true, .cex = {}};
 }
@@ -803,7 +840,13 @@ auto Checker::checkInclusion(SubsetConstraint &subsetC) const -> InclusionResult
 	 * doesn't seem to help. The remaining time
 	 * is determined by the LHS anyway, and these
 	 * passes are costly */
-	return isDFASubLanguageOfNFA(lhs, nfa2);
+	if (!certificateSink)
+		return isDFASubLanguageOfNFA(lhs, nfa2);
+	Certificate cert;
+	auto result = isDFASubLanguageOfNFA(lhs, nfa2, &cert);
+	if (result.result)
+		certificateSink(subsetC, cert);
+	return result;
 }
 
 auto Checker::checkAssertion(Constraint &cst) -> InclusionResult
