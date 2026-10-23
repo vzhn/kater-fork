@@ -596,11 +596,11 @@ std::vector<TransLabel> maybeSplitToComplements(const TransLabel &label,
 			l.merge(TransLabel(std::nullopt, {p}));
 			result.push_back(l);
 		}
-		/* Then also with ~p */
+		/* Then also with ~p: the two cases cover LABEL */
 		auto pneg = Predicate(p).complement();
 		if (theory.composes(label, TransLabel(std::nullopt, {pneg}))) {
 			auto l = label;
-			l.merge(TransLabel(std::nullopt, {p}));
+			l.merge(TransLabel(std::nullopt, {pneg}));
 			result.push_back(l);
 		}
 	}

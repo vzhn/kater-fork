@@ -13,6 +13,7 @@ if(NOT GTest_FOUND)
 endif()
 
 add_executable(unit_tests
+  test_Checker.cpp
   test_findSimilarStates.cpp
   test_NFA.cpp
   test_NFAUtils.cpp
