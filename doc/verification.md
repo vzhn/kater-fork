@@ -145,13 +145,16 @@ answers with the reference semantics (see
 [The exported checkers](#the-exported-checkers)).
 
     kater-oracle extensible [-n EVENTS] [--threads T] [--locations L]
-                            [--graph FILE]... [--refutable] FILE...
+                            [--graph FILE]... [--maximal] [--refutable] FILE...
 
 Checks that the model of each `kat/NAME-genmc.kat` FILE is extensible, on every
 graph up to EVENTS events, or on the graphs of FILEs: that an event GenMC may
 add to a consistent graph can be added consistently (see
-[Extensibility](#extensibility)). With `--refutable`, the models are expected
-not to be.
+[Extensibility](#extensibility)). It counts as well the events, of these,
+that nothing after them accesses the location of and that cannot be added
+maximally, which Kater's extensibility check claims there are none of; with
+`--maximal`, they decide the verdict too. With `--refutable`, the models are
+expected not to be.
 
     tests/oracle/fuzz.py [--cases N] [--jobs J] [--seed S] [--profile P]
 
@@ -166,8 +169,9 @@ as `.kat` files.
 The ctests labeled `oracle` (built when Z3 is found) run the audit, the
 transformation contracts, the correct suite against counterexamples and with
 certificates, the soundness regressions with `--refutable`, the export check
-and the extensibility of every `kat/*-genmc.kat` model, and the two models of
-`tests/oracle/extensible`, which are not extensible; when `lake` is found too,
+and the extensibility of every `kat/*-genmc.kat` model, and the graphs of
+`tests/oracle/extensible` that refute it, for IMM, LKMM and the two models
+there; when `lake` is found too,
 the ones labeled `formal` check the certificates of the suite and of the
 exports with the checker in Lean, and with GenMC (below), the ones labeled
 `genmc` run the exported checkers:
@@ -462,19 +466,20 @@ Not covered:
 GenMC explores a program by adding one event at a time to a consistent
 graph, and relies on every addition having a consistent outcome: otherwise
 an exploration stops at a graph whose completions it was meant to reach.
-This is *extensibility* (Definition 5.4.1 of Kokologiannakis's thesis;
-*maximal extensibility* in TruSt, POPL'22). GenMC adds an event once its
-predecessors in its prefix relation, `pporf = (ppo | rfe | tc | tj | lin)+`
-(`KatModule::createPPORF`), are in the graph. When `ppo` is `po` (SC, TSO, RA,
-RC11), that event is the last of its thread and nothing follows it: added
-reading from the last write in `mo`, or last in `mo`, it has no outgoing
-edge, and closes no cycle of a model whose constraints use relations only
-positively (§3.8 of the Kater paper). When `ppo` is not `po` (IMM, LKMM), a
-revisit keeps the revisiting write's `pporf`-prefix and drops the events
-`po`-before it that are not in it; GenMC adds those later, into the hole, and
-such an event has `po`-successors already, to which the constraints may
-relate it (HMC, ASPLOS'20, walks through one: in load buffering, the read of
-the second thread is added after the write that follows it).
+This is *extensibility* (Definition 5.4.1 of Kokologiannakis's thesis);
+TruSt (POPL'22) asks it of the event added *maximally*, reading from the last
+write in `mo`, or last in `mo` (*maximal extensibility*). GenMC adds an event
+once its predecessors in its prefix relation, `pporf = (ppo | rfe | tc | tj |
+lin)+` (`KatModule::createPPORF`), are in the graph. When `ppo` is `po` (SC,
+TSO, RA, RC11), that event is the last of its thread and nothing follows it:
+added maximally, it has no outgoing edge, and closes no cycle of a model
+whose constraints use relations only positively (§3.8 of the Kater paper).
+When `ppo` is not `po` (IMM, LKMM), a revisit keeps the revisiting write's
+`pporf`-prefix and drops the events `po`-before it that are not in it; GenMC
+adds those later, into the hole, and such an event has `po`-successors
+already, to which the constraints may relate it (HMC, ASPLOS'20, walks
+through one: in load buffering, the read of the second thread is added after
+the write that follows it).
 
 As a constraint on graphs:
 
@@ -490,54 +495,146 @@ composed with `eco` is irreflexive. RMWs are left out: GenMC adds the write
 of an RMW right after its read, and lets the graph be inconsistent for that
 step when another RMW has read the same write (§5.5 of the thesis).
 
+Neither IMM nor LKMM has this property. The oracle finds an event each cannot
+add, on graphs larger than the ones it searches (in `tests/oracle/extensible`,
+checked by the ctests `oracle-extensible-refuted-*`):
+
+- `imm-addr-po.graph`, 11 events: a read in a hole between an event it
+  depends on by address and a write. Added, whatever it reads, it orders the
+  two (`[DEP] ; addr ; po ; [W]` is in `ppo`, by the `addr ; po?` of `deps`)
+  and closes an `ar` cycle through an `FSC ; hb ; eco ; hb ; FSC` step;
+  without it, the graph is consistent. GenMC can leave this hole: the write's
+  prefix, computed with the read there, has the first event and not the
+  read, which a revisit by the write then drops.
+- `lkmm-moe.graph`, 8 events: a write in a hole before a read of its
+  location, which reads a write of another thread. Coherence puts the added
+  write `mo`-before that write, its only place, and the `moe` step closes a
+  `pb` cycle. GenMC leaves such a hole only once the other write's prefix
+  reaches past the added write in its thread (`isCoBeforeSavedPrefix`, in
+  `GenMCDriver::isMaximalExtension`).
+
+And IMM is not maximally extensible. In `imm-join.graph`, 13 events, a read
+in a hole before a thread join, read from a release write, makes the join
+synchronize with that write (`sw_to_f`: `rf ; po ; [TJ] ; [ACQ]`), and closes
+an `ar` cycle; `ppo` does not order the read before the join (`bob` has
+`po ; [F]`, not `po ; [TJ]`). Read from init, it closes none
+(`oracle-extensible-maximal-refuted-imm-join`).
+
 ### What Kater checks
 
-`Checker::isPPOIntersectionInPPO`, which the exporter calls for every
-acyclicity export ("Check extensibility" in
-`Exporter::checkExportRequirements`), is meant to establish this. It builds
-the automaton of the starred constraint and cuts it at its `eco` steps (a
-state with an incoming `eco` step is split from its other incoming steps, and
-the sources of `eco` steps accept), drops the `eco` steps, and decides that
-what is left, the stretches of the constraint's cycles between `eco` steps,
-is within `(any* ; pporf ; any*) | id`. It goes through neither
-`checkAssertion` nor the observer, and it prunes nothing: the exporter fails
-the export when it does not hold, and uses it for nothing else.
+`Checker::isPPOIntersectionInPPO`, for each acyclicity export, and
+`Checker::isCoherenceExtensible`, for the coherence export, are the
+exporter's checks of extensibility ("Check extensibility" in
+`Exporter::checkExportRequirements`). Together they prove maximal
+extensibility, for the events that nothing after them in their thread
+accesses the location of:
 
-It establishes nothing ([#33](https://github.com/vzhn/kater-fork/issues/33)).
-It looks for the `eco` steps among the incoming transitions of states, whose
-labels are inverted (`rf^-1`), which `Theory::isEco` does not count. So it
-cuts nothing, its left automaton accepts no word, and the inclusion holds of
-every acyclicity constraint, as it has since the check came in with v0.3.
-With the labels turned around, it would still not establish extensibility:
-its starting states leave out every state that an `eco` step can follow,
-and even cut as meant, a `pporf` step somewhere in each stretch does not keep
-the added event out of a cycle. `tests/oracle/extensible` has a model for
-each case, `mp-genmc.kat` and `mp-acq-genmc.kat`: Kater exports both, and
-neither is extensible (next to each, a graph where a write GenMC adds into a
-hole closes a cycle in message passing).
-With the labels turned around, IMM and LKMM would fail the check where the
-theory does not know that a thread join or a lock read is an acquire, though
-both are extensible on small graphs (below).
+> For every consistent graph G0, and every event e GenMC may add to it (in G0
+> with e, nothing follows e in `pporf` and nothing reads from it, and e is
+> neither part of an RMW nor a thread start or create) such that no event
+> `po`-after e in G0 accesses e's location: G0 with e added maximally (a read
+> reading from the last write in `mo`, from init if there is none, a write
+> last in `mo`) is consistent.
+
+When `ppo` is `po`, this is the property above: nothing is `po`-after e.
+When it is not, it leaves out the events in a hole with a later access to
+their location, out of which coherence forces an `eco` step
+(`lkmm-moe.graph`): on the graphs up to 3 events, 4760 of the 10915 events
+IMM adds into a hole, and 45348 of LKMM's 198645.
+
+Each check takes the automaton of its constraint, for coherence the view
+composed with `(rf | mo | fr)+`, a word of which from an event back to it is
+a violation; without `lin` steps, which GenMC adds to complete graphs only,
+for Relinche. For every state the automaton can enter by a relation step, and
+every relation step it can leave the state by first (in the next word, where
+a word can end there), it asks about the step unless
+
+- it is an `eco` step: e added maximally has none out of it (no write is
+  `mo`-after it, nothing reads from it, and, reading from the last write, no
+  `fr` step leaves it);
+- the cycle can do without e there, after every step into the state: the
+  steps into e and out of it are both within `po`, and the automaton reads a
+  step that includes `po` (`po-loc`, if both are within it) from where the
+  first starts to where the second ends;
+- the event there cannot be one GenMC adds alone: the check adds
+  `[NEXCL & ~TB & ~TC]` to what the cycle checks of it, and leaves out the
+  steps whose checks do not compose with it (GenMC adds a thread's start
+  along with its create, `GenMCDriver::handleThreadCreate`, so a create
+  always has `tc` after it).
+
+It decides that each step it asks about, followed by the rest of its word,
+is in `pporf ; any*`. For coherence, a step that leaves e where the word
+begins is followed by the whole word, which ends at e again, and it may also
+be in `po+ ; (rf | mo | fr)+`. Why this proves the property:
+
+- A cycle of the graph with e that does not pass e is a cycle of G0: every
+  builtin relation relates two other events with e as it does without it, or
+  less (the positional ones, like `po-imm`, only gain pairs when e goes). A
+  relation GenMC computes need not: LKMM's `prop-int` can relate two events
+  by a path through e. The check takes it for one that does.
+- So a new cycle visits e, and leaves e at each visit by a step that is not
+  `eco`. If at every visit the steps into e and out of it are within `po`,
+  and the constraint's automaton reads a `po` step past them, the cycle with
+  one `po` step instead of each such two is a cycle of G0. At a visit where
+  this is not so, the rest of the word from e is in `pporf ; any*`, and e
+  has a `pporf` successor.
+- e added maximally has no more `pporf` successors than it has in G, none:
+  the steps out of it are those it has in G, but the `eco` ones (and
+  `detour`, which needs a `moe` step out of it).
+- A violation of coherence is a single word of the view and `eco`; a visit
+  at the event it starts from reads it back to that event, e, and if it is
+  a `po` path and then `eco`, the event the path reaches is a later access
+  to e's location.
+
+The check needed four facts the theory lacked: thread creates and finishes
+release, thread starts and joins acquire (`TC <= REL`, `TE <= REL`,
+`TB <= ACQ`, `TJ <= ACQ`, and all four `ATOM`), the orderings GenMC gives
+their labels. The audit finds them true; no exported checker changes.
+
+SC, TSO, RA and RC11 pass. The two models of `tests/oracle/extensible` fail,
+at the step out of the write added into the hole (`[W] ; po ; [W]`, and the
+`po` step before the acquire read), and their exports fail with them
+(`oracle-export-issue-33-*`). IMM fails at the visits of the two graphs
+above: a step out of a read entered by `addr`, and the `po` step from a read
+entered by `rf` to a join. LKMM fails where e leaves by `prop-int`, which
+Kater cannot see into, and where the `pporf` step out of e needs an
+inclusion between LKMM's own predicates, which Kater does not know
+(`UL <= Rel`, ...).
+
+A model can say that an export is not extensible: `export nonextensible
+acyclic r` (or `coherence`). The check of that export then only warns, and
+warns as well, that the flag is stale, if it passes. IMM flags `ar`, `psc`
+and its coherence export ([#38](https://github.com/vzhn/kater-fork/issues/38)),
+LKMM `lkhb` and `pb` ([#39](https://github.com/vzhn/kater-fork/issues/39)),
+and their checkers are unchanged; the ctests `export-nonextensible-*` fail
+once either exports without the warning.
 
 ### What the oracle checks
 
-- `kater-oracle export` records each extensibility check by its certificate:
-  `isPPOIntersectionInPPO` hands its certificate to the certificate sink,
-  with the acyclicity constraint, as `checkInclusion` does with the subset
-  constraint it decides. The export check checks the certificate, the letter
-  inclusions it rests on, and the inclusion between its two automata on
-  every graph up to N events, and reports the check as `vacuous` when its
-  left automaton accepts nothing: for all seven acyclicity exports of
-  `kat/*-genmc.kat` (RA has none), today. With `--json`, it writes these
-  certificates with the others; the checker in Lean accepts the 61
-  certificates of the six exports (7 of them the extensibility checks'), and
-  gives each of their 754 copies `checkCertificate`'s verdict.
-- `kater-oracle extensible` checks the property itself on concrete graphs:
+- `kater-oracle export` records each extensibility check by its
+  certificates: both checks hand theirs to the certificate sink, with the
+  constraint, as `checkInclusion` does with the subset constraint it decides
+  (the coherence check two, for the steps that leave e within its word and
+  where the word begins). The export check checks each certificate, the
+  letter inclusions it rests on, and the inclusion between its two automata
+  on every graph up to N events, and reports it as `vacuous` when its left
+  automaton accepts nothing, as all seven acyclicity checks of
+  `kat/*-genmc.kat` did before #33 was fixed; none does now. Every claim of
+  the six exports holds up to 3 events; at 3, each claim of LKMM's coherence
+  check takes minutes, so the ctests check LKMM up to 2 events
+  (`oracle-export-lkmm`) and the others up to 3 (`oracle-export`). With
+  `--json`, it writes these certificates with the others; the checker in
+  Lean accepts the 67 certificates of the six exports (13 of them the
+  extensibility checks'), and gives each of their 841 copies
+  `checkCertificate`'s verdict.
+- `kater-oracle extensible` checks both properties on concrete graphs:
   every graph `kater-oracle genmc` enumerates (3 threads, 2 locations, thread
   events aside), each event in it GenMC may add, and every way of adding the
-  event to the graph without it (each graph without the event is taken
+  event to the graph without it, and, for the events with no later access to
+  their location, the maximal way (each graph without the event is taken
   once, from the first of the graphs that add it, so that the cost stays
-  that of the enumeration).
+  that of the enumeration). With `--maximal`, the maximal additions decide
+  its verdict too.
 
 | | SC | TSO | RA | RC11 | IMM | LKMM |
 |---|---|---|---|---|---|---|
@@ -545,15 +642,17 @@ both are extensible on small graphs (below).
 | events added to a consistent graph | 3615 | 16128 | 4914 | 37992 | 97447 | 684992 |
 | of which into a hole | 0 | 0 | 0 | 0 | 10915 | 198645 |
 | that cannot be added consistently | 0 | 0 | 0 | 0 | 0 | 0 |
+| with no later access to their location | 3615 | 16128 | 4914 | 37992 | 92687 | 639644 |
+| that cannot be added maximally | 0 | 0 | 0 | 0 | 0 | 0 |
 
-The six models are extensible on these graphs; at 3 events, LKMM takes ten
-minutes, IMM 40 seconds. The two of `tests/oracle/extensible` are not: each
-at its graph, and `mp-genmc.kat` at 1024 events of the graphs up to 4 events
-and 2 threads. The ctests `oracle-extensible` (up to 3 events) and
-`oracle-extensible-lkmm` (up to 2) check the six models,
-`oracle-extensible-refuted-*` the two others at their graphs; and
-`oracle-export-issue-33-*` pass while Kater exports the two models, and fail
-once it rejects them.
+The six models are extensible on these graphs, and maximally so for the
+events Kater's check is about; at 3 events, LKMM takes 13 minutes, IMM 40
+seconds. Their counterexamples need 8 events and more (above). The ctests
+`oracle-extensible` (up to 3 events) and `oracle-extensible-lkmm` (up to 2)
+check the six models with `--maximal`; `oracle-extensible-refuted-*` the two
+of `tests/oracle/extensible`, IMM and LKMM at their graphs, and
+`oracle-extensible-maximal-refuted-imm-join` the one where IMM can add the
+event, but not maximally.
 
 ## Findings
 
@@ -674,17 +773,34 @@ Kater used to prove; the oracle refutes each (`ctest -L oracle`).
     seconds were this, not a large automaton; they now take about 10 ms, as
     does `(id | [EXCL] | [R])+ <= id | [EXCL] | [R]`.
 
+16. **The extensibility check decided nothing** ("Checker: an extensibility
+    check that decides something"; #33). `isPPOIntersectionInPPO` looked for
+    the `eco` steps among the incoming transitions of states, whose labels
+    are inverted (`rf^-1`), found none, and so cut nothing: its left
+    automaton accepted no word, and the check held of every model, as it had
+    since v0.3. Turned around, it would not have established extensibility
+    either: its starting states left out every state an `eco` step can
+    follow, and a `pporf` step somewhere in each stretch between `eco` steps
+    does not keep the added event out of a cycle. It now decides what
+    [Extensibility](#extensibility) describes; Kater rejects the two models
+    of `tests/oracle/extensible` it used to export
+    (`oracle-export-issue-33-*`), and finds IMM and LKMM not extensible
+    (#38, #39), which the oracle confirms. Found by handing the check's
+    certificate to the export check, which found its left automaton empty.
+
 Items 1–4, 7, 8, 11 and 13 made Kater prove false claims, 12 and 14 could
-have, and 15 made it run forever; the others crashed it, read memory it should
-not, or produced code GenMC rejects.
+have, 15 made it run forever, and 16 let it export models GenMC cannot
+explore; the others crashed it, read memory it should not, or produced code
+GenMC rejects.
 Under the sanitizers the whole suite, the unit tests, 4000 fuzzed files and the
 export of every `kat/*-genmc.kat` model now run without a report, and the
 exported checkers are the same as without them.
 
 After the fixes:
 
-- the audit finds no false fact (2108 hold, up to 4 events; 2960 with the
-  inclusions between whole letters, up to 3);
+- the audit finds no false fact: 3016 hold, up to 4 events, with the
+  inclusions between whole letters and the four facts on thread events of
+  #33's fix (2108 before both, 2960 before the latter);
 - the transformation contracts hold on random expressions: over 1000 at
   depth 3 and 1600 at depth 4 for every pass, up to 4 events (the predicate
   passes on automata straight from `toNFA`: 2200 at depth 3 and 1000 at
@@ -697,9 +813,12 @@ After the fixes:
   events, and every proof of it has a valid certificate (54, resting on 498
   letter inclusions that hold);
 - the export of every `kat/*-genmc.kat` model passes: 222 claims and
-  rewrites with up to 5 events (7 of them the extensibility checks, which
-  are vacuous), and 488 letter inclusions of the claims' certificates;
-- every model is extensible on every graph up to 3 events (see
+  rewrites with up to 5 events, and 488 letter inclusions of the claims'
+  certificates, before #33 was fixed (7 of the claims the extensibility
+  checks, which were vacuous); since, 923 claims, rewrites and letter
+  inclusions up to 3 events, with 13 extensibility checks, none vacuous;
+- every model is extensible on every graph up to 3 events, and maximally
+  so for the events Kater's extensibility check is about (see
   [Extensibility](#extensibility));
 - the exported checkers of all six models type-check against GenMC
   (0.19.0-vzhn.10) and are byte-identical to the ones before the fixes;
@@ -739,15 +858,22 @@ After the fixes:
   circle; `tests/oracle/genmc/graphs/issue-27.graph` is the reproducer, and
   the ctest `oracle-genmc-issue-27` fails once this is fixed. Tarjan's
   algorithm over the pairs, or a nested DFS, would decide the cycles exactly.
-- **The exporter's extensibility check decides nothing**
-  ([#33](https://github.com/vzhn/kater-fork/issues/33)):
-  `isPPOIntersectionInPPO` looks for `eco` steps in inverted labels, finds
-  none, and holds of every model, since v0.3; turned around, it would still
-  accept models that are not extensible (see [Extensibility](#extensibility)).
-  `tests/oracle/extensible` has two that Kater exports; the ctests
-  `oracle-export-issue-33-*` fail once Kater rejects them. What the check
-  should decide is open: a condition that implies extensibility, which
-  `kater-oracle extensible` can test it against.
+- **IMM and LKMM are not extensible**
+  ([#38](https://github.com/vzhn/kater-fork/issues/38),
+  [#39](https://github.com/vzhn/kater-fork/issues/39)): GenMC can leave a
+  hole in an IMM graph that no way of filling keeps consistent (`addr ; po?`
+  orders events through it), and in an LKMM graph (coherence ties the event
+  to a later read of its location by `moe`), on graphs of 11 and 8 events in
+  `tests/oracle/extensible`. Both flag their exports `nonextensible`, and
+  export with a warning. A fix changes their `ppo`, or which holes GenMC
+  leaves (`GenMCDriver::isMaximalExtension`).
+- **What the extensibility check leaves out.** It proves extensibility for
+  the events that nothing after them accesses the location of; in a hole,
+  an event with a later access to its location has an `eco` step out of it
+  that coherence forces, which the check does not follow (4760 of IMM's
+  10915 events into a hole on the graphs up to 3 events). It takes a
+  relation GenMC computes for one that relates two events the same way with
+  or without the event GenMC adds, which LKMM's `prop-int` need not.
 - **Not checked by the oracle**: of the printed code, the error and warning
   checks and the revisits of the dependency-tracking models (see
   [The exported checkers](#the-exported-checkers)).
