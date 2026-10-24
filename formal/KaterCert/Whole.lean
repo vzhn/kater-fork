@@ -219,7 +219,8 @@ def domainOfSeq (r : Relation) (parts : List Exp) : Option (List Predicate × Li
     | _, _, _ => none
 
 /-- Checks of the source and target of a step of `r`, as of the relation's
-own direction: those of an inverted `r` swapped. -/
+own direction: those of an inverted `r` swapped, as `Theory::registerDomain`
+and `registerCodomain` swap them. -/
 def orient (r : Relation) (p : List Predicate × List Predicate) : List Predicate × List Predicate :=
   if r.inverse then (p.2, p.1) else p
 

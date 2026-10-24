@@ -91,6 +91,8 @@ auto Assumptions::tryIncorporateDomAssumption(const AssumeStatement *assm, Theor
 		assert(0);
 	}
 
+	/* Of r^-1 <= [A];r^-1;[B], the theory takes A for the codomain of r
+	 * and B for its domain */
 	theory.registerDomain(*lhs->getLabel().getRelation(), dom);
 	theory.registerCodomain(*lhs->getLabel().getRelation(), codom);
 	return true;

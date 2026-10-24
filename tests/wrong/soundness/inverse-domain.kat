@@ -1,0 +1,6 @@
+// r^-1 goes from reads to writes, so r goes from writes to reads and need not
+// start at a read: the theory used to take the domain and the codomain of
+// r^-1 for those of r (#45)
+relation r
+assume r^-1 <= [R] ; r^-1 ; [W]
+assert r <= [R] ; r

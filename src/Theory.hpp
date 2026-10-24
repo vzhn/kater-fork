@@ -80,16 +80,20 @@ public:
 		predicates_[p.getID()] = std::move(info);
 	}
 
+	/* The domain of r^-1 is the codomain of r, as getDomain reads it */
 	void registerDomain(Relation r, PredicateSet dom)
 	{
 		assert(relations_.contains(r.getID()));
-		relations_[r.getID()].dom.insert(dom);
+		auto &info = relations_[r.getID()];
+		(r.isInverse() ? info.codom : info.dom).insert(dom);
 	}
 
+	/* The codomain of r^-1 is the domain of r, as getCodomain reads it */
 	void registerCodomain(Relation r, PredicateSet codom)
 	{
 		assert(relations_.contains(r.getID()));
-		relations_[r.getID()].codom.insert(codom);
+		auto &info = relations_[r.getID()];
+		(r.isInverse() ? info.dom : info.codom).insert(codom);
 	}
 
 	void registerDisjointPreds(VSet<Predicate::ID> preds)

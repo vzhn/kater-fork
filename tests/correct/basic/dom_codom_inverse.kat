@@ -1,0 +1,9 @@
+// r^-1 goes from reads to writes, so r goes from writes to reads (#45)
+relation r
+
+assume r^-1 <= [R] ; r^-1 ; [W]
+
+assert r <= [W] ; r ; [R]
+assert r^-1 <= [R] ; r^-1 ; [W]
+assert rf ; r = 0
+assert r ; rf = 0

@@ -1,0 +1,54 @@
+/*
+ * KATER -- Automating Weak Memory Model Metatheory
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, you can access it online at
+ * http://www.gnu.org/licenses/gpl-3.0.html.
+ */
+
+#include "Predicate.hpp"
+#include "Relation.hpp"
+#include "Theory.hpp"
+#include "VSet.hpp"
+
+#include <gtest/gtest.h>
+
+using PB = Predicate::BuiltinID;
+
+static auto inverse(Relation r) -> Relation { return r.invert(); }
+
+/* The domain of r^-1 is the codomain of r: `assume r^-1 <= [R];r^-1;[W]`
+ * says that r goes from writes to reads (#45) */
+TEST(Theory, DomainsOfAnInverseAreTheRelationsTheOtherWay)
+{
+	Theory theory;
+	auto r = Relation::createUser();
+	theory.registerRelation(r, RelationInfo{.name = "r"});
+	auto reads = Predicate::createBuiltin(PB::R);
+	auto writes = Predicate::createBuiltin(PB::W);
+
+	theory.registerDomain(inverse(r), PredicateSet{reads});
+	theory.registerCodomain(inverse(r), PredicateSet{writes});
+	EXPECT_EQ(theory.getDomain(r), PredicateSet{writes});
+	EXPECT_EQ(theory.getCodomain(r), PredicateSet{reads});
+	EXPECT_EQ(theory.getDomain(inverse(r)), PredicateSet{reads});
+	EXPECT_EQ(theory.getCodomain(inverse(r)), PredicateSet{writes});
+
+	/* Those of a relation itself are its own */
+	auto s = Relation::createUser();
+	theory.registerRelation(s, RelationInfo{.name = "s"});
+	theory.registerDomain(s, PredicateSet{reads});
+	theory.registerCodomain(s, PredicateSet{writes});
+	EXPECT_EQ(theory.getDomain(s), PredicateSet{reads});
+	EXPECT_EQ(theory.getCodomain(s), PredicateSet{writes});
+}
