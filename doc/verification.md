@@ -499,14 +499,13 @@ often the clause failed, or GenMC found an error or a warning:
 | clauses | 103.4M (3.7M) | 39.9M (0.9M) | 21.2M (0.5M) | 121.6M (3.9M) | 55.2M (2.0M) | 45.2M (0.9M) |
 | `checkErrors` | 12925529 (3191242) | 4991701 (354097) | 2650045 (355264) | 15201110 (2587297) | 6901743 (1408051) | 9043394 (194512) |
 | `checkWarnings` | 9734287 (436589) | 4637604 (527426) | 2294781 (166484) | 12613813 (1098685) | 5493692 (436521) | 8848882 (683522) |
-| disagreements | 0 | 0 | 0 | 0 | 15 | 0 |
+| disagreements | 0 | 0 | 0 | 0 | 0 | 0 |
 
-The checks of the previous table ran again on these graphs. The 15
-disagreements are #27's, all of them in `isConsistent(G)`, on random graphs of
-IMM with `lin`; the clauses, `checkErrors` and `checkWarnings` agree
-everywhere. Every clause of every model fails on some graphs, in the ctests
-already: the memory-error clauses tens to hundreds of times, the races
-thousands. Left out is the race of a failing clause `A = 0`, which the exported
+The checks of the previous table ran again on these graphs, and agreed too:
+the checker from before item 16 accepts 15 of these random graphs of IMM,
+#27's, and the one from after none. Every clause of every model fails on
+some graphs, in the ctests already: the memory-error clauses tens to
+hundreds of times, the races thousands. Left out is the race of a failing clause `A = 0`, which the exported
 checks do not set ([#34](https://github.com/vzhn/kater-fork/issues/34)):
 compared (`--all-races`), it disagrees in 1074 of the 31817 errors GenMC finds
 on RC11's graphs of the memory-error checks up to 4 events, where
