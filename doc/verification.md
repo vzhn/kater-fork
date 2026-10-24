@@ -385,32 +385,28 @@ out:
 | | SC | TSO | RA | RC11 | IMM | LKMM |
 |---|---|---|---|---|---|---|
 | every graph up to | 5 events: 1484510 | 4: 408207 | 4: 87326 | 4: 1278894 | 4: 7221304 | 3: 367790 |
-| random graphs | 100000 | 100000 | 100000 | 100000 | 100000 | 200000 |
-| `isConsistent(G)` | 1584510 (187085) | 508207 (20460) | 187326 (0) | 1378894 (1740) | 7306486 (11588) | 562162 (1399) |
-| `isConsistent(e)` | 3285060 (135372) | 1019919 (15611) | 335214 (0) | 2915110 (1026) | 11788590 (9217) | 828330 (1141) |
-| views | 32.0M | 9.1M | 3.9M | 23.4M | 107.2M | 5.8M |
-| prefixes | 10.7M | 3.0M | 1.3M | 7.8M | 35.8M | 2.9M, and 2.9M of `rppo` |
-| `getCoherentStores` | 1495816 (396942) | 400154 (66358) | 101259 (16636) | 1185687 (200533) | 4789424 (1003086) | 237175 (27018) |
-| `getCoherentPlacings` | 1532211 (417274) | 432421 (75846) | 148883 (24355) | 1240301 (212409) | 4864352 (1019148) | 250493 (28992) |
-| `filterCoherentRevisits` | 673967 (64997) | 140654 (8565) | 35379 (2125) | 429858 (26026) | | |
-| `isCoherentRelinche` | 6819 (422) | 6881 (300) | 6336 (282) | 6687 (329) | 6351 (471) | 13640 (751) |
-| disagreements | 0 | 0 | 0 | 0 | 2 | 0 |
+| random graphs | 120000 | 120000 | 120000 | 120000 | 120000 | 220000 |
+| `isConsistent(G)` | 1604510 (188065) | 528207 (21010) | 207326 (0) | 1398894 (1866) | 7327628 (12243) | 584876 (1444) |
+| `isConsistent(e)` | 3315120 (135646) | 1049745 (15734) | 364813 (0) | 2945257 (1050) | 11817659 (9231) | 858382 (1149) |
+| views | 32.5M | 9.6M | 4.4M | 23.8M | 107.7M | 6.1M |
+| prefixes | 10.8M | 3.2M | 1.5M | 7.9M | 35.9M | 3.0M, and 3.0M of `rppo` |
+| `getCoherentStores` | 1504384 (398355) | 406224 (67204) | 106150 (17446) | 1191333 (201659) | 4794766 (1004208) | 241837 (27883) |
+| `getCoherentPlacings` | 1544086 (420656) | 443883 (78190) | 162285 (26347) | 1252985 (214478) | 4876791 (1021195) | 259435 (30301) |
+| `filterCoherentRevisits` | 675549 (65105) | 141925 (8647) | 36711 (2227) | 431477 (26148) | | |
+| `isCoherentRelinche` | 8223 (521) | 8290 (377) | 7598 (334) | 8002 (389) | 9250 (1317) | 18016 (1756) |
+| disagreements | 0 | 0 | 0 | 0 | 0 | 0 |
 
 (RA's consistency is coherence alone: its `isConsistent` is always true.)
-The two disagreements are a bug, filed as
-[#27](https://github.com/vzhn/kater-fork/issues/27): two random graphs of IMM
-whose method calls `lin` orders in a circle, so that `hb` and then `psc` have a
-cycle, which the full `isConsistent(G)` misses. The answer depends on the
-order the check explores the labels in: renumbering the threads of the graph
-they shrink to makes it find the cycle. The traversal `GenMCPrinter`
-prints for acyclicity never explores a (state, label) pair again once it has
-finished it, and the full check keeps these marks across its starting labels,
-so a pair finished while no starting state was on the stack hides the cycles
-through it (see [Open issues](#open-issues)).
-`tests/oracle/genmc/graphs/issue-27.graph` is that graph; the ctest
-`oracle-genmc-issue-27` replays it and fails once the bug is fixed. Another
-20000 random graphs per model, with `lin` free to close cycles in all of
-them, found five more for IMM and none for the other models.
+These are the checkers since item 16, whose acyclicity checks run Tarjan's
+algorithm. Before it, the same comparison found a bug,
+[#27](https://github.com/vzhn/kater-fork/issues/27): graphs of IMM whose
+method calls `lin` orders in a circle, so that `hb` and then `psc` have a
+cycle, which the full `isConsistent(G)` missed, depending on the order it
+explored the labels in (renumbering the threads of the smallest made it find
+the cycle). Of the random graphs of IMM above, the checker from before item
+16 accepts 22 of 120000 that way; the one from after accepts none. The ctest
+`oracle-genmc-issue-27` replays the smallest such graph,
+`tests/oracle/genmc/graphs/issue-27.graph`.
 
 Three differences are explained, and the comparison allows for them:
 
@@ -563,9 +559,28 @@ Kater used to prove; the oracle refutes each (`ctest -L oracle`).
     seconds were this, not a large automaton; they now take about 10 ms, as
     does `(id | [EXCL] | [R])+ <= id | [EXCL] | [R]`.
 
+16. **The exported acyclicity checks could miss a cycle** ("GenMCPrinter: find
+    the cycles of acyclicity checks with Tarjan's algorithm"; #27). The search
+    `GenMCPrinter` prints for `acyclic` runs over (automaton state, label)
+    pairs, and a cycle counts when it passes through the automaton's starting
+    state, which every iteration of the relation does. The search took a pair
+    off its stack once it had explored it and never explored it again, and the
+    full check kept these marks across the labels it starts from: a pair
+    finished while no starting pair was on the stack hid every cycle through
+    it from a starting pair entered later. IMM's `isConsistent(G)` accepted
+    graphs whose `lin` orders method calls in a circle, depending on the order
+    of the threads. The search is now Tarjan's algorithm: a pair stays on the
+    stack until its strongly connected component is complete, and an edge to a
+    pair on the stack closes a cycle through the starting state exactly when a
+    pair of that state is at or above it on the stack, since all those pairs
+    are in the edge's component. Found by `kater-oracle genmc` (see
+    [Results](#results)). On graphs of 100 to 400 events the checks take up
+    to 11% more cycles (RC11, and IMM 6.5%; SC, TSO and LKMM within 1.5%).
+
 Items 1–4, 7, 8, 11 and 13 made Kater prove false claims, 12 and 14 could
-have, and 15 made it run forever; the others crashed it, read memory it should
-not, or produced code GenMC rejects.
+have, 15 made it run forever, and 16 made an exported checker accept graphs
+its model forbids; the others crashed it, read memory it should not, or
+produced code GenMC rejects.
 Under the sanitizers the whole suite, the unit tests, 4000 fuzzed files and the
 export of every `kat/*-genmc.kat` model now run without a report, and the
 exported checkers are the same as without them.
@@ -589,10 +604,10 @@ After the fixes:
   rewrites with up to 5 events, and 488 letter inclusions of the claims'
   certificates;
 - the exported checkers of all six models type-check against GenMC
-  (0.19.0-vzhn.10) and are byte-identical to the ones before the fixes;
-- run inside GenMC, they answer as the reference semantics does, but for
-  graphs that hit [#27](https://github.com/vzhn/kater-fork/issues/27), still
-  open (see [Results](#results)).
+  (0.19.0-vzhn.10), and the fixes left them byte-identical but for item 16,
+  which changed their acyclicity checks alone;
+- run inside GenMC, they answer as the reference semantics does on every
+  graph tried (see [Results](#results)).
 
 ## Open issues
 
@@ -616,16 +631,12 @@ After the fixes:
   15: the oracle refutes two, and finds no counterexample to the other two
   with up to 4 events (one has hypotheses no graph meets, since it makes
   `ctrl` reflexive, which Kater cannot know is impossible).
-- **The exported acyclicity checks can miss a cycle**
-  ([#27](https://github.com/vzhn/kater-fork/issues/27)): the DFS
-  `GenMCPrinter::outputTraversal` prints for them never explores a
-  (state, label) pair again once it has finished it, and the full check keeps
-  these marks across the labels it starts from, so a pair finished while no
-  starting state was on the stack hides the cycles through it. Found by
-  `kater-oracle genmc` on IMM, on graphs whose method calls `lin` orders in a
-  circle; `tests/oracle/genmc/graphs/issue-27.graph` is the reproducer, and
-  the ctest `oracle-genmc-issue-27` fails once this is fixed. Tarjan's
-  algorithm over the pairs, or a nested DFS, would decide the cycles exactly.
+- **Debug builds cannot export**
+  ([#35](https://github.com/vzhn/kater-fork/issues/35)):
+  `GenMCPrinter::outputTraversal` asserts that an automaton has states, and
+  the `0` of an error clause such as `free; [FREE|HPRET] = 0` has none, so a
+  Kater built without `NDEBUG` aborts on every `kat/*-genmc.kat` model.
+  Release builds print a traversal that nothing starts, and are not affected.
 - **Not checked by the oracle**: `isPPOIntersectionInPPO`, which the exporter
   uses to prune acyclicity checks (it is not a constraint the observer sees);
   and, of the printed code, the error and warning checks and the revisits of
