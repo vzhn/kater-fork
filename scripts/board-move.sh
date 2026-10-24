@@ -4,8 +4,9 @@
 # kater-fork board (https://github.com/users/vzhn/projects/4), adding it to
 # the board first if it is not there yet.
 #
-# The column is a value of the board's Status field: Todo, In Progress or
-# Done. Needs a gh token with the project scope (gh auth refresh -s project).
+# The column is a value of the board's Status field: Todo, In Progress,
+# In Review or Done. Needs a gh token with the project scope
+# (gh auth refresh -s project).
 #
 # Usage: ./scripts/board-move.sh <issue-or-pr-number> <column>
 #   e.g. ./scripts/board-move.sh 46 "In Progress"
