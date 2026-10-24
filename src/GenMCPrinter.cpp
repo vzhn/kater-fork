@@ -611,7 +611,9 @@ auto GenMCPrinter::usesRfInvInAcycChecks() const -> bool
  */
 void GenMCPrinter::outputTraversal(const NFA &nfa, const DFSParameters &params, TraversalKind kind)
 {
-	assert(!params.name.empty() && !params.visit.empty());
+	/* The automaton may have no states, as the 0 of `r = 0` has none: its
+	 * traversal then has no cases, and nothing starts it */
+	assert(!params.name.empty() && params.visit.size() == nfa.getNumStates());
 
 	const bool isSCC = (kind == TraversalKind::SCC);
 	assert(!isSCC || params.atCyclE);
