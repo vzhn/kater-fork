@@ -28,9 +28,9 @@ for t in ${DIR}/../tests/correct/*/*.kat; do
 done
 echo ''
 
-echo 'Running wrong tests...'
+echo 'Running wrong and incomplete tests...'
 echo '------------------------------------------------------------'
-for t in ${DIR}/../tests/wrong/*/*.kat; do
+for t in ${DIR}/../tests/wrong/*/*.kat ${DIR}/../tests/incomplete/*/*.kat; do
     printf "%-40s | " \
 	   "${t##*/}"
 

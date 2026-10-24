@@ -1,0 +1,7 @@
+include "../../../kat/tso.kat"
+include "../../../kat/rc11.kat"
+
+// The mapping of tests/correct/compilation/comp-rc11-tso.kat without its
+// fence between an SC write and a po-later SC read: psc orders the two, but
+// TSO lets the read pass the write
+assert rc11::psc+ <= tso::tso+

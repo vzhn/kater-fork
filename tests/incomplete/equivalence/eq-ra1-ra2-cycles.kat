@@ -4,5 +4,10 @@ let ra1 = (hb1;fr | hb1;mo | hb1)
 let hb2 = (po;[W] | [R];po | rfe)+
 let ra2 = (hb2;fr | hb2;mo | hb2 | po;fr)
 
-// This should hold if we know the universe
+// True, but beyond Kater's & id. An hb1 cycle crosses threads only by rfe, so
+// it enters a thread at a read and leaves it at a write; rfi is within po, so
+// each thread's part collapses to [R];po or po;[W], both in hb2. An hb1;fr or
+// hb1;mo cycle within one thread is in po;fr or hb2;mo. The Kater paper
+// (POPL 2023, §3.3) proves sameEnds(ra) = sameEnds(ra2) instead, which needs
+// every event to be a read, a write or a fence
 assert ra1 & id <= ra2
