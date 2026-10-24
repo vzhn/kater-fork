@@ -9,3 +9,17 @@ import KaterCert.Saturation
 import KaterCert.SaturationSound
 import KaterCert.Chain
 import KaterCert.Read
+import KaterCert.Exp
+import KaterCert.Rec
+import KaterCert.Thompson
+import KaterCert.Theory
+import KaterCert.Guarded
+import KaterCert.Loc
+import KaterCert.Rotate
+import KaterCert.Builtin
+import KaterCert.Model
+import KaterCert.ReadChain
+import KaterCert.Hypotheses
+import KaterCert.Whole
+import KaterCert.ModelSound
+import KaterCert.EndToEnd

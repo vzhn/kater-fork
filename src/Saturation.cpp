@@ -179,6 +179,7 @@ void saturateInitFinalPreds(NFA &nfa, const Theory &theory)
 	removeDeadStates(nfa);
 }
 
+/* formal: begin saturateLoc, mirrored by formal/KaterCert/Loc.lean */
 void saturateLoc(NFA &nfa, const Theory &theory)
 {
 	std::for_each(nfa.states_begin(), nfa.states_end(), [&](auto &s) {
@@ -217,6 +218,7 @@ void saturateLoc(NFA &nfa, const Theory &theory)
 		nfa.addTransitions(&*s, toAdd.begin(), toAdd.end());
 	});
 }
+/* formal: end saturateLoc */
 
 void saturateID(NFA &nfa, NFA &&id, SaturationEvidence *ev)
 {
@@ -520,17 +522,38 @@ void saturateSubword(NFA &nfa, const NFA &e, const std::vector<TransLabel> &word
 	finishEvidence(ev);
 }
 
+/*
+ * Makes the origins of the states of ROT, a copy of an automaton of N states
+ * that the rotations through its state of origins AT begin (OFFSET 0) or end
+ * (OFFSET N) in, those of the states of the automaton of rotations formal/
+ * builds (KaterCert/Rotate.lean), where those through state s begin at
+ * N + 2 * N * s: hints for its check
+ */
+static void rotationOrigins(NFA &rot, const std::vector<unsigned> &at, unsigned n, unsigned offset)
+{
+	for (auto &st : rot.states()) {
+		std::vector<unsigned> origins;
+		for (auto s : at)
+			for (auto q : st->getOrigins())
+				origins.push_back(n + (2 * n * s) + offset + q);
+		NFA::setOrigins(&*st, std::move(origins));
+	}
+}
+
 void saturateRotate(NFA &nfa, const Theory &theory)
 {
 	void simplify(NFA & nfa, const Theory &theory);
 	NFA result;
 
+	auto n = static_cast<unsigned>(nfa.getNumStates());
 	simplify(nfa, theory);
 	auto isNonStarting = [](auto &s) { return !s->isStarting(); };
 	for (auto &s : nfa.states() | std::views::filter(isNonStarting)) {
 
 		auto rot1 = copy(nfa);
 		auto rot2 = copy(nfa);
+		rotationOrigins(rot1, s->getOrigins(), n, 0);
+		rotationOrigins(rot2, s->getOrigins(), n, n);
 
 		rot1.clearAllStarting();
 		rot1.makeStarting(rot1[s->getId()]);

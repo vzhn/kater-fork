@@ -37,8 +37,6 @@
 
 namespace oracle {
 
-namespace {
-
 /* formal: begin CertificateJSON, mirrored by formal/KaterCert/Read.lean */
 /*
  * Certificates as JSON, for the checker in formal/: a certificate's automata,
@@ -343,6 +341,8 @@ void writeChain(std::ostream &out, const Checker::Chain &chain, const Theory &th
 	ChainWriter(chain, theory).write(out, chain);
 }
 /* formal: end ChainJSON */
+
+namespace {
 
 auto clone(const Checker::Certificate &cert) -> Checker::Certificate
 {

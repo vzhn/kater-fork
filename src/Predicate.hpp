@@ -56,6 +56,7 @@ public:
 	using ID = int;
 
 	/** Builtin predicates  */
+	/* formal: begin PredicateIDs, mirrored by formal/KaterCert/Builtin.lean */
 	enum class BuiltinID {
 		/* Access modes */
 		NA = 0,
@@ -100,6 +101,7 @@ public:
 		DEP,
 		LOC
 	};
+	/* formal: end PredicateIDs */
 
 	Predicate() = default;
 

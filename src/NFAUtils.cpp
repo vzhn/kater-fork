@@ -261,6 +261,7 @@ void removeSimilarTransitionsOneDirection(NFA &nfa)
 			continue;
 		}
 		auto *rep = nfa[representative[state]];
+		NFA::addOrigins(rep, nfa[state]->getOrigins());
 		if (nfa[state]->isStarting()) {
 			nfa.makeStarting(rep);
 		}
@@ -393,6 +394,7 @@ auto copy(const NFA &nfa) -> NFA
 
 	for (const auto &s : nfa.states()) {
 		auto *copied = result.createState();
+		NFA::addOrigins(copied, s->getOrigins());
 		if (s->isStarting())
 			result.makeStarting(copied);
 		if (s->isAccepting())
@@ -413,8 +415,12 @@ void breakIntoMultiple(NFA &nfa, NFA::State *s, const NFA::Transition &t)
 
 	auto *curr = s;
 
+	/* Between the checks and the step the automaton is where S is; after
+	 * the step, where T.dest is */
 	curr = nfa.addTransitionToFresh(curr, TransLabel(std::nullopt, t.label.getPreChecks()));
+	NFA::addOrigins(curr, s->getOrigins());
 	curr = nfa.addTransitionToFresh(curr, TransLabel(t.label.getRelation()));
+	NFA::addOrigins(curr, t.dest->getOrigins());
 	nfa.addTransition(
 		curr, NFA::Transition(TransLabel(std::nullopt, t.label.getPostChecks()), t.dest));
 }
@@ -446,6 +452,7 @@ void addTransitivePredicateEdges(NFA &nfa, const Theory &theory)
 	std::vector<std::pair<NFA::State *, NFA::Transition>> toAdd;
 	std::vector<std::pair<NFA::State *, NFA::Transition>> toRemove;
 	std::vector<NFA::Transition> toCreateStarting;
+	std::vector<unsigned> startingOrigins;
 
 	for (auto it = nfa.states_begin(); it != nfa.states_end(); ++it) {
 		auto &s = *it;
@@ -467,6 +474,8 @@ void addTransitivePredicateEdges(NFA &nfa, const Theory &theory)
 				}
 				if (outIt->dest->isStarting()) {
 					toCreateStarting.push_back(*outIt2);
+					std::ranges::copy(outIt->dest->getOrigins(),
+							  std::back_inserter(startingOrigins));
 				}
 				toRemove.emplace_back(outIt->dest, *outIt2);
 			}
@@ -476,6 +485,10 @@ void addTransitivePredicateEdges(NFA &nfa, const Theory &theory)
 		      [&](auto &p) { NFA::addTransition(p.first, p.second); });
 	if (!toCreateStarting.empty()) {
 		auto *n = nfa.createStarting();
+		std::ranges::sort(startingOrigins);
+		startingOrigins.erase(std::ranges::unique(startingOrigins).begin(),
+				      startingOrigins.end());
+		NFA::addOrigins(n, startingOrigins);
 		nfa.addTransitions(n, toCreateStarting.begin(), toCreateStarting.end());
 	}
 	std::for_each(toRemove.begin(), toRemove.end(),

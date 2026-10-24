@@ -125,6 +125,47 @@ public:
 	/* Decide a subset or equality constraint */
 	auto checkAssertion(Constraint &cst) -> InclusionResult;
 
+	/* formal: begin Evidence, mirrored by formal/KaterCert/Whole.lean */
+	/*
+	 * Every step of an inclusion checkInclusion proves, from the
+	 * constraint's expressions to the verdict: the expressions as it got
+	 * them, before expandRfs; the automata between the passes on the left
+	 * side, each with the stage that made it; and the certificate of the
+	 * final check, with the chain of passes on the right side. formal/
+	 * checks each automaton against the one before it. The states of each
+	 * automaton, on either side, have as origins the states of the one
+	 * before it they stand for
+	 */
+	struct Evidence {
+		enum class Stage {
+			/* The left automaton: toNFA, normalize, removeSimilarTransitions
+			 * (recorded for & id only, as the next two stages change it) */
+			Left,
+			/* ... then saturateInitFinalPreds */
+			LeftInitFinal,
+			/* ... then saturateLoc */
+			LeftLoc,
+			/* ... then removeSimilarTransitions and to_DFA: the left
+			 * automaton of the final check */
+			LeftFinal,
+		};
+		struct Step {
+			Stage stage;
+			NFA nfa;
+		};
+		std::unique_ptr<RegExp> lhs;
+		std::unique_ptr<RegExp> rhs;
+		bool sameEnds = false;
+		bool rotated = false;
+		std::vector<Step> steps;
+		Certificate certificate;
+	};
+	/* formal: end Evidence */
+	using EvidenceSink = std::function<void(const SubsetConstraint &, const Evidence &)>;
+
+	/* Called with the evidence of each inclusion checkInclusion proves */
+	void setEvidenceSink(EvidenceSink sink) { evidenceSink = std::move(sink); }
+
 	void setObserver(Observer obs) { observer = std::move(obs); }
 
 	/* Called with the certificate of each inclusion checkAssertion and the
@@ -166,9 +207,11 @@ private:
 	void saturateRHS(NFA &rhs, const NFA &lhs, std::optional<Chain> &chain) const;
 	/* isDFASubLanguageOfNFA, with the certificate, if it holds, handed to
 	 * the certificate sink with CST, the constraint it is a proof for, and
-	 * CHAIN, how RHS came from the right-hand side */
+	 * CHAIN, how RHS came from the right-hand side; with OUT, the
+	 * certificate also goes there */
 	auto decideInclusion(NFA &lhs, const NFA &rhs, const Constraint &cst,
-			     std::optional<Chain> chain) const -> InclusionResult;
+			     std::optional<Chain> chain, Certificate *out = nullptr) const
+		-> InclusionResult;
 	[[nodiscard]] auto checkInclusion(SubsetConstraint &subsetC) const -> InclusionResult;
 	/* The extensibility check of CST, whose cycles are those of the words of
 	 * RE (of one word, with SINGLE) */
@@ -184,6 +227,7 @@ private:
 	Options options;
 	Observer observer;
 	CertificateSink certificateSink;
+	EvidenceSink evidenceSink;
 };
 
 /* A diagnostic note describing CEX, to be appended to an error message */

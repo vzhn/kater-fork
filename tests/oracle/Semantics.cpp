@@ -211,6 +211,7 @@ auto Semantics::positional(Relation::BuiltinID r) -> std::optional<Matrix>
 	return positional_.emplace(static_cast<int>(r), std::move(m)).first->second;
 }
 
+/* formal: begin ExpSemantics, mirrored by formal/KaterCert/Exp.lean */
 /* Whether RE refers to a relation of RECS through its inverse */
 static auto refersInverted(const RegExp &re,
 			   const std::ranges::ref_view<const std::vector<Relation>> &recs) -> bool
@@ -309,6 +310,7 @@ auto Semantics::eval(const RegExp &re) -> Matrix
 		throw Unsupported("rot outside the right-hand side of a constraint");
 	throw Unsupported("unknown kind of expression");
 }
+/* formal: end ExpSemantics */
 
 /* formal: begin NFASemantics, mirrored by formal/KaterCert/NFA.lean */
 auto Semantics::eval(const NFA &nfa) -> Matrix

@@ -60,6 +60,7 @@ public:
 	/* Negative IDs reserved for user-defined relations. */
 	using ID = int;
 
+	/* formal: begin RelationIDs, mirrored by formal/KaterCert/Builtin.lean */
 	enum BuiltinID {
 		/*** CAUTION: Dummy IDs (e.g., PerLocBegin) should not be a part of the builtin map
 		 */
@@ -117,6 +118,7 @@ public:
 		/* any */
 		any,
 	};
+	/* formal: end RelationIDs */
 
 	Relation() = delete;
 

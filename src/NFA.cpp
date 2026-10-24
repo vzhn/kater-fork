@@ -261,6 +261,9 @@ auto NFA::to_DFA() const -> std::pair<NFA, std::vector<std::vector<unsigned>>>
 		    })) {
 			dfa.makeAccepting(&*s);
 		}
+		/* A state of the DFA stands for what its subset does */
+		for (auto id : dfaToNfa[s->getId()])
+			addOrigins(&*s, (*this)[id]->origins_);
 	}
 	return std::make_pair(std::move(dfa), std::move(dfaToNfa));
 }

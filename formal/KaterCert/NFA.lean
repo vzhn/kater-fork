@@ -25,6 +25,7 @@ structure NFA (L : Type) where
   accepting : Array Bool
   /-- The starting states. -/
   start : List Nat
+  deriving DecidableEq
 
 namespace NFA
 
