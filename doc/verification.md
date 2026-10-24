@@ -526,7 +526,7 @@ pass without evidence only when the pass's automata have at most 24 states
 per event of the bound: `NFASemantics` nests its formulas once per round,
 and on automata with cycles of a few dozen states Z3 takes gigabytes of
 memory and then gives up (at 1 event, `eq-eco-paper`'s `normalize` passes of
-31 states took 15 GB).
+31 states took 15 GB; [#44](https://github.com/vzhn/kater-fork/issues/44)).
 
 ## The exported checkers
 
@@ -1084,6 +1084,13 @@ After the fixes:
   `oracle-export-issue-33-*` fail once Kater rejects them. What the check
   should decide is open: a condition that implies extensibility, which
   `kater-oracle extensible` can test it against.
+- **The oracle's semantics of automata overflows Z3**
+  ([#44](https://github.com/vzhn/kater-fork/issues/44)): `NFASemantics`
+  nests its formulas once per round, states times events, and on automata
+  with cycles of a few dozen states Z3 takes gigabytes, then throws an
+  exception `kater-oracle` did not catch. `certify` now catches it, and
+  checks a pass of a chain without evidence only when its automata have at
+  most 24 states per event of the bound.
 - **Not checked by the oracle**: of the printed code, the revisits of the
   dependency-tracking models (see
   [The exported checkers](#the-exported-checkers)).
