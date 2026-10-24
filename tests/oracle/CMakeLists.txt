@@ -35,12 +35,15 @@ add_test(NAME oracle-transforms COMMAND kater-oracle transforms -n 3 --cases 40 
 file(GLOB ORACLE_CORRECT ${PROJECT_SOURCE_DIR}/tests/correct/basic/*.kat
   ${PROJECT_SOURCE_DIR}/tests/correct/equivalence/*.kat)
 add_test(NAME oracle-check-correct COMMAND kater-oracle check -n 3 ${ORACLE_CORRECT})
-# The soundness regressions are false claims: each has a counterexample
-file(GLOB ORACLE_SOUNDNESS ${PROJECT_SOURCE_DIR}/tests/wrong/soundness/*.kat)
-add_test(NAME oracle-soundness-cases
-  COMMAND kater-oracle check -n 4 --refutable ${ORACLE_SOUNDNESS})
+# tests/wrong holds false claims: each one Kater rejects has a counterexample
+# (6 events for C11 to Power). True claims Kater cannot prove go in
+# tests/incomplete instead
+file(GLOB ORACLE_WRONG ${PROJECT_SOURCE_DIR}/tests/wrong/*/*.kat)
+list(FILTER ORACLE_WRONG EXCLUDE REGEX "/parsing/")
+add_test(NAME oracle-wrong-cases
+  COMMAND kater-oracle check -n 6 --refutable ${ORACLE_WRONG})
 set_tests_properties(oracle-audit oracle-transforms oracle-check-correct
-  oracle-soundness-cases PROPERTIES LABELS "oracle" TIMEOUT 900)
+  oracle-wrong-cases PROPERTIES LABELS "oracle" TIMEOUT 900)
 
 # What the export of each GenMC model relies on: the Checker's claims (the
 # inclusions its extensibility checks decide among them), and that the

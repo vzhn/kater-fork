@@ -23,8 +23,9 @@
  *       For every assertion of every FILE, compares Kater's verdict with a
  *       bounded search for a counterexample graph. A counterexample to an
  *       assertion Kater proved is a soundness bug (exit status 1). With
- *       --refutable, an assertion without a counterexample is an error too:
- *       the files are claims Kater must reject because they are false.
+ *       --refutable, an assertion Kater rejects without a counterexample is
+ *       an error too: the files are of false claims, and a true one that
+ *       Kater cannot prove belongs in tests/incomplete.
  *
  *   kater-oracle audit [-n EVENTS] [-t SECONDS]
  *       Checks every fact Kater's Theory states about the builtin relations
@@ -284,7 +285,8 @@ auto checkFile(const std::string &file, const Options &opts) -> bool
 			opts.search);
 
 		auto unsound = katerHolds && found.outcome == Search::Outcome::Counterexample;
-		auto unrefuted = opts.refutable && found.outcome != Search::Outcome::Counterexample;
+		auto unrefuted = opts.refutable && !katerHolds &&
+				 found.outcome != Search::Outcome::Counterexample;
 		sound &= !unsound && !unrefuted;
 
 		std::cout << assrt->getDbgInfo() << ": assert "

@@ -126,8 +126,9 @@ Conventions:
 
 Kater's verdict on each assertion next to a counterexample search. A
 counterexample to an assertion Kater proved is reported as `UNSOUND`, with
-the graph. With `--refutable`, an assertion without a counterexample is an
-error: for files of false claims Kater has to reject.
+the graph. With `--refutable`, an assertion Kater rejects without a
+counterexample is an error: for files of false claims, where a true claim
+Kater cannot prove would belong in `tests/incomplete`.
 
     kater-oracle audit [-n EVENTS]
 
@@ -204,7 +205,7 @@ as `.kat` files.
 
 The ctests labeled `oracle` (built when Z3 is found) run the audit, the
 transformation contracts, the correct suite against counterexamples and with
-certificates, the soundness regressions with `--refutable`, the export check
+certificates, every false claim of `tests/wrong` with `--refutable`, the export check
 and the extensibility of every `kat/*-genmc.kat` model, and the graphs of
 `tests/oracle/extensible` that refute it, for IMM, LKMM and the two models
 there; when `lake` is found too,
@@ -1548,13 +1549,14 @@ After the fixes:
 
 ## Open issues
 
-- **Incompleteness.** `tests/wrong/equivalence/eq-ra1-ra2-no-universe.kat`
-  has no counterexample with up to 5 events: it is probably true, but outside
-  what Kater can prove. The four files of `tests/wrong/compilation` have none
-  with up to 6 events either; two of them state assumptions Kater ignores
-  (`po?;[R] <= [F];po;[R]` even rules out reads), and the two compilations of
-  C11 to POWER either need larger graphs or are true once the right-hand
-  sides exclude the uninteresting counterexamples they do.
+- **Incompleteness.** `tests/incomplete` holds true claims Kater cannot
+  prove; `checkall.sh` expects Kater to reject them, so a proof shows up.
+  `eq-ra1-ra2-cycles.kat` is the equivalence of two definitions of
+  release/acquire as `ra1 & id <= ra2`: an `hb1` cycle crosses threads only by
+  `rfe`, and within a thread collapses to `[R];po` or `po;[W]`, which `hb2`
+  has. The paper wanted this as `ra ∩ id = ra2 ∩ id` and settled for
+  `sameEnds`, which needs every event to be a read, a write or a fence (§3.3);
+  Kater's `& id` is not complete either (vzhn/kater-fork#23).
 - **Inverses of recursive relations.** `x^-1` for a `let rec x` flips the
   definitions in place, and Kater's automaton construction does not recognize
   the flipped self-reference `x^-1` as the recursion: it treats it as an
