@@ -105,6 +105,21 @@ foreach(m mp mp-acq)
     PASS_REGULAR_EXPRESSION "error: not extensible: a cycle of acyclic")
 endforeach()
 
+# vzhn/kater-fork#46: the model of extensible/mp-genmc.kat with assumptions
+# every graph meets, which made the theory take the checks of an event GenMC
+# adds for incompatible ones: the oracle refutes it at mp.graph, and Kater
+# rejects it
+add_test(NAME oracle-extensible-refuted-mp-incompat
+  COMMAND kater-oracle extensible --refutable
+    --graph ${CMAKE_CURRENT_SOURCE_DIR}/extensible/mp.graph
+    ${CMAKE_CURRENT_SOURCE_DIR}/extensible/mp-incompat-genmc.kat)
+add_test(NAME oracle-export-issue-46
+  COMMAND kater-oracle export -n 2 ${CMAKE_CURRENT_SOURCE_DIR}/extensible/mp-incompat-genmc.kat)
+set_tests_properties(oracle-export-issue-46 PROPERTIES
+  PASS_REGULAR_EXPRESSION "error: not extensible: a cycle of acyclic")
+set_tests_properties(oracle-extensible-refuted-mp-incompat oracle-export-issue-46 PROPERTIES
+  LABELS "oracle")
+
 # Kater's proofs of the suite come with certificates and chains, which
 # check, and the letter inclusions and hypotheses they rest on hold
 add_test(NAME oracle-certify COMMAND kater-oracle certify -n 3 ${ORACLE_CORRECT})

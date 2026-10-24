@@ -26,6 +26,7 @@
 using PB = Predicate::BuiltinID;
 
 static auto inverse(Relation r) -> Relation { return r.invert(); }
+static auto complement(Predicate p) -> Predicate { return p.complement(); }
 
 /* The domain of r^-1 is the codomain of r: `assume r^-1 <= [R];r^-1;[W]`
  * says that r goes from writes to reads (#45) */
@@ -99,4 +100,27 @@ TEST(Theory, SuperPredicatesOfDisjointOnesNeedNotBe)
 	EXPECT_TRUE(theory.composes(PredicateSet{predB}, PredicateSet{predC}));
 	auto onlyAC = VSet<VSet<Predicate::ID>>{VSet<Predicate::ID>{predA.getID(), predC.getID()}};
 	EXPECT_EQ(theory.disjointPredicateSets(), onlyAC);
+}
+
+/* [A;B;C] = 0 makes A, B and C invalid together, and says nothing of ~A, B
+ * and C: composes used to compare the predicates by id alone (#46) */
+TEST(Theory, InvalidCombinationsAreOfPlainPredicates)
+{
+	Theory theory;
+	auto predA = Predicate::createUser();
+	auto predB = Predicate::createUser();
+	auto predC = Predicate::createUser();
+	auto predD = Predicate::createUser();
+	theory.registerInvalidPreds({predA.getID(), predB.getID(), predC.getID()});
+
+	EXPECT_FALSE(theory.composes(PredicateSet{predA}, PredicateSet{predB, predC}));
+	EXPECT_FALSE(theory.composes(PredicateSet{predB, predC}, PredicateSet{predA}));
+	EXPECT_TRUE(theory.composes(PredicateSet{complement(predA)}, PredicateSet{predB, predC}));
+	EXPECT_TRUE(theory.composes(PredicateSet{predB, predC}, PredicateSet{complement(predA)}));
+	EXPECT_TRUE(theory.composes(PredicateSet{complement(predA), predB},
+				    PredicateSet{complement(predC)}));
+
+	/* A negated predicate more only narrows an invalid combination down */
+	EXPECT_FALSE(theory.composes(PredicateSet{predA, complement(predD)},
+				     PredicateSet{predB, predC}));
 }

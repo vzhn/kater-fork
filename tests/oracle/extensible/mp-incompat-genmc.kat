@@ -1,0 +1,22 @@
+// The model of mp-genmc.kat, which is not extensible (mp.graph), with two
+// assumptions every graph meets, as no access starts a thread.
+//
+// Kater used to export it (vzhn/kater-fork#46). Its extensibility check
+// follows the cycles out of an event GenMC may add, which is not exclusive
+// and is no thread start or create (NEXCL, ~TB, ~TC), and skips the steps
+// whose checks do not compose with those. The theory compared the checks
+// with the incompatible predicates of the assumptions by id alone, so it took
+// W, NEXCL, ~TB and ~TC, for the step out of the write x := 1, for the
+// W, NEXCL, TB and TC of the first, and the check skipped the step; the
+// second did the same to the steps out of reads. Kater now rejects the model
+// at the [W];po;[W] step out of x := 1, as it does mp-genmc.kat.
+
+assume [W;NEXCL;TB;TC] = 0
+assume [R;NEXCL;TB;TC] = 0
+
+let ppo = data | addr | ctrl
+
+view hb = po
+export coherence hb
+
+export acyclic (ppo | rfe | mo | fr | [W];po;[W] | [R];po;[R] | tc | tj | lin)
