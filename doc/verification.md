@@ -1532,6 +1532,9 @@ After the fixes:
   certificates, before #33 was fixed (7 of the claims the extensibility
   checks, which were vacuous); since, 923 claims, rewrites and letter
   inclusions up to 3 events, with 13 extensibility checks, none vacuous;
+  and the evidence of every claim the exports rest on checks in Lean, the
+  8 extensibility checks that pass among them, whose constraints are then
+  extensible in the model (see [What Lean checks](#what-lean-checks));
 - every model is extensible on every graph up to 3 events, and maximally
   so for the events Kater's extensibility check is about (see
   [Extensibility](#extensibility));
