@@ -18,6 +18,7 @@
 
 #include "Semantics.hpp"
 
+#include "SavedExp.hpp"
 #include "Theory.hpp"
 
 #include <algorithm>
@@ -28,6 +29,14 @@ namespace oracle {
 
 Semantics::Semantics(Graph &g, const KatModule &module) : g_(&g), theory_(&module.getTheory())
 {
+	for (const auto &let : module.lets()) {
+		const auto &name = let->getName();
+		if (dynamic_cast<const ViewExp *>(let->getSaved()) != nullptr &&
+		    name.substr(name.rfind(':') == std::string::npos ? 0 : name.rfind(':') + 1) ==
+			    "hb")
+			hbView_ = let->getRE();
+	}
+
 	/* Every declared symbol has a let of its own name */
 	for (const auto &let : module.lets()) {
 		const auto *charRE = dynamic_cast<const CharRE *>(let->getRE());
@@ -81,6 +90,8 @@ auto Semantics::eval(const Relation &r) -> Matrix
 		if (auto it = rec_.find(base.getID()); it != rec_.end())
 			return it->second;
 		if (base.isBuiltin()) {
+			if (auto p = positional(base.toBuiltin()))
+				return *p;
 			const auto *b = g_->relation(base.toBuiltin());
 			if (b == nullptr)
 				throw Unsupported("relation " + nameOf(base, theory_));
@@ -114,6 +125,91 @@ auto Semantics::eval(const TransLabel &lab) -> Matrix
 	return result;
 }
 /* formal: end LetterSemantics */
+
+auto Semantics::evalShared(const RegExp &re) -> const Matrix &
+{
+	for (const auto &[e, m] : shared_)
+		if (*e == re)
+			return m;
+	auto m = eval(re);
+	return shared_.emplace_back(&re, std::move(m)).second;
+}
+
+auto Semantics::genmcHb() -> const Matrix &
+{
+	if (!hb_) {
+		if (hbView_ != nullptr)
+			hb_ = evalShared(*hbView_);
+		else if (auto hb = g_->genmcHb())
+			hb_ = std::move(hb);
+		else
+			throw Unsupported("GenMC's hb, of a module without a view hb");
+	}
+	return *hb_;
+}
+
+/*
+ * GenMC's ExecutionState keeps, for each location, the NA reads, the atomic
+ * reads, the atomic writes and the accesses made while no hazard pointer
+ * protected the block: each access it records drops the ones in its hb view
+ * (AdaptiveView::operator+=), so the ones left are the hb-maximal of those
+ * recorded. Of the NA writes it keeps the last (lastNAWriteEvent_). Event Y
+ * asks about its location (pomax_*_pos(); unprotected_pos() for allocations,
+ * frees and retires) with the events before it recorded.
+ */
+auto Semantics::positional(Relation::BuiltinID r) -> std::optional<Matrix>
+{
+	using RB = Relation::BuiltinID;
+	if (r != RB::last_na_reads && r != RB::last_na_writes && r != RB::last_at_reads &&
+	    r != RB::last_at_writes && r != RB::unprotected)
+		return std::nullopt;
+	if (auto it = positional_.find(r); it != positional_.end())
+		return it->second;
+
+	auto &g = *g_;
+	auto n = g.size();
+	auto na = [&](unsigned e) { return g.hasOrder(e, Order::NA); };
+	auto access = [&](unsigned e) { return g.is(e, Kind::R) || g.is(e, Kind::W); };
+	auto recorded = [&](unsigned e) -> Term {
+		switch (r) {
+		case RB::last_na_reads:
+			return g.is(e, Kind::R) && na(e);
+		case RB::last_na_writes:
+			return g.is(e, Kind::W) && na(e);
+		case RB::last_at_reads:
+			return g.is(e, Kind::R) && !na(e);
+		case RB::last_at_writes:
+			return g.is(e, Kind::W) && !na(e);
+		default:
+			return access(e) && !g.protectedWhenAdded(e);
+		}
+	};
+	auto lifecycle = [&](unsigned e) {
+		return g.is(e, Kind::Alloc) || g.is(e, Kind::Free) || g.is(e, Kind::HpRetire);
+	};
+	auto asks = [&](unsigned e) {
+		return r == RB::unprotected ? lifecycle(e) : access(e) || lifecycle(e);
+	};
+	const auto *hb = r == RB::last_na_writes ? nullptr : &genmcHb();
+
+	Matrix m(g.ctx(), n);
+	for (auto x = 0U; x < n; x++) {
+		for (auto y = 0U; y < n; y++) {
+			if (x == y)
+				continue;
+			auto t = asks(y) && recorded(x) && g.sameBlock(x, y) && g.addedBefore(x, y);
+			for (auto z = 0U; z < n && !t.isFalse(); z++) {
+				if (z == x || z == y)
+					continue;
+				auto later = recorded(z) && g.sameBlock(z, y) &&
+					     g.addedBefore(x, z) && g.addedBefore(z, y);
+				t = t && !(hb != nullptr ? later && (*hb)(x, z) : later);
+			}
+			m.set(x, y, t);
+		}
+	}
+	return positional_.emplace(static_cast<int>(r), std::move(m)).first->second;
+}
 
 /* Whether RE refers to a relation of RECS through its inverse */
 static auto refersInverted(const RegExp &re,

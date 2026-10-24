@@ -51,6 +51,14 @@ namespace oracle {
  * read without an incoming rf edge reads the initial value, and is then
  * fr-before every write to its location.
  *
+ * A location an allocation is of is a heap block; frees, retires and
+ * hazard-pointer protections are of one. GenMC's driver keeps what its
+ * memory-error checks read (the last accesses of each location, frees,
+ * protections) in an execution state, which holds the events in the order
+ * they entered it: the positional builtins (alloc, free, last_na_reads,
+ * ...) are relative to that order, which an event that GenMC checks sees
+ * the events before (GenMCDriver::checkForRaces).
+ *
  * A graph can also be concrete (an Execution): its unknowns are then
  * constants, and so is every formula built over it, the axioms included.
  */
@@ -61,7 +69,10 @@ public:
 	using UserPredicates = std::function<bool(const Predicate &, unsigned)>;
 
 	Graph(z3::context &ctx, unsigned n);
-	Graph(z3::context &ctx, const Execution &x, UserPredicates userPredicates = {});
+	/* ORDER is the order the events entered GenMC's execution state; by
+	 * default, the order kater-oracle-runner adds them in */
+	Graph(z3::context &ctx, const Execution &x, UserPredicates userPredicates = {},
+	      std::optional<std::vector<unsigned>> order = std::nullopt);
 
 	[[nodiscard]] auto size() const -> unsigned { return n_; }
 	[[nodiscard]] auto ctx() const -> z3::context & { return *ctx_; }
@@ -71,6 +82,7 @@ public:
 	[[nodiscard]] auto hasOrder(unsigned e, Order o) const -> Term;
 	[[nodiscard]] auto isExclusive(unsigned e) const -> Term;
 	[[nodiscard]] auto isLocated(unsigned e) const -> Term;
+	[[nodiscard]] auto hasLocation(unsigned e) const -> Term;
 	[[nodiscard]] auto isDependable(unsigned e) const -> Term;
 	[[nodiscard]] auto sameThread(unsigned a, unsigned b) const -> Term
 	{
@@ -78,12 +90,29 @@ public:
 	}
 	[[nodiscard]] auto sameLoc(unsigned a, unsigned b) const -> Term { return sameLoc_(a, b); }
 
-	/* The meaning of builtin predicate P at event E; nullopt if the model has none */
-	[[nodiscard]] auto predicate(Predicate::BuiltinID p, unsigned e) const
-		-> std::optional<Term>;
+	/* Whether A and B have the same location (accesses, allocations, frees,
+	 * retires, protections) */
+	[[nodiscard]] auto sameBlock(unsigned a, unsigned b) const -> Term
+	{
+		return sameBlock_(a, b);
+	}
 
-	/* The meaning of builtin relation R; nullptr if the model has none */
-	[[nodiscard]] auto relation(Relation::BuiltinID r) const -> const Matrix *;
+	/* Whether event A entered GenMC's execution state before event B */
+	auto addedBefore(unsigned a, unsigned b) -> Term;
+
+	/* Whether access X was hazard-pointer protected when it entered the state */
+	auto protectedWhenAdded(unsigned x) -> Term;
+
+	/* The meaning of builtin predicate P at event E; nullopt if the model has none */
+	auto predicate(Predicate::BuiltinID p, unsigned e) -> std::optional<Term>;
+
+	/* The meaning of builtin relation R; nullptr if the model has none (or
+	 * GenMC's hb defines it: Semantics gives the last_* and unprotected) */
+	auto relation(Relation::BuiltinID r) -> const Matrix *;
+
+	/* GenMC's hb for a module that names none: a strict order between po
+	 * and porf; nullopt for a concrete graph */
+	auto genmcHb() -> std::optional<Matrix>;
 
 	/* The relation "same location", as a matrix */
 	[[nodiscard]] auto sameLocRelation() const -> const Matrix & { return sameLoc_; }
@@ -120,12 +149,21 @@ private:
 	void buildDerived();
 	void buildAxioms();
 
+	/* Built on first use, with their axioms: that allocations precede
+	 * the events of their block in porf, the order of the execution state,
+	 * and what the positional builtins read from it */
+	void buildHeap();
+	void buildOrder();
+	void buildPositional();
+	[[nodiscard]] auto memLabel(unsigned e) const -> Term;
+
 	[[nodiscard]] auto threadOf(const z3::model &m, unsigned e) const -> unsigned;
 
 	z3::context *ctx_;
 	unsigned n_;
 	bool concrete_ = false;
 	UserPredicates concreteUserPredicates_;
+	std::vector<unsigned> concreteOrder_;
 
 	/* Unknowns */
 	std::vector<Term> newThread_; /* event e starts a new thread */
@@ -133,14 +171,23 @@ private:
 	std::vector<std::vector<Term>> order_;
 	std::vector<Term> excl_;
 	std::vector<z3::expr> loc_;
-	std::vector<Term> heap_, durable_, recovery_, abstractLock_, hpProtected_, notHpProtected_,
-		dependableOther_;
+	std::vector<z3::expr> hp_; /* the hazard pointer of a protection */
+	std::vector<Term> durable_, recovery_, abstractLock_, dependableOther_;
 	Matrix rf_, mo_;
 	Matrix ctrl_, addr_, data_, pctrl_, tc_, tj_, lin_;
 
 	/* Derived structure */
-	Matrix sameThread_, sameLoc_;
+	Matrix sameThread_, sameLoc_, sameBlock_, sameHp_;
+	std::vector<Term> heap_;	/* on a location an allocation is of */
+	std::vector<Term> hpProtected_; /* GenMC's isHazptrProtected() */
 	std::map<Relation::BuiltinID, Matrix> builtins_;
+
+	/* Built on first use */
+	bool heapBuilt_ = false;
+	std::optional<Matrix> causal_; /* (po | rf | tc | tj)+ */
+	std::optional<Matrix> added_;  /* the order of the execution state */
+	std::optional<std::vector<Term>> protectedWhenAdded_, notHpProtected_;
+	std::optional<Matrix> genmcHb_;
 
 	/* Uninterpreted user symbols */
 	std::map<Relation::ID, std::pair<Relation, Matrix>> userRelations_;

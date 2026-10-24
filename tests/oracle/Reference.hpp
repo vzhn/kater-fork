@@ -75,6 +75,12 @@ public:
 		bool pporfAcyclic = false; /* ppo | rfe | tc | tj | lin (GenMC's prefix) */
 	};
 
+	/* A clause's verdict at an event, and the events that refute it there */
+	struct Verdict {
+		bool holds = true;
+		std::vector<int> witnesses;
+	};
+
 	explicit Reference(std::unique_ptr<KatModule> module);
 
 	[[nodiscard]] auto isDepTracking() const -> bool { return module_->isDepTracking(); }
@@ -99,12 +105,59 @@ public:
 	[[nodiscard]] auto hasRevisitPrefix() const -> bool { return rpporf_ != nullptr; }
 	auto revisitPrefix(const Execution &x) -> Pairs;
 
+	/* The error and warning exports, in their order */
+	[[nodiscard]] auto numClauses() const -> unsigned
+	{
+		return static_cast<unsigned>(clauses_.size());
+	}
+	[[nodiscard]] auto clauseCode(unsigned i) const -> const std::string &
+	{
+		return clauses_[i].code;
+	}
+	[[nodiscard]] auto clauseIsError(unsigned i) const -> bool { return clauses_[i].error; }
+	/* Whether clause I is A = 0, which leaves its race unset (vzhn/kater-fork#34) */
+	[[nodiscard]] auto clauseIsEmpty(unsigned i) const -> bool
+	{
+		return clauses_[i].unless != nullptr && clauses_[i].unless->isEmpty();
+	}
+	[[nodiscard]] auto clauseText(unsigned i) const -> const std::string &
+	{
+		return clauses_[i].text;
+	}
+
+	/*
+	 * Each clause's verdict at each event GenMC checks (by event), the
+	 * events in the execution state in ORDER: on the graph as GenMC has it
+	 * when it adds the event, a read without its rf. The unless clause
+	 * A <= B holds at E when every A-predecessor of E is a B-predecessor
+	 * (GenMCPrinter's check from the event just added), A = B in both
+	 * directions, and a clause without unless never does.
+	 */
+	auto checks(const Execution &x, const std::vector<unsigned> &order)
+		-> std::vector<std::vector<Verdict>>;
+
 private:
+	struct Clause {
+		std::string code;
+		bool error;
+		const SubsetConstraint *unless;
+		std::string text;
+	};
+
 	auto isCoherent(Graph &g, Semantics &sem) -> bool;
 	auto factsOf(Graph &g, Semantics &sem) -> Facts;
 
+	/* Clause C's verdicts at EVENTS; RELATED marks the events its left-hand
+	 * side relates events to */
+	static void verdicts(Graph &g, Semantics &sem, const Clause &c,
+			     const std::vector<unsigned> &events,
+			     std::vector<std::vector<Verdict>> &result, std::vector<bool> &related);
+
+	/* F on the graph of X, its events entering the execution state in ORDER
+	 * (by default, as kater-oracle-runner adds them) */
 	template <typename F>
-	auto evaluate(const Execution &x, F f) -> std::invoke_result_t<F, Graph &, Semantics &>;
+	auto evaluate(const Execution &x, F f, std::optional<std::vector<unsigned>> order = {})
+		-> std::invoke_result_t<F, Graph &, Semantics &>;
 
 	std::unique_ptr<KatModule> module_;
 	z3::context ctx_;
@@ -114,6 +167,7 @@ private:
 		const Constraint *unless;
 	};
 	std::vector<Export> consistency_;
+	std::vector<Clause> clauses_;
 	const RegExp *coherence_ = nullptr;
 	std::vector<std::pair<std::string, const RegExp *>> views_;
 	std::unique_ptr<RegExp> pporf_;
@@ -124,6 +178,14 @@ private:
 
 /* The events of the model's graphs: the orderings and labels it tells apart */
 auto alphabetOf(const std::string &model) -> Alphabet;
+
+/*
+ * The events of the graphs of the memory-error checks: allocations, frees,
+ * retires and hazard-pointer protections (through HAZARDS hazard pointers),
+ * plain accesses, and atomic ones of the orderings the model's hb tells
+ * apart
+ */
+auto heapAlphabetOf(const std::string &model, unsigned hazards) -> Alphabet;
 
 /* The model a kat/NAME-genmc.kat defines: NAME */
 auto modelOf(const std::string &file) -> std::string;

@@ -82,20 +82,38 @@ auto lkmmFenceName(unsigned kind) -> const char *;
  * A concrete execution graph: what Graph leaves to the solver, fixed.
  * Events are numbered thread by thread, in program order, and initial
  * writes are implicit, as in Graph.
+ *
+ * A location an allocation is of is a heap block (one location wide), the
+ * others are static. Frees, retires and hazard-pointer protections are of a
+ * block, which its allocation precedes in porf.
  */
 struct Execution {
 	struct Event {
 		unsigned thread = 0;
 		Kind kind = Kind::Other;
 		Order order = Order::NA;
-		int loc = -1; /* reads and writes; locations are numbered by first use */
+		/* The location of an access, or the block an allocation, free,
+		 * retire or protection is of; numbered by first use */
+		int loc = -1;
 		bool excl = false;
 		Flavor flavor = Flavor::Plain;
 		unsigned fence = 0; /* the kind of an LkmmFence */
+		unsigned hp = 0;    /* the hazard pointer an HpProtect protects through */
 
 		[[nodiscard]] auto isAccess() const -> bool
 		{
 			return kind == Kind::R || kind == Kind::W;
+		}
+		/* Whether the event has a location: GenMC's LOC */
+		[[nodiscard]] auto hasLocation() const -> bool
+		{
+			return isAccess() || kind == Kind::Alloc || kind == Kind::Free ||
+			       kind == Kind::HpRetire || kind == Kind::HpProtect;
+		}
+		/* Whether the error checks look at the event (GenMCDriver::checkForRaces) */
+		[[nodiscard]] auto isChecked() const -> bool
+		{
+			return isAccess() || kind == Kind::Free || kind == Kind::HpRetire;
 		}
 	};
 	using Edges = std::vector<std::pair<unsigned, unsigned>>;
@@ -125,6 +143,9 @@ struct Execution {
 
 	/* Whether (A, B) is an edge of EDGES */
 	[[nodiscard]] static auto has(const Edges &edges, unsigned a, unsigned b) -> bool;
+
+	/* The allocation of location L, if L is a heap block */
+	[[nodiscard]] auto allocationOf(int l) const -> std::optional<unsigned>;
 
 	/*
 	 * The order kater-oracle-runner adds the events to a GenMC graph in,

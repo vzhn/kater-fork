@@ -7,6 +7,18 @@ add_test(
 )
 set_tests_properties(checkall PROPERTIES LABELS "integration" TIMEOUT 600)
 
+# Every GenMC model exports (vzhn/kater-fork#35: with assertions on, Kater
+# aborted on all of them)
+foreach(m sc tso ra rc11 imm lkmm)
+  add_test(
+      NAME export-${m}-genmc
+      COMMAND sh -c "mkdir -p \"$1\" && \"$0\" -e -n test${m} -p \"$1\" \"$2\""
+        $<TARGET_FILE:${PROJECT_NAME}> ${CMAKE_CURRENT_BINARY_DIR}/export/${m}
+        ${CMAKE_SOURCE_DIR}/kat/${m}-genmc.kat
+  )
+  set_tests_properties(export-${m}-genmc PROPERTIES LABELS "integration" TIMEOUT 600)
+endforeach()
+
 # kat/imm-genmc.kat and kat/lkmm-genmc.kat are not extensible
 # (vzhn/kater-fork#38, #39): they say so with export nonextensible, and
 # export with a warning. Once a model is, its test fails: drop the flag
