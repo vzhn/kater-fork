@@ -58,6 +58,25 @@ add_test(NAME oracle-extensible-lkmm
 set_tests_properties(oracle-extensible oracle-extensible-lkmm PROPERTIES
   LABELS "oracle" TIMEOUT 900)
 
+# Two models that are not: the oracle finds the event GenMC cannot add
+foreach(m mp mp-acq)
+  add_test(NAME oracle-extensible-refuted-${m}
+    COMMAND kater-oracle extensible --refutable
+      --graph ${CMAKE_CURRENT_SOURCE_DIR}/extensible/${m}.graph
+      ${CMAKE_CURRENT_SOURCE_DIR}/extensible/${m}-genmc.kat)
+  set_tests_properties(oracle-extensible-refuted-${m} PROPERTIES LABELS "oracle")
+endforeach()
+
+# vzhn/kater-fork#33: isPPOIntersectionInPPO decides nothing, so Kater
+# exports the two models all the same. These pass while it does; once Kater
+# rejects a model, its test fails: then expect the export to fail instead
+foreach(m mp mp-acq)
+  add_test(NAME oracle-export-issue-33-${m}
+    COMMAND kater-oracle export -n 2 ${CMAKE_CURRENT_SOURCE_DIR}/extensible/${m}-genmc.kat)
+  set_tests_properties(oracle-export-issue-33-${m} PROPERTIES LABELS "oracle"
+    PASS_REGULAR_EXPRESSION "${m}-genmc[.]kat: [0-9]+ hold, 0 are false")
+endforeach()
+
 # Kater's proofs of the suite come with certificates, which check, and the
 # letter inclusions they rest on hold
 add_test(NAME oracle-certify COMMAND kater-oracle certify -n 3 ${ORACLE_CORRECT})
