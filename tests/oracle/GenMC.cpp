@@ -244,8 +244,7 @@ auto errorsMatch(const std::string &want, const std::string &got) -> bool
 			return false;
 		auto colon = w.find(':');
 		auto races = w.substr(colon + 1);
-		if (w.substr(0, colon) != code ||
-		    (races != "*" && !("," + races + ",").contains("," + race + ",")))
+		if (w.substr(0, colon) != code || !("," + races + ",").contains("," + race + ","))
 			return false;
 	}
 	return !(gs >> code);
@@ -270,9 +269,7 @@ auto errorsValue(const std::string &v, bool expected) -> std::string
 			std::string w;
 			while (std::getline(ls, w, ','))
 				set += (set.empty() ? "e" : ", e") + w;
-			race = item.substr(colon + 1) == "*" ? "any race"
-			       : set.empty()		     ? "no race"
-							     : "the race one of {" + set + "}";
+			race = set.empty() ? "no race" : "the race one of {" + set + "}";
 		} else {
 			vs >> race;
 			race = race == "none"
@@ -542,12 +539,9 @@ private:
 			return;
 		auto verdicts = ref_->checks(x, order.events);
 		queries.push_back("errors " + std::to_string(e));
-		/* CODE:W1,W2,...: clause I fails, refuted by events W1, W2, ...; any
-		 * race for a clause A = 0 but with --all-races */
+		/* CODE:W1,W2,...: clause I fails, refuted by events W1, W2, ... */
 		auto failure = [&](unsigned i, const Reference::Verdict &v) {
 			std::string s = ref_->clauseCode(i) + ":";
-			if (ref_->clauseIsEmpty(i) && !opts_->allRaces)
-				return s + "*";
 			for (auto k = 0U; k < v.witnesses.size(); k++)
 				s += (k == 0 ? "" : ",") + std::to_string(v.witnesses[k]);
 			return s;

@@ -115,11 +115,6 @@ public:
 		return clauses_[i].code;
 	}
 	[[nodiscard]] auto clauseIsError(unsigned i) const -> bool { return clauses_[i].error; }
-	/* Whether clause I is A = 0, which leaves its race unset (vzhn/kater-fork#34) */
-	[[nodiscard]] auto clauseIsEmpty(unsigned i) const -> bool
-	{
-		return clauses_[i].unless != nullptr && clauses_[i].unless->isEmpty();
-	}
 	[[nodiscard]] auto clauseText(unsigned i) const -> const std::string &
 	{
 		return clauses_[i].text;
