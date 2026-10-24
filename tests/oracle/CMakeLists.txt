@@ -49,8 +49,15 @@ set_tests_properties(oracle-certify PROPERTIES LABELS "oracle" TIMEOUT 900)
 # The certificates of the whole suite, checked by the Lean checker in formal/
 # (whose build proves it sound), along with copies that differ in one place:
 # it must give each file the verdict checkCertificate gave it
-find_program(LAKE lake HINTS $ENV{HOME}/.elan/bin)
+find_program(LAKE lake HINTS $ENV{ELAN_HOME}/bin $ENV{HOME}/.elan/bin)
 if(LAKE)
+  # elan's lake finds its toolchains through ELAN_HOME, which ctest's
+  # environment may lack: give it the elan home lake was found in
+  get_filename_component(LAKE_HOME ${LAKE} DIRECTORY)
+  get_filename_component(LAKE_HOME ${LAKE_HOME} DIRECTORY)
+  if(EXISTS ${LAKE_HOME}/toolchains)
+    set(LAKE_ENVIRONMENT ELAN_HOME=${LAKE_HOME})
+  endif()
   file(GLOB ORACLE_CORRECT_ALL ${PROJECT_SOURCE_DIR}/tests/correct/*/*.kat)
   set(CERTIFICATES_JSON ${CMAKE_CURRENT_BINARY_DIR}/certificates)
   add_test(NAME formal-certificates-clean
@@ -65,7 +72,7 @@ if(LAKE)
   set_tests_properties(formal-certificates-write PROPERTIES
     FIXTURES_REQUIRED certificates-clean FIXTURES_SETUP certificates-json)
   set_tests_properties(formal-certificates-check PROPERTIES
-    FIXTURES_REQUIRED certificates-json)
+    FIXTURES_REQUIRED certificates-json ENVIRONMENT "${LAKE_ENVIRONMENT}")
   set_tests_properties(formal-certificates-clean formal-certificates-write
     formal-certificates-check PROPERTIES LABELS "oracle;formal" TIMEOUT 1800)
 endif()
