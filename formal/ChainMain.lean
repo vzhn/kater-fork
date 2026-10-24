@@ -1,5 +1,14 @@
 import KaterCert.EndToEnd
 
+/-!
+`kater-chain-check [-v] PATH...`: checks the evidence of whole proofs in PATH
+(files, or directories of `.json` files) as `kater-oracle evidence --json`
+writes it (`EndToEnd.check`), printing why it rejects each assertion it
+rejects, and with `-v` the time each takes. Exits with 1 if a file does not
+read or an assertion is rejected. `--profile FILE` and `--profile-step FILE
+K` time the searches of the checks, for triage.
+-/
+
 open KaterCert
 
 def files (paths : List String) : IO (Array System.FilePath) := do
@@ -25,10 +34,6 @@ def explain (θ : Theory) (X Y : NFA Label) (cycle : Bool) (limit : Nat)
     let mut parent : Array (Option (Nat × Label)) := Array.replicate c.macros.size none
     for i in [0:c.macros.size] do
       let m := c.macros[i]!
-      let ls := (X.trans m.x).filterMap fun t =>
-        let ss := Guarded.steps θ X Y cycle { m with x := m.x }
-        some t.1
-      let ss := Guarded.steps θ X Y cycle m
       let idx := c.succ[i]!
       -- the letters of the steps, in order: recompute which transitions produced steps
       let labs := (X.trans m.x).filter fun t =>
@@ -36,7 +41,6 @@ def explain (θ : Theory) (X Y : NFA Label) (cycle : Bool) (limit : Nat)
          | none => !θ.unsat (Guarded.union m.tests t.1.pre)
          | some r => !(θ.unsat (Guarded.union (Guarded.union m.tests t.1.pre) (θ.dom r)) ||
              θ.unsat (Guarded.union t.1.post (θ.codom r))))
-      let _ := ls; let _ := ss
       for (j, t) in idx.zip labs do
         if j != i && parent[j]!.isNone then parent := parent.set! j (some (i, t.1))
     let word (i : Nat) : List String := Id.run do
@@ -103,15 +107,15 @@ def profile (f : System.FilePath) (limit : Nat) : IO Unit := do
       let L := (inc.steps.find? (·.stage == "leftFinal")).get!.nfa
       timeIt "left" θ (Thompson.nfa lhs) L false limit
       if !Guarded.prove θ (Thompson.nfa lhs) L false then explain θ (Thompson.nfa lhs) L false limit
-      let mut prev := L
-      for s in inc.steps do
-        if s.stage == "right" then
-          timeIt "right" θ s.nfa (Thompson.nfa inc.rhs) false limit
-        else if s.stage == "normalized" || s.stage == "pruned" then
-          timeIt s.stage θ s.nfa prev false limit (some s.origins)
-        prev := s.nfa
+      timeIt "right" θ inc.chain.start (Thompson.nfa inc.rhs) false limit
+      let mut prev := inc.chain.start
+      for (p, o) in Whole.withOrigins inc.chain.passes inc.chainOrigins.tail do
+        if p.name == "normalize" || p.name == "prune" then
+          timeIt p.name θ p.result prev false limit (some o)
+        prev := p.result
 
-/-- Profiles step `k` of the first inclusion against step `k - 1`. -/
+/-- Profiles pass `k` of the first inclusion's right side against the
+automaton before it. -/
 def profileStep (f : System.FilePath) (k limit : Nat) : IO Unit := do
   match ReadChain.evidence (← IO.FS.readFile f) with
   | .error e => IO.println e
@@ -119,9 +123,11 @@ def profileStep (f : System.FilePath) (k limit : Nat) : IO Unit := do
     let θ := Theory.ofDecls (Whole.declsOf ev)
     match ev.inclusions with
     | inc :: _ =>
-      match inc.steps[k]?, inc.steps[k - 1]? with
-      | some s, some p => timeIt s.stage θ s.nfa p.nfa false limit (some s.origins)
-      | _, _ => IO.println "no such step"
+      let ps := Whole.withOrigins inc.chain.passes inc.chainOrigins.tail
+      let prev := if k = 0 then some inc.chain.start else (ps[k - 1]?.map (·.1.result))
+      match ps[k]?, prev with
+      | some (p, o), some prev => timeIt p.name θ p.result prev false limit (some o)
+      | _, _ => IO.println "no such pass"
     | [] => IO.println "no inclusion"
 
 def main (args : List String) : IO UInt32 := do
@@ -146,7 +152,7 @@ def main (args : List String) : IO UInt32 := do
       unread := unread + 1
     | .ok ev =>
       let t0 ← IO.monoMsNow
-      let r := EndToEnd.check Whole.noSaturations ev
+      let r := EndToEnd.check ev
       let t1 ← IO.monoMsNow
       match r with
       | .ok () =>

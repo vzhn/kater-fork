@@ -26,8 +26,6 @@ namespace KaterCert
 
 universe u
 
-deriving instance DecidableEq for NFA
-
 /-- A pass of a chain: its name, its evidence if it is a saturation, and the
 automaton it produced. -/
 structure Pass where

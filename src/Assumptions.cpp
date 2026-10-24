@@ -29,6 +29,7 @@
 #include <cassert>
 #include <numeric>
 
+/* formal: begin incorporateAssumptions, mirrored by formal/KaterCert/Whole.lean */
 auto Assumptions::tryIncorporateDomAssumption(const AssumeStatement *assm, Theory &theory) -> bool
 {
 	/*
@@ -148,3 +149,4 @@ void Assumptions::incorporateInto(Theory &theory)
 
 	std::erase_if(assumes_, isDroppable);
 }
+/* formal: end incorporateAssumptions */

@@ -161,9 +161,32 @@ if(LAKE)
     FAIL_REGULAR_EXPRESSION "\n0 valid certificates with chains")
   set_tests_properties(formal-export-certificates-clean formal-export-certificates-write
     formal-export-certificates-check PROPERTIES LABELS "oracle;formal" TIMEOUT 1800)
+
+  # The evidence of every step of Kater's proofs of the suite, from each
+  # assertion's expressions to its verdict, checked by the Lean checker of
+  # whole proofs in formal/, whose build proves that the assertion of
+  # evidence it accepts holds on every execution graph where the module's
+  # assumptions do
+  set(EVIDENCE_JSON ${CMAKE_CURRENT_BINARY_DIR}/evidence)
+  add_test(NAME formal-evidence-clean
+    COMMAND ${CMAKE_COMMAND} -E rm -rf ${EVIDENCE_JSON})
+  add_test(NAME formal-evidence-write
+    COMMAND kater-oracle evidence --json ${EVIDENCE_JSON} ${ORACLE_CORRECT_ALL})
+  add_test(NAME formal-evidence-check
+    COMMAND ${LAKE} exe kater-chain-check ${EVIDENCE_JSON}
+    WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}/formal)
+  set_tests_properties(formal-evidence-clean PROPERTIES FIXTURES_SETUP evidence-clean)
+  set_tests_properties(formal-evidence-write PROPERTIES
+    FIXTURES_REQUIRED evidence-clean FIXTURES_SETUP evidence-json)
+  set_tests_properties(formal-evidence-check PROPERTIES
+    FIXTURES_REQUIRED evidence-json ENVIRONMENT "${LAKE_ENVIRONMENT}"
+    FAIL_REGULAR_EXPRESSION "(^|\n)0 assertions accepted")
+  set_tests_properties(formal-evidence-clean formal-evidence-write formal-evidence-check
+    PROPERTIES LABELS "oracle;formal" TIMEOUT 1800)
+
   # One lake at a time in formal/
   set_tests_properties(formal-certificates-check formal-export-certificates-check
-    PROPERTIES RESOURCE_LOCK formal-lake)
+    formal-evidence-check PROPERTIES RESOURCE_LOCK formal-lake)
 endif()
 
 # The exported checkers, run inside GenMC, against the reference semantics

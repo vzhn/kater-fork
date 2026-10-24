@@ -49,6 +49,7 @@ auto Theory::isEco(const TransLabel &label) const -> bool
 	       isIncludedIn(rel, Relation::createBuiltin(Relation::BuiltinID::fr));
 }
 
+/* formal: begin RelationInclusion, mirrored by formal/KaterCert/Builtin.lean */
 auto Theory::isIncludedIn(const Relation &a, const Relation &b) const -> bool
 {
 	using RB = Relation::BuiltinID;
@@ -110,7 +111,9 @@ auto Theory::isIncludedIn(const Relation &a, const Relation &b) const -> bool
 	}
 	return false;
 }
+/* formal: end RelationInclusion */
 
+/* formal: begin LetterInclusion, mirrored by formal/KaterCert/Theory.lean */
 auto Theory::isIncludedIn(const Predicate &a, const Predicate &b) const -> bool
 {
 	return a == b ||
@@ -150,6 +153,7 @@ auto Theory::isIncludedIn(const TransLabel &a, const TransLabel &b) const -> boo
 	return isIncludedIn(a.getPreChecks(), b.getPreChecks()) && relationIncluded() &&
 	       isIncludedIn(a.getPostChecks(), b.getPostChecks());
 }
+/* formal: end LetterInclusion */
 
 auto Theory::composes(const PredicateSet &preds1, const PredicateSet &preds2) const -> bool
 {

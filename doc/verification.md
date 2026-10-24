@@ -15,7 +15,10 @@ their absence. The contracts below are the lemmas a proof has to establish
 of inclusion and the saturations of its right-hand side, whose certificates
 and evidence a checker proved sound in Lean checks (see
 [The checker in Lean](#the-checker-in-lean) and
-[Evidence of the saturations](#evidence-of-the-saturations)).
+[Evidence of the saturations](#evidence-of-the-saturations)), and whole
+proofs: a checker proved sound in Lean checks every step of Kater's proof of
+an assertion, and the assertion then holds on every execution graph of a
+model in Lean (see [Whole proofs](#whole-proofs)).
 
 ## The reference semantics
 
@@ -356,6 +359,8 @@ evidence, and the passes in between (`normalize` after each assumption,
 `rotate` for `rot`) without. A saturation that records evidence, under its
 hypothesis, denotes no more than the automaton before it; the other passes
 are trusted to do the same, but for `rotate`, which adds no cycle instead.
+For an assertion, the checker of whole proofs checks them too (see
+[Whole proofs](#whole-proofs)).
 
 **Hypotheses.** A saturation uses one hypothesis:
 
@@ -517,22 +522,145 @@ starting states that copies reading the empty word need: random hypotheses
 have such automata, the suite's do not. No saturation puts a transitive loop
 at a starting state, the case the check would reject.
 
-**What remains trusted** for a proof of `A <= B`: the translations of A and
-B to automata (`toNFA`, `normalize`, and the passes of the left-hand side);
-the passes of the right-hand side without evidence (`normalize` after each
-assumption, `prune`, `rotate`); the hypotheses, that is, that each
-assumption says what Kater saturates with (the automaton of its left-hand
-side, and how Kater reads its shape); and the letter inclusions. `kater-oracle
-certify` checks the last three on every graph up to N events, the hypotheses
-under the module's assumptions. An assumption read as something it does not
-say, as in #13 (`r & id <= 0` used as `r <= 0`), shows there; a saturation
-that adds what its hypothesis does not give, as in #19 (`total r` making
-r-steps optional), has no evidence that checks. It checks the contract of a
+**What remains trusted** for a proof of `A <= B` that its certificate and
+chain alone check (`kater-cert-check`), none of which the checker of whole
+proofs trusts for an assertion (see [Whole proofs](#whole-proofs)): the
+translations of A and B to automata (`toNFA`, `normalize`, and the passes
+of the left-hand side); the passes of the right-hand side without evidence
+(`normalize` after each assumption, `prune`, `rotate`); the hypotheses,
+that is, that each assumption says what Kater saturates with (the
+automaton of its left-hand side, and how Kater reads its shape); and the
+letter inclusions. `kater-oracle certify` checks the last three on every
+graph up to N events, the hypotheses under the module's assumptions. An
+assumption read as something it does not say, as in #13 (`r & id <= 0`
+used as `r <= 0`), shows there; a saturation that adds what its hypothesis
+does not give, as in #19 (`total r` making r-steps optional), has no
+evidence that checks. It checks the contract of a
 pass without evidence only when the pass's automata have at most 24 states
 per event of the bound: `NFASemantics` nests its formulas once per round,
 and on automata with cycles of a few dozen states Z3 takes gigabytes of
 memory and then gives up (at 1 event, `eq-eco-paper`'s `normalize` passes of
 31 states took 15 GB; [#44](https://github.com/vzhn/kater-fork/issues/44)).
+
+### Whole proofs
+
+The certificates and their chains leave the rest of a proof to trust: the
+translations of the expressions to automata, the passes of the left-hand
+side, `normalize`, `prune` and `rotate` on the right, and the facts the
+theory states. The checker of whole proofs takes none of them on trust.
+Kater hands out the evidence of each inclusion check (`Checker::Evidence`,
+through `setEvidenceSink`): the expressions as `checkInclusion` got them,
+the automaton of each stage of the left-hand side (after `toNFA` and
+`normalize`; for `& id`, after `saturateInitFinalPreds` and `saturateLoc`;
+after `to_DFA`), and the certificate of the final check with its chain. The
+states of each automaton name the states of the one before that they stand
+for, which the passes keep track of: hints for the checker's search, which
+its proofs do not use. `kater-oracle evidence` writes the evidence of each
+assertion Kater proves, with the module's declarations and assumptions, and
+`kater-chain-check` checks it:
+
+    Release/kater-oracle evidence --json /tmp/evidence tests/correct/*/*.kat
+    cd formal && lake exe kater-chain-check /tmp/evidence
+
+The checker (`formal/KaterCert/Whole.lean`) checks each automaton against the
+one before it, as relations:
+
+- **The expressions.** Lean builds its own automaton of each side
+  (`Thompson`) and proves that it denotes what the expression does,
+  `let rec` included. Kater's parser makes recursive definitions
+  left-linear: each is a part without references and parts `x_j ; a`, and
+  their least solution is what the parts reach from one another, which an
+  automaton with a state for each relation, and the parts' automata
+  between those states, reads. On the left, `rf` is split into `rfe | rfi`
+  where `expandRfs` splits it.
+- **Inclusions of automata** (`Guarded`). An automaton denotes no more than
+  another if each of its words is matched by one of the other's, a word
+  being read as tests and steps in turn, with consecutive tests merged and
+  the tests the theory says no event passes dropped. An unverified search
+  (an antichain, a simulation, the hints) builds a certificate, and a
+  verified check accepts it; in cycle mode, the same for the words of
+  cycles.
+- **The left-hand side.** Lean's automaton of it is within Kater's first
+  left automaton. For `& id`, each cycle survives `saturateInitFinalPreds`
+  (the inclusion in cycle mode) and `saturateLoc` (`Loc`: a step became its
+  per-location variant only where every way through it, back to it, takes
+  steps that keep to one location), and the final left automaton takes in
+  the one before it.
+- **The right-hand side.** The start of the chain is within Lean's
+  automaton of the right-hand side. Each saturation's evidence checks
+  (`Evidence.check`, as for certificates), and an assumption of the module
+  gives its hypothesis (`Hypotheses`): `r;r <= r`, `r+ <= r` or `total r`
+  a transitive letter; an assumption `A <= B` (or `A <= 0`) an automaton
+  within a word (or empty), if Lean's automaton of `A`, with `any` starred
+  and `po` repeated as Kater reads them (`starifyAny`, `saturateSubword`),
+  takes in the hypothesis' automaton, and the word (or nothing) takes in
+  Lean's automaton of `B`. Each `normalize` and `prune` takes in no more
+  than the automaton before it; the rotation for `rot` is within Lean's
+  automaton of the rotations of the automaton before it, each of whose
+  cycles is one of that automaton (`Rotate`).
+- **The final check.** The certificate is of the last two automata and
+  checks, and its letter inclusions are the theory's.
+
+The theory is Lean's own (`Theory.ofDecls`, `formal/KaterCert/Builtin.lean`):
+Kater's tables of the builtin relations and predicates (inclusions, domains
+and codomains, disjoint predicates, sub-predicates, per-location variants),
+the module's `disjoint` declarations and per-location variants, and the
+assumptions Kater takes into its theory (`r <= [A];r;[B]`, `[A;B] <= 0`), as
+Lean reads them. The model (`formal/KaterCert/Model.lean`) is the reference
+semantics above, in Lean: events with a kind, an ordering, a location and
+flags, `po`, `rf`, `mo`, the dependencies and the rest, initial writes left
+implicit, the axioms the facts need, and the meaning of every builtin; a
+module's own relations and predicates mean anything. `ModelSound` proves the
+theory sound on every graph where the declarations and the assumptions it
+took in hold, and Kater's builtin assumptions true of every graph.
+`lake build` proves the end-to-end theorem
+(`formal/KaterCert/EndToEnd.lean`):
+
+```lean
+theorem sound {ev : ReadChain.Evidence} (h : check ev = .ok ())
+    (G : Graph) (hG : G.WF) (U : Graph.User G.E)
+    (hdisj : ∀ D ∈ ev.disjoint, ∀ p ∈ D, ∀ q ∈ D, p ≠ q →
+      ∀ e, ¬ ((G.interp U ev.perLoc).pred p e ∧ (G.interp U ev.perLoc).pred q e))
+    (hyps : ∀ a ∈ ev.assumptions, a.builtin = false → ∀ c, a.constraint = .ok c →
+      c.Holds (G.interp U ev.perLoc)) :
+    ev.constraint.Holds (G.interp U ev.perLoc)
+```
+
+If the checker accepts the evidence of an assertion, the assertion holds on
+every graph of the model where the module's `disjoint` declarations and its
+own assumptions hold, whatever its own relations and predicates mean. The
+proof has no `sorry` and uses only Lean's standard axioms; the build checks
+this.
+
+**Results.** On `tests/correct`, Kater proves 55 assertions through 59
+inclusion checks, and the checker accepts the evidence of every one: 101
+automata of left-hand sides, the starts of 59 chains, 274 saturations by
+their evidence and an assumption (133 `saturateBuiltin`, 123
+`saturateTransitive`, 9 `saturateSubword`, 6 `saturateID`, 3
+`saturateEmpty`), 275 `normalize` and 59 `prune` passes, 6 rotations and 59
+certificates, in about 90 seconds and 140 MB (the ctest
+`formal-evidence-check`, labeled `oracle` and `formal`). The three
+assertions about `let rec` (`recursion.kat`, `rec-rewrite.kat`) are among
+them. The compilation schemes take the longest: 20 seconds each for
+`comp-rc11f-power-simpl-full` and `comp-rc11rw-power-simpl-full`, whose
+right automata have about 2300 states. Two things keep the rotations quick:
+the search does without the simulation of an automaton of more than 2048
+states, which takes time and memory quadratic in them, and Kater's
+`saturateRotate` names, as the origins of its copies' states, the states of
+Lean's automaton of rotations they stand for. Before them, the check of the
+rotation of `eq-tso-tsofm`, 1220 states against Lean's 49455, took 17
+minutes.
+
+**What a verdict the checker accepts rests on**: the model, as the meaning
+of Kater's language (the oracle implements the same semantics, so the two
+can be compared); that the evidence is of the module, which rests on Kater's
+parser (the oracle shares it), the C++ that writes the evidence and the Lean
+that reads it; and Lean's kernel and compiler. The automata, the passes, the
+theory's facts and the letter inclusions are not trusted any more. The Lean
+mirrors the C++ it reads Kater's choices from (the stages and passes, the
+shapes of assumptions, the builtins, the theory's inclusions), and the
+regions are marked as above. Writing it found two bugs in the theory, both
+open (see [Open issues](#open-issues)).
 
 ## The exported checkers
 
@@ -1220,6 +1348,19 @@ After the fixes:
   exception `kater-oracle` did not catch. `certify` now catches it, and
   checks a pass of a chain without evidence only when its automata have at
   most 24 states per event of the bound.
+- **An inverted relation's domain assumption**
+  ([#45](https://github.com/vzhn/kater-fork/issues/45)):
+  `assume r^-1 <= [A];r^-1;[B]` gives `r` the domain `A` and the codomain
+  `B`, where it should be the reverse, so Kater proves `r <= [R];r` from
+  `r^-1 <= [R];r^-1;[W]` (the oracle refutes it with 2 events). No file of
+  `tests/correct` or `kat/` has such an assumption; the checker of whole
+  proofs reads it as Lean's theory does, so it would reject such a proof.
+- **Two closure rules of the theory**
+  ([#46](https://github.com/vzhn/kater-fork/issues/46)):
+  `registerSubsetPair` makes a superset of a disjoint predicate disjoint
+  too, and `composes` checks the invalid combinations of predicates by id,
+  complements included. Neither fires on any input yet; Lean's theory has
+  neither rule.
 - **Not checked by the oracle**: of the printed code, the revisits of the
   dependency-tracking models (see
   [The exported checkers](#the-exported-checkers)).
@@ -1230,16 +1371,16 @@ After the fixes:
 1. **Certificates.** Kater emits certificates of its final step and
    evidence of the saturations of the right-hand side, and a checker proved
    sound in Lean checks both (see [The checker in Lean](#the-checker-in-lean)
-   and [Evidence of the saturations](#evidence-of-the-saturations)). What
-   remains is the other passes: `normalize` and pruning on the right-hand
-   side, the left-hand side's, and the translations of the expressions. The
-   roles of the saturations' evidence would carry over to `normalize` if a
-   role could stand for a point inside a letter, and a step for a word whose
-   letters merge into it (`[P];r` into `[P]r`); the C++ would have to find
-   the roles after the fact, as the passes do not track where states come
-   from.
+   and [Evidence of the saturations](#evidence-of-the-saturations)); the
+   evidence of whole proofs, of assertions, is checked too (see
+   [Whole proofs](#whole-proofs)). What remains is the other claims Kater
+   proves: the export's (the extensibility check, the claims GenMC's
+   checkers rest on), whose certificates have chains but not the evidence
+   of a whole proof.
 2. **Formalization.** The model above is the specification: graphs and their
-   axioms, the meaning of the builtins, of expressions and of automata. The
-   contracts of the passes and the audit's facts are the lemmas. The oracle's
-   counterexamples fix the corner cases a formalization must get right (the
-   initial writes, `po-loc-imm`, same-location for non-accesses).
+   axioms, the meaning of the builtins, of expressions and of automata. It
+   is in Lean now (`formal/KaterCert/Model.lean`), with the axioms the facts
+   of the theory need; the oracle's counterexamples fix the corner cases a
+   formalization must get right (the initial writes, `po-loc-imm`,
+   same-location for non-accesses), and the Lean model and the oracle should
+   be compared on them.

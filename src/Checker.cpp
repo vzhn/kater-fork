@@ -74,6 +74,7 @@ struct CompSchemeRHS {
  *              Regexp utilities
  ************************************************************/
 
+/* formal: begin expandRfs, mirrored by formal/KaterCert/Whole.lean */
 void expandRfs(SubsetConstraint &subsetC, const KatModule &module)
 {
 	/* We will expand rf on the LHS, but only if the RHS uses rfe/rfi */
@@ -97,6 +98,7 @@ void expandRfs(SubsetConstraint &subsetC, const KatModule &module)
 	auto alt = AltRE::createOpt(std::move(rfe), std::move(rfi));
 	replaceREWith(subsetC.getLHSRef(), rf, &*alt);
 }
+/* formal: end expandRfs */
 
 std::pair<PredicateSet, unsigned> collectPredicateKids(const RegExp *re, unsigned startIdx)
 {
@@ -222,6 +224,8 @@ void pruneNFA(NFA &nfa, const NFA &other, const Theory &theory)
 /*************************************************************
  *             Assumption expanding/saturation
  ************************************************************/
+
+/* formal: begin expandAssumption, mirrored by formal/KaterCert/Hypotheses.lean */
 
 std::pair<bool, CompSchemeLHS> extractCompLHSInfo(const RegExp *lRE, const RegExp *poRE)
 {
@@ -480,6 +484,7 @@ void expandAssumption(NFA &rhs, const AssumeStatement *assm, const KatModule &mo
 	}
 	warnUnsupportedAssumption(assm, module.getTheory());
 }
+/* formal: end expandAssumption */
 
 /*************************************************************
  *              Inclusion checking
@@ -858,6 +863,7 @@ auto Checker::decideInclusion(NFA &lhs, const NFA &rhs, const Constraint &cst,
 	return result;
 }
 
+/* formal: begin checkInclusion, mirrored by formal/KaterCert/Whole.lean */
 /* Records in CHAIN, if any, that pass NAME, without evidence, left NFA, and
  * makes NFA's states the origins from here on */
 static void recordPass(std::optional<Checker::Chain> &chain, const char *name, NFA &nfa)
@@ -883,7 +889,6 @@ void Checker::saturateRHS(NFA &rhs, const NFA &lhs, std::optional<Chain> &chain)
 	recordPass(chain, "prune", rhs);
 }
 
-/* formal: begin checkInclusion, mirrored by formal/KaterCert/Whole.lean */
 auto Checker::checkInclusion(SubsetConstraint &subsetC) const -> InclusionResult
 {
 	auto &module = getModule();

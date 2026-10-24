@@ -38,6 +38,7 @@ template <typename E> constexpr auto to_underlying(E e) noexcept
  * Built-in relations
  ************************************************************/
 
+/* formal: begin BuiltinRelations, mirrored by formal/KaterCert/Builtin.lean */
 static const std::unordered_map<Relation::BuiltinID, RelationInfo> builtinRelations = {
 	/* po */
 	{RB::po_imm,
@@ -305,6 +306,7 @@ static const std::unordered_map<Relation::BuiltinID, RelationInfo> builtinRelati
 	  .codom = {},
 	  .genmc = {"other_labels", "other_labels"}}},
 };
+/* formal: end BuiltinRelations */
 
 static auto builtin_rel_begin() { return builtinRelations.begin(); }
 static auto builtin_rel_end() { return builtinRelations.end(); }
@@ -314,6 +316,7 @@ static auto builtin_rels() { return std::ranges::ref_view(builtinRelations); }
  * Built-in predicates
  ************************************************************/
 
+/* formal: begin BuiltinPredicates, mirrored by formal/KaterCert/Builtin.lean */
 static const std::unordered_map<Predicate::BuiltinID, PredicateInfo> builtinPredicates = {
 	{PB::NA, {"NA", "#->isNotAtomic()"}},
 	{PB::ATOM, {"ATOM", "!(#->isNotAtomic())"}},
@@ -454,6 +457,7 @@ static const SubsetPredSets subsetPredSets_ = {
 	{to_underlying(PB::TB), {to_underlying(PB::ATOM), to_underlying(PB::ACQ)}},
 	{to_underlying(PB::TJ), {to_underlying(PB::ATOM), to_underlying(PB::ACQ)}},
 };
+/* formal: end BuiltinPredicates */
 
 static auto subset_begin() { return subsetPredSets_.begin(); }
 static auto subset_end() { return subsetPredSets_.end(); }

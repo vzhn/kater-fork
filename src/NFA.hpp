@@ -107,7 +107,10 @@ public:
 		[[nodiscard]] auto getId() const -> unsigned { return id; }
 
 		/* The states this one stands for (see origins_) */
-		[[nodiscard]] auto getOrigins() const -> const std::vector<unsigned> & { return origins_; }
+		[[nodiscard]] auto getOrigins() const -> const std::vector<unsigned> &
+		{
+			return origins_;
+		}
 
 		/* Whether this state is a starting state of the NFA */
 		[[nodiscard]] auto isStarting() const -> bool { return starting; }
@@ -511,6 +514,14 @@ public:
 	{
 		for (auto &s : states())
 			s->origins_ = {s->getId()};
+	}
+
+	/* S stands for ORIGINS, and for nothing else */
+	static void setOrigins(State *s, std::vector<unsigned> origins)
+	{
+		std::ranges::sort(origins);
+		origins.erase(std::ranges::unique(origins).begin(), origins.end());
+		s->origins_ = std::move(origins);
 	}
 
 	/* S stands for ORIGINS too */

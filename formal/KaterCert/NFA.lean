@@ -73,16 +73,4 @@ theorem Matches.wordRel_sub {le : L → L → Prop} {I : L → Rel E}
   | _, _, .nil => Rel.Sub.refl _
   | _, _, .cons hab hw => Rel.comp_mono (hle _ _ hab) (hw.wordRel_sub hle)
 
-theorem wordRel_append (I : L → Rel E) :
-    ∀ (u v : List L) {x y : E}, wordRel I (u ++ v) x y ↔ Rel.comp (wordRel I u) (wordRel I v) x y
-  | [], _, _, _ => Rel.id_comp.symm
-  | a :: u, v, x, y => by
-    simp only [List.cons_append, wordRel]
-    constructor
-    · rintro ⟨z, ha, hw⟩
-      obtain ⟨z', hu, hv⟩ := (wordRel_append I u v).mp hw
-      exact ⟨z', ⟨z, ha, hu⟩, hv⟩
-    · rintro ⟨z', ⟨z, ha, hu⟩, hv⟩
-      exact ⟨z, ha, (wordRel_append I u v).mpr ⟨z', hu, hv⟩⟩
-
 end KaterCert

@@ -19,6 +19,7 @@ import KaterCert.Rotate
 import KaterCert.Builtin
 import KaterCert.Model
 import KaterCert.ReadChain
+import KaterCert.Hypotheses
 import KaterCert.Whole
 import KaterCert.ModelSound
 import KaterCert.EndToEnd

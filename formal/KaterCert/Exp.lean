@@ -14,8 +14,9 @@ folds (an empty sequence is the identity, an empty alternative `0`).
 `let rec` (`MutRecRE`) is a `fix` of its definitions, in which the relations
 it defines are references (`ref`), numbered as the definitions are.
 
-This mirrors the C++ region `RegExpKinds` (`src/RegExp.hpp`):
-`scripts/check-mirrors.sh` reports when it changes.
+This mirrors the C++ region `ExpSemantics` (`tests/oracle/Semantics.cpp`), the
+oracle's semantics of expressions: `scripts/check-mirrors.sh` reports when it
+changes.
 -/
 
 namespace KaterCert

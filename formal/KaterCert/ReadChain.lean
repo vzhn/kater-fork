@@ -1,4 +1,5 @@
 import KaterCert.Read
+import KaterCert.Chain
 import KaterCert.Exp
 import KaterCert.Builtin
 
@@ -9,7 +10,9 @@ The evidence of an assertion as `kater-oracle evidence --json` writes it
 (`tests/oracle/Evidence.cpp`): the assertion's constraint, the module's
 `disjoint` declarations, the per-location variants of its relations, its
 assumptions, and for each inclusion Kater proved, the expressions, the
-automata between its passes and the final certificate.
+automata between the passes of the left side, the chain of passes of the
+right side, with the evidence of its saturations (as in the certificates'
+JSON, `Read.chain`), and the final certificate.
 
 An expression is `{"label": LETTER}`, `{"alt": [E, ...]}`, `{"seq": [E,
 ...]}`, `{"star": E}`, `{"plus": E}`, `{"opt": E}` or `{"rec": {"relation":
@@ -89,26 +92,29 @@ def constraint (j : Json) : Except String Constraint := do
   if let .ok t := j.getObjVal? "total" then return .total (← exp t)
   throw s!"unsupported constraint: {j.compress.take 200}"
 
-/-- A step of an inclusion check: the automaton a stage of `checkInclusion`
-made, with the assumption a saturation used. -/
-structure Step where
+/-- A step of the left side of an inclusion check: the automaton a stage of
+`checkInclusion` made. -/
+structure LeftStep where
   stage : String
-  assumption : Option Nat
   nfa : NFA Label
   /-- For each state, the states of the step before it stands for: a hint
   for the search, which the proofs do not need. -/
   origins : Array (List Nat) := #[]
 
 instance : Inhabited (NFA Label) := ⟨{ outs := #[], accepting := #[], start := [] }⟩
-instance : Inhabited Step := ⟨{ stage := "", assumption := none, nfa := default }⟩
+instance : Inhabited LeftStep := ⟨{ stage := "", nfa := default }⟩
 
-/-- The evidence of an inclusion `checkInclusion` proved. -/
+/-- The evidence of an inclusion `checkInclusion` proved: its sides, the
+steps of the left side, the chain of passes of the right side with the
+origins of its automata (hints, as for the steps), and the certificate. -/
 structure Inclusion where
   lhs : Exp
   rhs : Exp
   sameEnds : Bool
   rotated : Bool
-  steps : List Step
+  steps : List LeftStep
+  chain : Chain
+  chainOrigins : List (Array (List Nat))
   cert : Certificate
 
 /-- An assumption of the module, as declared. `saturated` if the theory did
@@ -130,16 +136,14 @@ structure Evidence where
   assumptions : Array Assumption
   inclusions : List Inclusion
 
-def step (j : Json) : Except String Step := do
+def origins (j : Json) : Except String (Array (List Nat)) :=
+  (·.toArray) <$> list j fun l => list l Json.getNat?
+
+def leftStep (j : Json) : Except String LeftStep := do
   return {
     stage := ← (← j.getObjVal? "stage").getStr?
-    assumption := ← match ← j.getObjVal? "assumption" with
-      | .null => pure none
-      | n => some <$> n.getNat?
     nfa := ← nfa (← j.getObjVal? "nfa")
-    origins := ← match j.getObjVal? "origins" with
-      | .ok o => (·.toArray) <$> list o fun l => list l Json.getNat?
-      | .error _ => pure #[] }
+    origins := ← origins (← j.getObjVal? "origins") }
 
 def inclusion (j : Json) : Except String Inclusion := do
   return {
@@ -147,7 +151,9 @@ def inclusion (j : Json) : Except String Inclusion := do
     rhs := ← exp (← j.getObjVal? "rhs")
     sameEnds := ← (← j.getObjVal? "sameEnds").getBool?
     rotated := ← (← j.getObjVal? "rotated").getBool?
-    steps := ← list (← j.getObjVal? "steps") step
+    steps := ← list (← j.getObjVal? "steps") leftStep
+    chain := ← chain (← j.getObjVal? "chain")
+    chainOrigins := ← list (← j.getObjVal? "chainOrigins") origins
     cert := ← certificate (← j.getObjVal? "certificate") }
 
 def assumption (j : Json) : Except String Assumption := do

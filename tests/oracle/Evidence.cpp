@@ -251,8 +251,7 @@ void writeInclusion(std::ostream &out, const Checker::Evidence &ev, const Theory
 
 } // namespace
 
-auto writeEvidence(const std::string &file, const std::filesystem::path &dir, bool verbose)
-	-> bool
+auto writeEvidence(const std::string &file, const std::filesystem::path &dir, bool verbose) -> bool
 {
 	ParsingDriver driver;
 	if (driver.parse(file) != 0)
@@ -314,7 +313,8 @@ auto writeEvidence(const std::string &file, const std::filesystem::path &dir, bo
 	for (auto i = 0U; i < assumptions.size(); i++) {
 		preamble << sep << "{\"text\": " << jsonString(assumptions[i].text)
 			 << ", \"builtin\": " << jsonBool(assumptions[i].builtin)
-			 << ", \"saturated\": " << jsonBool(saturated[i]) << ",\n   \"constraint\": ";
+			 << ", \"saturated\": " << jsonBool(saturated[i])
+			 << ",\n   \"constraint\": ";
 		writeConstraint(preamble, *assumptions[i].constraint, theory);
 		preamble << "}";
 		sep = ",\n  ";

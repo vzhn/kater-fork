@@ -33,8 +33,7 @@ namespace oracle {
  * goes to DIR/<stem>.a<k>.json, the input of the checker of whole proofs in
  * formal/ (kater-chain-check). Returns whether FILE parsed.
  */
-auto writeEvidence(const std::string &file, const std::filesystem::path &dir, bool verbose)
-	-> bool;
+auto writeEvidence(const std::string &file, const std::filesystem::path &dir, bool verbose) -> bool;
 
 } // namespace oracle
 

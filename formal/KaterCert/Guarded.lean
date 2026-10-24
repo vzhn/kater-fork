@@ -325,7 +325,10 @@ configurations of `Y` that others dominate. Nothing about it is proved:
 `check` verifies what it finds. -/
 def search (θ : Theory) (X Y : NFA Label) (cycle : Bool) (limit : Nat := 1000000)
     (hint : Option (Array (List Nat)) := none) : Option Cert := Id.run do
-  let sim := simulation Y
+  -- The simulation takes time and memory quadratic in the states of `Y`:
+  -- for the thousands of states of an automaton of rotations it costs more
+  -- than it saves, and none dominates another
+  let sim := if Y.size ≤ 2048 then simulation Y else #[]
   let n := Y.size
   -- With a hint (the states of `Y` each state of `X` stands for), a step of
   -- `X` keeps the configurations of `Y` that reach one of them by predicate

@@ -5,6 +5,7 @@ import KaterCert.Rotate
 import KaterCert.Builtin
 import KaterCert.Soundness
 import KaterCert.ReadChain
+import KaterCert.Hypotheses
 
 /-!
 # Whole proofs
@@ -19,24 +20,26 @@ link:
   as Kater splits it (`expandRfs`), is within Kater's left automaton
   (`Guarded`); for `& id`, through the stages of `saturateInitFinalPreds`
   (cycles, `Guarded` in cycle mode) and `saturateLoc` (`Loc`);
-- the right-hand side: Kater's first right automaton is within Lean's
-  automaton of `B`, and each automaton after it within the one before it,
-  each saturation given its assumption (`Saturations`, a parameter: the
-  checker of saturations is another piece), each normalization as relations
-  (`Guarded`), and the rotation for `rot` adds no cycle (`Rotate`);
+- the right-hand side: the start of Kater's chain of passes (`Chain`) is
+  within Lean's automaton of `B`, and each pass's automaton within the one
+  before it: a saturation by its evidence, given a hypothesis an assumption
+  of the module gives (`Hypotheses`), `normalize` and `prune` as relations
+  (`Guarded`); and the rotation for `rot` adds no cycle (`Rotate`);
 - the final check: the certificate is of the last two automata, and the
   checker in Lean accepts it, with its letter inclusions true of the theory.
 
 The theory is Lean's (`Theory.ofDecls`), built from the module's
 declarations and the assumptions Kater takes into its theory, as Lean reads
 them. `checkAssertion_sound` proves that an accepted chain makes the
-assertion hold wherever the theory is sound, `rf` is `rfe | rfi`, and the
-module's assumptions hold.
+assertion hold wherever the theory is sound, `rf` is `rfe | rfi`, `po` is
+transitive, `any` relates every two events, and the module's assumptions
+hold.
 
-This mirrors the C++ regions `checkInclusion`, `Evidence` (`src/Checker.cpp`,
-`src/Checker.hpp`), `expandRfs` (`src/Checker.cpp`) and
-`incorporateAssumptions` (`src/Assumptions.cpp`): `scripts/check-mirrors.sh`
-reports when they change.
+This mirrors the C++ regions `checkInclusion` (with `saturateRHS`, the passes
+of the right-hand side), `Evidence` (`src/Checker.cpp`, `src/Checker.hpp`),
+`expandRfs` (`src/Checker.cpp`) and `incorporateAssumptions`
+(`src/Assumptions.cpp`): `scripts/check-mirrors.sh` reports when they
+change.
 -/
 
 namespace KaterCert
@@ -252,32 +255,17 @@ def incorporate (d : Decls) : Constraint → Decls
 
 /-- A module's declarations, and what Kater's theory took in of its
 assumptions. -/
-def declsOf (ev : Evidence) : Decls :=
+def declsOf (ev : ReadChain.Evidence) : Decls :=
   ev.assumptions.foldl (fun d a => match a.constraint with
     | .ok c => if a.saturated then d else incorporate d c
     | .error _ => d) { disjoint := ev.disjoint, perLoc := ev.perLoc }
-
-/-! ## Saturations -/
-
-/-- A checker of saturation steps: `ok θ before after hyp step` claims that,
-given `hyp`, `after` is within `before`. -/
-structure Saturations where
-  ok : Theory → NFA Label → NFA Label → Constraint → Step → Bool
-  sound : ∀ {E : Type} (M : Interp E) (loc : Rel E) (θ : Theory) (before after : NFA Label)
-    (hyp : Constraint) (s : Step), ok θ before after hyp s = true → θ.Sound M loc →
-    hyp.Holds M → Rel.Sub (after.denote (Label.denote M)) (before.denote (Label.denote M))
-
-/-- Saturations that add nothing a check of relations cannot see: the
-checker until the saturation certificates come. -/
-def noSaturations : Saturations where
-  ok θ before after _ s := Guarded.prove θ after before false (some s.origins)
-  sound := fun _ _ _ _ _ _ _ h hθ _ => Guarded.prove_sound hθ h
 
 /-! ## The chain -/
 
 /-- The left-hand side: the automaton of the final check, if Lean's
 automaton of `lhs` is within it (and, for `& id`, its cycles are). -/
-def stepOf (inc : Inclusion) (stage : String) : Option Step := inc.steps.find? (·.stage == stage)
+def stepOf (inc : Inclusion) (stage : String) : Option LeftStep :=
+  inc.steps.find? (·.stage == stage)
 
 def left (θ : Theory) (inc : Inclusion) (lhs : Exp) : Except String (NFA Label) :=
   if !lhs.wellFormed then .error "a let rec of the left-hand side is not left-linear" else
@@ -301,31 +289,39 @@ def left (θ : Theory) (inc : Inclusion) (lhs : Exp) : Except String (NFA Label)
         else .ok sf.nfa
       | _, _, _ => .error "a stage of the left-hand side is missing"
 
-/-- The right-hand side from `prev` on: each step is within the one before
-it (a saturation given its assumption), and a rotation, which comes last,
+/-- The constraints of the assumptions that read. -/
+def hypsOf (hyps : Array Assumption) : List Constraint :=
+  hyps.toList.filterMap (·.constraint.toOption)
+
+/-- Each pass with its origins, or none if they are missing: they are hints. -/
+def withOrigins : List Pass → List (Array (List Nat)) → List (Pass × Array (List Nat))
+  | [], _ => []
+  | p :: ps, [] => (p, #[]) :: withOrigins ps []
+  | p :: ps, o :: os => (p, o) :: withOrigins ps os
+
+/-- The passes of the right-hand side from `prev` on, each with the origins
+of its automaton: each pass is within the one before it (a saturation by
+its evidence and an assumption among `hyps` that gives its hypothesis,
+`normalize` and `prune` as relations), and a rotation, which comes last,
 adds no cycle. The automaton of the final check, and whether it is a
 rotation. -/
-def right (θ : Theory) (sat : Saturations) (hyps : Array Assumption) :
-    NFA Label → List Step → Except String (NFA Label × Bool)
+def right (θ : Theory) (hyps : List Constraint) :
+    NFA Label → List (Pass × Array (List Nat)) → Except String (NFA Label × Bool)
   | prev, [] => .ok (prev, false)
-  | prev, s :: rest =>
-    if s.stage == "saturated" then
-      match s.assumption.bind (hyps[·]?) with
-      | some a =>
-        match a.constraint with
-        | .ok c =>
-          if sat.ok θ prev s.nfa c s then right θ sat hyps s.nfa rest
-          else .error s!"the saturation with {a.text} does not check"
-        | .error e => .error s!"a saturation with an assumption that does not read: {e}"
-      | none => .error "a saturation names no assumption"
-    else if s.stage == "normalized" || s.stage == "pruned" then
-      if Guarded.prove θ s.nfa prev false (some s.origins) then right θ sat hyps s.nfa rest
-      else .error s!"a {s.stage} automaton is not within the one before it"
-    else if s.stage == "rotated" then
-      if rest.isEmpty && Guarded.prove θ s.nfa (Rotate.rotations prev) false then
-        .ok (s.nfa, true)
-      else .error "the rotated automaton is not within the rotations of the one before it"
-    else .error s!"unexpected stage {s.stage}"
+  | prev, (p, o) :: rest =>
+    match p.evidence with
+    | some ev =>
+      if saturates θ hyps prev p.result ev then right θ hyps p.result rest
+      else .error s!"the {p.name} pass does not check"
+    | none =>
+      if p.name == "normalize" || p.name == "prune" then
+        if Guarded.prove θ p.result prev false (some o) then right θ hyps p.result rest
+        else .error s!"a {p.name} pass's automaton is not within the one before it"
+      else if p.name == "rotate" then
+        if rest.isEmpty && Guarded.prove θ p.result (Rotate.rotations prev) false (some o) then
+          .ok (p.result, true)
+        else .error "the rotated automaton is not within the rotations of the one before it"
+      else .error s!"a {p.name} pass without evidence"
 
 /-- The final check: the certificate is of the two automata, and accepted,
 with its letter inclusions true of the theory. -/
@@ -339,40 +335,36 @@ def final (θ : Theory) (c : Certificate) (L R : NFA Label) : Except String Unit
       else .error "the certificate rests on a letter inclusion Lean does not know"
 
 /-- The evidence of an inclusion `checkInclusion` proved. -/
-def checkInclusion (θ : Theory) (sat : Saturations) (hyps : Array Assumption) (inc : Inclusion) :
-    Except String Unit :=
+def checkInclusion (θ : Theory) (hyps : List Constraint) (inc : Inclusion) : Except String Unit :=
   match left θ inc (Exp.expandRfs inc.lhs inc.rhs) with
   | .error e => .error e
   | .ok L =>
-    match inc.steps.dropWhile (·.stage != "right") with
-    | [] => .error "no right automaton"
-    | r₀ :: rest =>
-      if !Guarded.prove θ r₀.nfa (Thompson.nfa inc.rhs) false then
-        .error "Kater's right automaton is not within the right-hand side"
-      else match right θ sat hyps r₀.nfa rest with
-        | .error e => .error e
-        | .ok (R, rot) =>
-          if rot != inc.rotated then
-            .error "a rotation where there is none, or none where there is one"
-          else final θ inc.cert L R
+    if !Guarded.prove θ inc.chain.start (Thompson.nfa inc.rhs) false then
+      .error "Kater's right automaton is not within the right-hand side"
+    else match right θ hyps inc.chain.start (withOrigins inc.chain.passes inc.chainOrigins.tail) with
+      | .error e => .error e
+      | .ok (R, rot) =>
+        if rot != inc.rotated then
+          .error "a rotation where there is none, or none where there is one"
+        else final θ inc.cert L R
 
 /-- The evidence of an assertion. -/
-def checkAssertion (sat : Saturations) (ev : Evidence) : Except String Unit :=
+def checkAssertion (ev : ReadChain.Evidence) : Except String Unit :=
   if !(declsOf ev).wf then .error "the per-location variants are not well-formed" else
   match ev.constraint, ev.inclusions with
   | .subset A B e r, [i₁] =>
     if !(i₁.lhs == A && i₁.rhs == B && i₁.sameEnds == e && i₁.rotated == r) then
       .error "the inclusion is not of the assertion"
-    else checkInclusion (Theory.ofDecls (declsOf ev)) sat ev.assumptions i₁
+    else checkInclusion (Theory.ofDecls (declsOf ev)) (hypsOf ev.assumptions) i₁
   | .equal A B e r, [i₁, i₂] =>
     if !(i₁.lhs == A && i₁.rhs == B && i₁.sameEnds == e && i₁.rotated == r) then
       .error "the first inclusion is not of the assertion"
     else if !(i₂.lhs == B && i₂.rhs == Exp.expandRfs A B && i₂.sameEnds == e &&
         i₂.rotated == r) then
       .error "the second inclusion is not of the assertion"
-    else match checkInclusion (Theory.ofDecls (declsOf ev)) sat ev.assumptions i₁ with
+    else match checkInclusion (Theory.ofDecls (declsOf ev)) (hypsOf ev.assumptions) i₁ with
       | .error e => .error e
-      | .ok () => checkInclusion (Theory.ofDecls (declsOf ev)) sat ev.assumptions i₂
+      | .ok () => checkInclusion (Theory.ofDecls (declsOf ev)) (hypsOf ev.assumptions) i₂
   | _, _ => .error "the inclusions are not those of the assertion"
 
 /-! ## Soundness -/
@@ -381,6 +373,20 @@ def checkAssertion (sat : Saturations) (ev : Evidence) : Except String Unit :=
 def HypsHold (M : Interp E) (hyps : Array Assumption) : Prop :=
   ∀ (i : Nat) (a : Assumption) (c : Constraint), hyps[i]? = some a → a.constraint = .ok c →
     c.Holds M
+
+theorem hypsOf_hold {M : Interp E} {hyps : Array Assumption} (hh : HypsHold M hyps) :
+    ∀ c ∈ hypsOf hyps, c.Holds M := by
+  intro c hc
+  simp only [hypsOf, List.mem_filterMap] at hc
+  obtain ⟨a, ha, hac⟩ := hc
+  obtain ⟨i, hi⟩ := List.mem_iff_getElem?.mp ha
+  rw [Array.getElem?_toList] at hi
+  cases hca : a.constraint with
+  | error e => simp [hca, Except.toOption] at hac
+  | ok c' =>
+    simp only [hca, Except.toOption, Option.some.injEq] at hac
+    subst hac
+    exact hh i a c' hi hca
 
 theorem bind_ok {α β : Type} {x : Except String α} {f : α → Except String β} {b : β}
     (h : (x >>= f) = .ok b) : ∃ a, x = .ok a ∧ f a = .ok b := by
@@ -439,39 +445,29 @@ theorem left_sound (hθ : θ.Sound M loc) {inc : Inclusion} {lhs : Exp} {L : NFA
                 exact Guarded.prove_sound hθ h₃ x x a₂
       · simp at h
 
-theorem right_sound (hθ : θ.Sound M loc) {sat : Saturations} {hyps : Array Assumption}
-    (hh : HypsHold M hyps) :
-    ∀ {prev : NFA Label} {steps : List Step} {R : NFA Label} {rot : Bool},
-      right θ sat hyps prev steps = .ok (R, rot) →
+theorem right_sound (hθ : θ.Sound M loc) (hF : Facts M) {hyps : List Constraint}
+    (hh : ∀ c ∈ hyps, c.Holds M) :
+    ∀ {prev : NFA Label} {ps : List (Pass × Array (List Nat))} {R : NFA Label} {rot : Bool},
+      right θ hyps prev ps = .ok (R, rot) →
         (rot = false → Rel.Sub ⟦R⟧ ⟦prev⟧) ∧ (rot = true → ∀ x, ⟦R⟧ x x → ∃ y, ⟦prev⟧ y y)
   | prev, [], R, rot, h => by
     simp only [right, Except.ok.injEq, Prod.mk.injEq] at h
     obtain ⟨rfl, rfl⟩ := h
     exact ⟨fun _ => Rel.Sub.refl _, fun h => by simp at h⟩
-  | prev, s :: rest, R, rot, h => by
-    -- each step is within the one before it, so what holds of the rest holds of `prev`
-    have step : ∀ {X : NFA Label}, Rel.Sub ⟦X⟧ ⟦prev⟧ → right θ sat hyps X rest = .ok (R, rot) →
+  | prev, (p, o) :: rest, R, rot, h => by
+    -- each pass is within the one before it, so what holds of the rest holds of `prev`
+    have step : ∀ {X : NFA Label}, Rel.Sub ⟦X⟧ ⟦prev⟧ → right θ hyps X rest = .ok (R, rot) →
         (rot = false → Rel.Sub ⟦R⟧ ⟦prev⟧) ∧ (rot = true → ∀ x, ⟦R⟧ x x → ∃ y, ⟦prev⟧ y y) := by
       intro X hX hr
-      obtain ⟨h₁, h₂⟩ := right_sound hθ hh hr
+      obtain ⟨h₁, h₂⟩ := right_sound hθ hF hh hr
       refine ⟨fun hr' => Rel.Sub.trans (h₁ hr') hX, fun hr' x hx => ?_⟩
       obtain ⟨y, hy⟩ := h₂ hr' x hx
       exact ⟨y, hX y y hy⟩
     unfold right at h
     split at h
     · split at h
-      · rename_i a ha
-        split at h
-        · rename_i c hc
-          split at h
-          · rename_i hok
-            obtain ⟨i, hi, hai⟩ : ∃ i, s.assumption = some i ∧ hyps[i]? = some a := by
-              cases hs : s.assumption with
-              | none => simp [hs] at ha
-              | some i => exact ⟨i, rfl, by simpa [hs] using ha⟩
-            exact step (sat.sound M loc θ prev s.nfa c s hok hθ (hh i a c hai hc)) h
-          · simp at h
-        · simp at h
+      · rename_i hok
+        exact step (saturates_sound hθ hF hh hok) h
       · simp at h
     · split at h
       · split at h
@@ -511,11 +507,11 @@ theorem final_sound (hθ : θ.Sound M loc) {c : Certificate} {L R : NFA Label}
         · simp at h
 
 /-- **An inclusion's chain is sound**: if `checkInclusion` accepts it, the
-theory is sound, `rf` is `rfe | rfi` and the assumptions hold, the
-inclusion holds. -/
-theorem checkInclusion_sound (hθ : θ.Sound M loc) (hrf : RfSplit M) {sat : Saturations}
-    {hyps : Array Assumption} (hh : HypsHold M hyps) {inc : Inclusion}
-    (h : checkInclusion θ sat hyps inc = .ok ()) :
+theory is sound, `rf` is `rfe | rfi`, `po` is transitive, `any` relates
+every two events and the assumptions hold, the inclusion holds. -/
+theorem checkInclusion_sound (hθ : θ.Sound M loc) (hrf : RfSplit M) (hF : Facts M)
+    {hyps : List Constraint} (hh : ∀ c ∈ hyps, c.Holds M) {inc : Inclusion}
+    (h : checkInclusion θ hyps inc = .ok ()) :
     Constraint.SubsetHolds M inc.lhs inc.rhs inc.sameEnds inc.rotated := by
   unfold checkInclusion at h
   split at h
@@ -526,48 +522,46 @@ theorem checkInclusion_sound (hθ : θ.Sound M loc) (hrf : RfSplit M) {sat : Sat
       fun hxy => (expandRfs_denote hrf _ _).mpr hxy
     split at h
     · simp at h
-    · rename_i r₀ rest _
+    · rename_i hr₀
+      simp only [Bool.not_eq_true', Bool.not_eq_false] at hr₀
+      have hR₀ : Rel.Sub ⟦inc.chain.start⟧ (inc.rhs.denote M) := fun x y hxy =>
+        Thompson.nfa_sound M inc.rhs (Guarded.prove_sound hθ hr₀ x y hxy)
       split at h
       · simp at h
-      · rename_i hr₀
-        simp only [Bool.not_eq_true', Bool.not_eq_false] at hr₀
-        have hR₀ : Rel.Sub ⟦r₀.nfa⟧ (inc.rhs.denote M) := fun x y hxy =>
-          Thompson.nfa_sound M inc.rhs (Guarded.prove_sound hθ hr₀ x y hxy)
+      · rename_i R rot hR
+        obtain ⟨hRsub, hRcyc⟩ := right_sound hθ hF hh hR
         split at h
         · simp at h
-        · rename_i R rot hR
-          obtain ⟨hRsub, hRcyc⟩ := right_sound hθ hh hR
-          split at h
-          · simp at h
-          · rename_i hrot
-            simp only [bne_iff_ne, ne_eq, Decidable.not_not] at hrot
-            have hfin := final_sound hθ h
-            unfold Constraint.SubsetHolds
+        · rename_i hrot
+          simp only [bne_iff_ne, ne_eq, Decidable.not_not] at hrot
+          have hfin := final_sound hθ h
+          unfold Constraint.SubsetHolds
+          split
+          · rename_i hrt
+            rintro ⟨x, hx⟩
+            have hLx := hfin x x (hLcyc x (hA hx))
+            rw [hrot, hrt] at hRcyc
+            obtain ⟨y, hy⟩ := hRcyc rfl x hLx
+            exact ⟨y, hR₀ y y hy⟩
+          · rename_i hrt
+            simp only [Bool.not_eq_true] at hrt
+            rw [hrot, hrt] at hRsub
             split
-            · rename_i hrt
-              rintro ⟨x, hx⟩
-              have hLx := hfin x x (hLcyc x (hA hx))
-              rw [hrot, hrt] at hRcyc
-              obtain ⟨y, hy⟩ := hRcyc rfl x hLx
-              exact ⟨y, hR₀ y y hy⟩
-            · rename_i hrt
-              simp only [Bool.not_eq_true] at hrt
-              rw [hrot, hrt] at hRsub
-              split
-              · intro x hx
-                exact hR₀ x x (hRsub rfl x x (hfin x x (hLcyc x (hA hx))))
-              · rename_i hse
-                simp only [Bool.not_eq_true] at hse
-                intro x y hxy
-                exact hR₀ x y (hRsub rfl x y (hfin x y (hLsub hse x y (hA hxy))))
+            · intro x hx
+              exact hR₀ x x (hRsub rfl x x (hfin x x (hLcyc x (hA hx))))
+            · rename_i hse
+              simp only [Bool.not_eq_true] at hse
+              intro x y hxy
+              exact hR₀ x y (hRsub rfl x y (hfin x y (hLsub hse x y (hA hxy))))
 
 /-- **An assertion's chain is sound**: if `checkAssertion` accepts its
 evidence, then wherever the theory of its module is sound, `rf` is
-`rfe | rfi` and the module's assumptions hold, the assertion holds. -/
-theorem checkAssertion_sound {sat : Saturations} {ev : Evidence}
-    (h : checkAssertion sat ev = .ok ())
-    (hθ : (Theory.ofDecls (declsOf ev)).Sound M loc) (hrf : RfSplit M)
+`rfe | rfi`, `po` is transitive, `any` relates every two events and the
+module's assumptions hold, the assertion holds. -/
+theorem checkAssertion_sound {ev : ReadChain.Evidence} (h : checkAssertion ev = .ok ())
+    (hθ : (Theory.ofDecls (declsOf ev)).Sound M loc) (hrf : RfSplit M) (hF : Facts M)
     (hh : HypsHold M ev.assumptions) : ev.constraint.Holds M := by
+  have hh' := hypsOf_hold hh
   unfold checkAssertion at h
   split at h
   · simp at h
@@ -578,7 +572,7 @@ theorem checkAssertion_sound {sat : Saturations} {ev : Evidence}
       · rename_i heq
         simp only [Bool.not_eq_true', Bool.not_eq_false, Bool.and_eq_true, beq_iff_eq] at heq
         obtain ⟨⟨⟨hl, hr⟩, he⟩, hrt⟩ := heq
-        have s₁ := checkInclusion_sound hθ hrf hh h
+        have s₁ := checkInclusion_sound hθ hrf hF hh' h
         rw [hl, hr, he, hrt] at s₁
         rw [hc]
         exact s₁
@@ -595,8 +589,8 @@ theorem checkAssertion_sound {sat : Saturations} {ev : Evidence}
           split at h
           · simp at h
           · rename_i h₁
-            have s₁ := checkInclusion_sound hθ hrf hh h₁
-            have s₂ := checkInclusion_sound hθ hrf hh h
+            have s₁ := checkInclusion_sound hθ hrf hF hh' h₁
+            have s₂ := checkInclusion_sound hθ hrf hF hh' h
             rw [hl₁, hr₁, he₁, hrt₁] at s₁
             rw [hl₂, hr₂, he₂, hrt₂] at s₂
             rw [hc]

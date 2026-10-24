@@ -1,5 +1,6 @@
 import KaterCert.Exp
 import KaterCert.NFA
+import KaterCert.Path
 import KaterCert.Rec
 
 /-!
@@ -433,7 +434,7 @@ theorem rel_eps {w : List Label} {x y : E} : rel M (.eps :: w) x y ↔ rel M w x
 
 theorem rel_append {u v : List Label} {x y : E} :
     rel M (u ++ v) x y ↔ Rel.comp (rel M u) (rel M v) x y :=
-  wordRel_append _ u v
+  wordRel_append
 
 theorem rel_nil {x y : E} : rel M [] x y ↔ x = y := Iff.rfl
 
@@ -1182,11 +1183,17 @@ theorem complete : ∀ (k : Nat) (e : Exp) (n : Nat) {x y : E}, e.size ≤ k →
 
 end Thompson
 
+/-- The transitions `T`, as (source, letter, destination), by source, for
+the sources below `n`: in one pass over them. -/
+def NFA.bucket {L : Type} (n : Nat) (T : List (Nat × L × Nat)) : Array (List (L × Nat)) :=
+  T.foldr (fun t outs => if h : t.1 < outs.size then outs.set t.1 (t.2 :: outs[t.1]) h else outs)
+    (Array.replicate n [])
+
 /-- The automaton of `n` states with the transitions `T`, as (source,
 letter, destination), and the given starting and accepting states. -/
 def NFA.ofList {L : Type} (n : Nat) (T : List (Nat × L × Nat)) (start accepting : List Nat) :
     NFA L where
-  outs := (Array.range n).map fun p => T.filterMap fun t => if t.1 = p then some t.2 else none
+  outs := NFA.bucket n T
   accepting := (Array.range n).map fun p => accepting.contains p
   start := start
 
@@ -1194,10 +1201,50 @@ namespace NFA
 
 variable {L : Type} {n : Nat} {T : List (Nat × L × Nat)} {st acc : List Nat}
 
+theorem bucket_cons (n : Nat) (t : Nat × L × Nat) (T : List (Nat × L × Nat)) :
+    bucket n (t :: T) = if h : t.1 < (bucket n T).size then
+      (bucket n T).set t.1 (t.2 :: (bucket n T)[t.1]) h else bucket n T := rfl
+
+@[simp] theorem bucket_size (n : Nat) : ∀ (T : List (Nat × L × Nat)), (bucket n T).size = n
+  | [] => by simp [bucket]
+  | t :: T => by
+    rw [bucket_cons]
+    split <;> simp [bucket_size n T]
+
+/-- The transitions out of a state below `n`. -/
+theorem getElem?_bucket (n : Nat) : ∀ (T : List (Nat × L × Nat)) (p : Nat),
+    (bucket n T)[p]? =
+      if p < n then some (T.filterMap fun t => if t.1 = p then some t.2 else none) else none
+  | [], p => by
+    by_cases hp : p < n <;> simp [bucket, hp]
+  | t :: T, p => by
+    have ih := getElem?_bucket n T
+    rw [bucket_cons]
+    split
+    · rename_i h
+      have ht : (bucket n T)[t.1] = T.filterMap fun t' => if t'.1 = t.1 then some t'.2 else none := by
+        have := ih t.1
+        rw [Array.getElem?_eq_getElem h] at this
+        simp only [bucket_size] at h
+        simpa [h] using this
+      rw [Array.getElem?_set]
+      by_cases hp : t.1 = p
+      · subst hp
+        simp only [bucket_size] at h
+        simp [h, ht]
+      · simp [hp, ih p]
+    · rename_i h
+      simp only [bucket_size] at h
+      have hp : t.1 ≠ p ∨ ¬ p < n := by omega
+      rw [ih p]
+      rcases hp with hp | hp
+      · simp [hp]
+      · simp [hp]
+
 theorem mem_trans_ofList {p : Nat} {a : L} {q : Nat} (hp : p < n) :
     (a, q) ∈ (ofList n T st acc).trans p ↔ (p, a, q) ∈ T := by
-  simp only [trans, ofList, Array.getD_eq_getD_getElem?, Array.getElem?_map,
-    Array.getElem?_range, hp, ite_true, Option.map_some, Option.getD_some, List.mem_filterMap]
+  simp only [trans, ofList, Array.getD_eq_getD_getElem?, getElem?_bucket, hp, ite_true,
+    Option.getD_some, List.mem_filterMap]
   constructor
   · rintro ⟨⟨s, b, d⟩, hmem, hf⟩
     by_cases hs : s = p
@@ -1214,16 +1261,13 @@ theorem isAccepting_ofList {p : Nat} (hp : p < n) :
   simp [isAccepting, ofList, Array.getD_eq_getD_getElem?, hp]
 
 theorem trans_ofList_ge {p : Nat} (hp : n ≤ p) : (ofList n T st acc).trans p = [] := by
-  simp only [trans, ofList, Array.getD_eq_getD_getElem?, Array.getElem?_map,
-    Array.getElem?_range]
-  split
-  · omega
-  · rfl
+  have : ¬ p < n := by omega
+  simp [trans, ofList, Array.getD_eq_getD_getElem?, this]
 
 /-- What the automaton accepts: the words of the paths from a state to an
 accepting one. -/
 theorem accepts_ofList (hT : ∀ t ∈ T, t.1 < n) (hacc : ∀ q ∈ acc, q < n) {p : Nat}
-    {w : List L} : (ofList n T st acc).Accepts p w ↔ ∃ q, Path T p w q ∧ q ∈ acc := by
+    {w : List L} : (ofList n T st acc).Accepts p w ↔ ∃ q, KaterCert.Path T p w q ∧ q ∈ acc := by
   constructor
   · intro h
     induction h with

@@ -12,8 +12,9 @@ assumptions it marks as builtin are Kater's builtin ones
 (`Model.builtinAssumptions`), which hold on every graph. The theory the chain
 rests on is sound on every such graph (`Model.theory_sound`): its builtin
 facts by the model, its module facts because the declarations and the
-assumptions they come from hold (`incorporate_hold`). `rf` is `rfe | rfi` on
-every graph (`Model.rf_split`).
+assumptions they come from hold (`incorporate_hold`). `rf` is `rfe | rfi`,
+`po` is transitive and `any` relates every two events on every graph
+(`Model.rf_split`, `facts`).
 -/
 
 namespace KaterCert
@@ -26,8 +27,8 @@ variable {E : Type}
 
 /-- Whether Lean accepts the evidence of an assertion: the chain checks, and
 the assumptions marked builtin are Kater's builtin ones. -/
-def check (sat : Saturations) (ev : Evidence) : Except String Unit :=
-  match checkAssertion sat ev with
+def check (ev : ReadChain.Evidence) : Except String Unit :=
+  match checkAssertion ev with
   | .error e => .error e
   | .ok () =>
     if ev.assumptions.all fun a => !a.builtin || match a.constraint with
@@ -332,7 +333,7 @@ theorem incorporate_hold {d : Decls} (hd : d.Hold M) {c : Constraint} (hc : c.Ho
 
 /-- What the theory takes in of a module holds where its declarations and
 the assumptions the theory took in hold. -/
-theorem declsOf_hold {ev : Evidence}
+theorem declsOf_hold {ev : ReadChain.Evidence}
     (hdisj : ∀ D ∈ ev.disjoint, ∀ p ∈ D, ∀ q ∈ D, p ≠ q → ∀ e, ¬ (M.pred p e ∧ M.pred q e))
     (hh : HypsHold M ev.assumptions) : (declsOf ev).Hold M := by
   unfold declsOf
@@ -361,7 +362,7 @@ theorem declsOf_hold {ev : Evidence}
     obtain ⟨i, hi⟩ := List.mem_iff_getElem?.mp ha
     exact hh i a c (by rw [← Array.getElem?_toList]; exact hi) hc
 
-theorem declsOf_perLoc (ev : Evidence) : (declsOf ev).perLoc = ev.perLoc := by
+theorem declsOf_perLoc (ev : ReadChain.Evidence) : (declsOf ev).perLoc = ev.perLoc := by
   unfold declsOf
   have : ∀ (l : List Assumption) (d : Decls),
       (l.foldl (fun d a => match a.constraint with
@@ -397,11 +398,19 @@ namespace EndToEnd
 
 open Model
 
+/-- `po` is transitive and `any` relates every two events, on every graph. -/
+theorem facts {G : Graph} (hG : G.WF) (U : Graph.User G.E) (perLoc : List (Int × Int)) :
+    Facts (G.interp U perLoc) where
+  po_trans x y z h₁ h₂ := by
+    simp only [interp_rel, Graph.rel] at h₁ h₂ ⊢
+    exact hG.po_trans _ _ _ h₁ h₂
+  any_univ x y := by simp [interp_rel, Graph.rel]
+
 /-- **End to end.** If Lean accepts the evidence of an assertion, the
 assertion holds on every graph of the model where the module's `disjoint`
 declarations and its assumptions hold, whatever its own predicates and
 relations mean. -/
-theorem sound {sat : Saturations} {ev : Evidence} (h : check sat ev = .ok ())
+theorem sound {ev : ReadChain.Evidence} (h : check ev = .ok ())
     (G : Graph) (hG : G.WF) (U : Graph.User G.E)
     (hdisj : ∀ D ∈ ev.disjoint, ∀ p ∈ D, ∀ q ∈ D, p ≠ q →
       ∀ e, ¬ ((G.interp U ev.perLoc).pred p e ∧ (G.interp U ev.perLoc).pred q e))
@@ -434,7 +443,7 @@ theorem sound {sat : Saturations} {ev : Evidence} (h : check sat ev = .ok ())
       have hd := declsOf_hold hdisj hh
       have hθ := theory_sound hG U (declsOf ev) hwf (by rw [declsOf_perLoc]; exact hd)
       rw [declsOf_perLoc] at hθ
-      exact checkAssertion_sound hchain hθ (rf_split U ev.perLoc) hh
+      exact checkAssertion_sound hchain hθ (rf_split U ev.perLoc) (facts hG U ev.perLoc) hh
     · simp at h
 
 end EndToEnd

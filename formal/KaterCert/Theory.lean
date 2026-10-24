@@ -14,6 +14,11 @@ an interpretation.
 The checkers ask only a `Theory`, and their soundness theorems assume it is
 sound. The theory they are run with is Lean's own, not Kater's, and the model
 proves it sound of every graph (`Model`): the facts stop being hypotheses.
+
+Letter inclusion (`labelIncl`, `entails`) is Kater's (`Theory::isIncludedIn`
+of letters, predicate sets and predicates). This mirrors the C++ region
+`LetterInclusion` (`src/Theory.cpp`): `scripts/check-mirrors.sh` reports when
+it changes.
 -/
 
 namespace KaterCert

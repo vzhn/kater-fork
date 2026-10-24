@@ -1,4 +1,5 @@
 import KaterCert.Guarded
+import KaterCert.Path
 
 /-!
 # Per-location variants on cycles (`saturateLoc`)
