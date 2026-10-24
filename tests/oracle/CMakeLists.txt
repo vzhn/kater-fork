@@ -41,11 +41,17 @@ set_tests_properties(oracle-audit oracle-transforms oracle-check-correct
   oracle-soundness-cases PROPERTIES LABELS "oracle" TIMEOUT 900)
 
 # What the export of each GenMC model relies on: the Checker's claims (the
-# inclusion its extensibility check decides among them), and that the
-# rewritten definitions keep their meaning
+# inclusions its extensibility checks decide among them), and that the
+# rewritten definitions keep their meaning (LKMM on smaller graphs: at 3
+# events, each claim of its coherence check takes minutes)
 file(GLOB ORACLE_GENMC_MODELS ${PROJECT_SOURCE_DIR}/kat/*-genmc.kat)
-add_test(NAME oracle-export COMMAND kater-oracle export -n 3 ${ORACLE_GENMC_MODELS})
-set_tests_properties(oracle-export PROPERTIES LABELS "oracle" TIMEOUT 900)
+set(ORACLE_EXPORT_MODELS ${ORACLE_GENMC_MODELS})
+list(FILTER ORACLE_EXPORT_MODELS EXCLUDE REGEX "lkmm-genmc[.]kat$")
+add_test(NAME oracle-export COMMAND kater-oracle export -n 3 -t 300 ${ORACLE_EXPORT_MODELS})
+add_test(NAME oracle-export-lkmm
+  COMMAND kater-oracle export -n 2 -t 300 ${PROJECT_SOURCE_DIR}/kat/lkmm-genmc.kat)
+set_tests_properties(oracle-export oracle-export-lkmm PROPERTIES
+  LABELS "oracle" TIMEOUT 1800)
 
 # Each GenMC model is extensible, as GenMC's exploration needs: an event it
 # may add, into a hole under IMM and LKMM, joins every small consistent graph
@@ -67,14 +73,13 @@ foreach(m mp mp-acq)
   set_tests_properties(oracle-extensible-refuted-${m} PROPERTIES LABELS "oracle")
 endforeach()
 
-# vzhn/kater-fork#33: isPPOIntersectionInPPO decides nothing, so Kater
-# exports the two models all the same. These pass while it does; once Kater
-# rejects a model, its test fails: then expect the export to fail instead
+# vzhn/kater-fork#33: Kater's extensibility check rejects the two models of
+# extensible/, and their exports fail
 foreach(m mp mp-acq)
   add_test(NAME oracle-export-issue-33-${m}
     COMMAND kater-oracle export -n 2 ${CMAKE_CURRENT_SOURCE_DIR}/extensible/${m}-genmc.kat)
   set_tests_properties(oracle-export-issue-33-${m} PROPERTIES LABELS "oracle"
-    PASS_REGULAR_EXPRESSION "${m}-genmc[.]kat: [0-9]+ hold, 0 are false")
+    PASS_REGULAR_EXPRESSION "error: not extensible: a cycle of acyclic")
 endforeach()
 
 # Kater's proofs of the suite come with certificates, which check, and the

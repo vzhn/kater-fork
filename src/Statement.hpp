@@ -197,10 +197,11 @@ class ExportStatement : public Statement {
 protected:
 	ExportStatement(std::unique_ptr<Constraint> constraint, std::unique_ptr<Constraint> unless,
 			std::optional<std::string> codeToPrint,
-			std::optional<std::string> nameOfExtra, std::optional<DbgInfo> dbg = {})
+			std::optional<std::string> nameOfExtra, bool nonExtensible = false,
+			std::optional<DbgInfo> dbg = {})
 		: Statement(std::move(constraint)), id_(dispenser++), unless_(std::move(unless)),
 		  codeToPrint_(std::move(codeToPrint)), nameOfExtra_(std::move(nameOfExtra)),
-		  dbg_(std::move(dbg))
+		  nonExtensible_(nonExtensible), dbg_(std::move(dbg))
 	{
 	}
 
@@ -238,6 +239,10 @@ public:
 	/** Returns true if this is an extra export that should not be used in consistency checks */
 	[[nodiscard]] auto isExtra() const -> bool { return getNameOfExtra().has_value(); }
 
+	/** Returns whether the model says the export is not extensible (`export
+	 * nonextensible`): the exporter's extensibility check of it only warns */
+	[[nodiscard]] auto isNonExtensible() const -> bool { return nonExtensible_; }
+
 	/** Returns the debug info associated with the export */
 	[[nodiscard]] auto getDbgInfo() const -> const std::optional<DbgInfo> & { return dbg_; }
 
@@ -245,13 +250,13 @@ public:
 	{
 		return create(getConstraint()->clone(),
 			      getUnless() ? getUnless()->clone() : nullptr, getCodeToPrint(),
-			      getNameOfExtra(), getDbgInfo());
+			      getNameOfExtra(), isNonExtensible(), getDbgInfo());
 	}
 
 protected:
 	[[nodiscard]] auto dump(std::ostream &s) const -> std::ostream & override
 	{
-		s << "export " << *getConstraint();
+		s << "export " << (isNonExtensible() ? "nonextensible " : "") << *getConstraint();
 		if (getUnless())
 			s << " unless " << *getUnless();
 		return s;
@@ -262,6 +267,7 @@ private:
 	std::unique_ptr<Constraint> unless_{};
 	std::optional<std::string> codeToPrint_{};
 	std::optional<std::string> nameOfExtra_{};
+	bool nonExtensible_{};
 	std::optional<DbgInfo> dbg_{};
 
 	/* A unique ID for each export statement */

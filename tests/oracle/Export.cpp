@@ -21,6 +21,7 @@
 #include "Certificate.hpp"
 #include "Checker.hpp"
 #include "Config.hpp"
+#include "Constraint.hpp"
 #include "Counterexample.hpp"
 #include "Exporter.hpp"
 #include "NFAUtils.hpp"
@@ -160,11 +161,18 @@ private:
 
 auto noExtra(Graph &g, Semantics & /*sem*/) -> Term { return Term::constant(g.ctx(), true); }
 
-/* What isPPOIntersectionInPPO claims of ACYC, its extensibility check */
-auto stretchesClaim(const AcyclicConstraint &acyc, const Theory &theory) -> std::string
+/* What the extensibility check claims of CST, an acyclicity export or the
+ * coherence export, if it is one of those */
+auto extensibilityClaim(const Constraint &cst, const Theory &theory) -> std::optional<std::string>
 {
-	return "the stretches of " + toString(acyc, theory) +
-	       " between eco steps are within (any* ; pporf ; any*) | id";
+	if (dynamic_cast<const AcyclicConstraint *>(&cst) != nullptr)
+		return "the cycles of " + toString(cst, theory) +
+		       " leave an event GenMC may add by a pporf step";
+	if (dynamic_cast<const CoherenceConstraint *>(&cst) != nullptr)
+		return "the cycles of " + toString(cst, theory) +
+		       " ; eco leave an event GenMC may add by a pporf step, or go po to its "
+		       "location";
+	return std::nullopt;
 }
 
 } // namespace
@@ -195,13 +203,12 @@ auto validateExport(const std::string &file, const SearchOptions &opts, bool ver
 	 * extensibility check, which builds automata of its own */
 	std::vector<std::string> invalid;
 	std::set<std::pair<TransLabel, TransLabel>> inclusions;
-	std::vector<std::pair<std::string, Checker::Certificate>> stretches;
+	std::vector<std::pair<std::string, Checker::Certificate>> extensibility;
 	auto certificates = 0U;
 	checker.setCertificateSink([&](const Constraint &cst,
 				       const Checker::Certificate &cert) -> void {
-		const auto *acyc = dynamic_cast<const AcyclicConstraint *>(&cst);
-		auto claim = acyc != nullptr ? stretchesClaim(*acyc, theory)
-					     : toString(cst, theory);
+		auto extClaim = extensibilityClaim(cst, theory);
+		auto claim = extClaim.value_or(toString(cst, theory));
 		if (auto why = checkCertificate(cert))
 			invalid.push_back(claim + ": " + *why);
 		if (jsonDir)
@@ -209,13 +216,13 @@ auto validateExport(const std::string &file, const SearchOptions &opts, bool ver
 		for (const auto &[a, b] : cert.inclusions)
 			if (a != b)
 				inclusions.emplace(a, b);
-		if (acyc != nullptr)
-			stretches.emplace_back(claim,
-					       Checker::Certificate{.lhs = copy(cert.lhs),
-								    .rhs = copy(cert.rhs),
-								    .simulation = cert.simulation,
-								    .pairs = cert.pairs,
-								    .inclusions = cert.inclusions});
+		if (extClaim)
+			extensibility.emplace_back(
+				claim, Checker::Certificate{.lhs = copy(cert.lhs),
+							    .rhs = copy(cert.rhs),
+							    .simulation = cert.simulation,
+							    .pairs = cert.pairs,
+							    .inclusions = cert.inclusions});
 	});
 
 	/* Export into a scratch directory: only the module's rewriting matters here */
@@ -255,7 +262,7 @@ auto validateExport(const std::string &file, const SearchOptions &opts, bool ver
 
 	/* What the extensibility check decided: the inclusion between its
 	 * automata, and whether its left one accepts anything at all */
-	for (const auto &[claim, cert] : stretches) {
+	for (const auto &[claim, cert] : extensibility) {
 		Counterexample none;
 		if (cert.lhs.acceptsNoString(none))
 			std::cout << "vacuous:  " << claim
