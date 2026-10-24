@@ -304,6 +304,15 @@ if possible, and not re-declare such primitive relations.
 <p>
 Users can define additional properties using <code>assume</code> statements.
 </p>
+
+<p>
+<code>assume total r</code> states that the relation <code>r</code> is a strict total order:
+irreflexive, transitive, and relating any two distinct events one way or the other
+(Proposition 3.12 of the POPL 2023 paper).
+<font style="font-variant: small-caps">Kater</font> uses only its transitivity, as it does for
+<code>assume r;r &lt;= r</code>. <code>total</code> applies to a relation of its own:
+<font style="font-variant: small-caps">Kater</font> warns about <code>total</code> of anything else, and ignores it.
+</p>
 </div>
 </div>
 
