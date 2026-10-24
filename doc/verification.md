@@ -660,8 +660,8 @@ once it rejects them.
 ## Findings
 
 All fixed, with a regression test each. Most were found by the oracle, the
-others by running Kater under sanitizers, by type-checking exported checkers,
-and by reading the code. The files in `tests/wrong/soundness` are false claims
+others by running Kater under sanitizers or with assertions, by type-checking
+exported checkers, and by reading the code. The files in `tests/wrong/soundness` are false claims
 Kater used to prove; the oracle refutes each (`ctest -L oracle`).
 
 1. **Dependencies and `po-imm` were in `po-loc`** (`Theory::isIncludedIn`;
@@ -794,6 +794,16 @@ Kater used to prove; the oracle refutes each (`ctest -L oracle`).
     [Results](#results)). On graphs of 100 to 400 events the checks take up
     to 11% more cycles (RC11, and IMM 6.5%; SC, TSO and LKMM within 1.5%).
 
+17. **With assertions on, every export aborted** ("GenMCPrinter: a traversal
+    may be of an automaton without states"; #35). `outputTraversal` asserted
+    that an automaton has states, and the `0` of an error clause such as
+    `free; [FREE|HPRET] = 0` has none, so a Kater built without `NDEBUG`
+    aborted on all six `kat/*-genmc.kat` models. It now asserts what the
+    traversal relies on, a visit entry for each state; a Release build, which
+    prints the traversal of such an automaton for nothing to start, exports
+    the same checkers as before. Found by building Kater in Debug to check the
+    assertion of item 16; the ctests `export-*-genmc` export every model.
+
 Items 1–4, 7, 8, 11 and 13 made Kater prove false claims, 12 and 14 could
 have, 15 made it run forever, and 16 made an exported checker accept graphs
 its model forbids; the others crashed it, read memory it should not, or
@@ -824,7 +834,8 @@ After the fixes:
   [Extensibility](#extensibility));
 - the exported checkers of all six models type-check against GenMC
   (0.19.0-vzhn.10), and the fixes left them byte-identical but for item 16,
-  which changed their acyclicity checks alone;
+  which changed their acyclicity checks alone; a Kater built with assertions
+  exports the same ones;
 - run inside GenMC, they answer as the reference semantics does on every
   graph tried, their memory-error checks included, but for the races of
   [#34](https://github.com/vzhn/kater-fork/issues/34), still open (see
@@ -869,12 +880,6 @@ After the fixes:
   `oracle-export-issue-33-*` fail once Kater rejects them. What the check
   should decide is open: a condition that implies extensibility, which
   `kater-oracle extensible` can test it against.
-- **Debug builds cannot export**
-  ([#35](https://github.com/vzhn/kater-fork/issues/35)):
-  `GenMCPrinter::outputTraversal` asserts that an automaton has states, and
-  the `0` of an error clause such as `free; [FREE|HPRET] = 0` has none, so a
-  Kater built without `NDEBUG` aborts on every `kat/*-genmc.kat` model.
-  Release builds print a traversal that nothing starts, and are not affected.
 - **Not checked by the oracle**: of the printed code, the revisits of the
   dependency-tracking models (see
   [The exported checkers](#the-exported-checkers)).
