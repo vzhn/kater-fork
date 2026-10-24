@@ -43,8 +43,9 @@ The Lean mirrors parts of Kater's C++: its letters, its certificates,
 checks, the oracle's meaning of letters and automata, and the JSON writer. Those parts are marked in the C++ with `formal: begin` and
 `formal: end` comments, and `mirrors.txt` records a hash of each as of the
 last review of the Lean against it. `scripts/check-mirrors.sh` reports the
-regions that changed since, with the Lean to review; after the review,
-`scripts/check-mirrors.sh --update` records them as they are.
+regions that changed since, with the Lean to review, and every build of
+Kater warns about them; after the review, `scripts/check-mirrors.sh
+--update` records them as they are.
 
 See `doc/verification.md` (The checker in Lean, Evidence of the
 saturations) for the model, what the proofs need, and what remains trusted.
