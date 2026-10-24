@@ -39,8 +39,9 @@ add_test(NAME oracle-soundness-cases
 set_tests_properties(oracle-audit oracle-transforms oracle-check-correct
   oracle-soundness-cases PROPERTIES LABELS "oracle" TIMEOUT 900)
 
-# What the export of each GenMC model relies on: the Checker's claims, and
-# that the rewritten definitions keep their meaning
+# What the export of each GenMC model relies on: the Checker's claims (the
+# inclusion its extensibility check decides among them), and that the
+# rewritten definitions keep their meaning
 file(GLOB ORACLE_GENMC_MODELS ${PROJECT_SOURCE_DIR}/kat/*-genmc.kat)
 add_test(NAME oracle-export COMMAND kater-oracle export -n 3 ${ORACLE_GENMC_MODELS})
 set_tests_properties(oracle-export PROPERTIES LABELS "oracle" TIMEOUT 900)
@@ -79,6 +80,28 @@ if(LAKE)
     FIXTURES_REQUIRED certificates-json ENVIRONMENT "${LAKE_ENVIRONMENT}")
   set_tests_properties(formal-certificates-clean formal-certificates-write
     formal-certificates-check PROPERTIES LABELS "oracle;formal" TIMEOUT 1800)
+
+  # The same for the certificates of the claims the export of each GenMC
+  # model rests on, the extensibility check's among them
+  set(EXPORT_CERTIFICATES_JSON ${CMAKE_CURRENT_BINARY_DIR}/export-certificates)
+  add_test(NAME formal-export-certificates-clean
+    COMMAND ${CMAKE_COMMAND} -E rm -rf ${EXPORT_CERTIFICATES_JSON})
+  add_test(NAME formal-export-certificates-write
+    COMMAND kater-oracle export -n 1 --json ${EXPORT_CERTIFICATES_JSON} ${ORACLE_GENMC_MODELS})
+  add_test(NAME formal-export-certificates-check
+    COMMAND ${LAKE} exe kater-cert-check ${EXPORT_CERTIFICATES_JSON}
+    WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}/formal)
+  set_tests_properties(formal-export-certificates-clean PROPERTIES
+    FIXTURES_SETUP export-certificates-clean)
+  set_tests_properties(formal-export-certificates-write PROPERTIES
+    FIXTURES_REQUIRED export-certificates-clean FIXTURES_SETUP export-certificates-json)
+  set_tests_properties(formal-export-certificates-check PROPERTIES
+    FIXTURES_REQUIRED export-certificates-json ENVIRONMENT "${LAKE_ENVIRONMENT}")
+  set_tests_properties(formal-export-certificates-clean formal-export-certificates-write
+    formal-export-certificates-check PROPERTIES LABELS "oracle;formal" TIMEOUT 1800)
+  # One lake at a time in formal/
+  set_tests_properties(formal-certificates-check formal-export-certificates-check
+    PROPERTIES RESOURCE_LOCK formal-lake)
 endif()
 
 # The exported checkers, run inside GenMC, against the reference semantics

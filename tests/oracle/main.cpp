@@ -30,10 +30,12 @@
  *       Checks every fact Kater's Theory states about the builtin relations
  *       and predicates against their meaning in GenMC.
  *
- *   kater-oracle export [-n EVENTS] [-t SECONDS] FILE...
+ *   kater-oracle export [-n EVENTS] [-t SECONDS] [--json DIR] FILE...
  *       Exports FILE as GenMC code and checks what the export relies on:
- *       the claims the Checker proves on the way, and that each definition
- *       the exporter rewrites keeps its meaning.
+ *       the claims the Checker proves on the way (the inclusion its
+ *       extensibility check decides among them), their certificates, and
+ *       that each definition the exporter rewrites keeps its meaning. With
+ *       --json, also writes the certificates to DIR, as certify does.
  *
  *   kater-oracle certify [-n EVENTS] [-t SECONDS] [--json DIR] FILE...
  *       Has Kater prove FILE's assertions with certificates, checks each
@@ -108,6 +110,7 @@ struct Options {
 		<< "usage: kater-oracle check [-n EVENTS] [-t SECONDS] [--refutable] [-v] FILE...\n"
 		   "       kater-oracle certify [-n EVENTS] [-t SECONDS] [--json DIR]\n"
 		   "                            [-v] FILE...\n"
+		   "       kater-oracle export [-n EVENTS] [-t SECONDS] [--json DIR] [-v] FILE...\n"
 		   "       kater-oracle explain FILE...\n"
 		   "       kater-oracle audit [-n EVENTS] [-t SECONDS] [-v]\n"
 		   "       kater-oracle transforms [-n EVENTS] [-t SECONDS] [--cases N]\n"
@@ -298,9 +301,11 @@ auto main(int argc, char **argv) -> int
 	if (cmd == "audit")
 		return audit(opts.search, opts.verbose) ? 0 : 1;
 	if (cmd == "export") {
+		if (opts.jsonDir)
+			std::filesystem::create_directories(*opts.jsonDir);
 		auto ok = true;
 		for (const auto &f : opts.files)
-			ok &= validateExport(f, opts.search, opts.verbose);
+			ok &= validateExport(f, opts.search, opts.verbose, opts.jsonDir);
 		return ok ? 0 : 1;
 	}
 	if (cmd == "certify") {
