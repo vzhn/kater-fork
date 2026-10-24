@@ -1500,12 +1500,26 @@ Kater used to prove; the oracle refutes each (`ctest -L oracle`).
     `tests/oracle/genmc/graphs/issue-34.graph`, where a WW race left its race
     to a double free.
 
+23. **The check of `0 <= VIEW` did not return** ("GenMCPrinter: the check of
+    A <= VIEW returns when A accepts nothing"; #51). For an inclusion
+    `A <= VIEW` whose left-hand automaton accepts nothing, such as
+    `export 0 <= hb` or the clause of `export error ... unless 0 <= hb`,
+    `printSubset` stopped printing the `visit` function after it had set up
+    its arrays, so control fell off its end: undefined behaviour, which
+    GenMC's build warns about (`-Wreturn-type`). It now returns true, as the
+    check of any other inclusion does when its left-hand side accepts
+    nothing. None of the models has such a clause; their exported checkers
+    are unchanged. Found while fixing item 22; the ctest `export-issue-51`
+    exports `tests/export/empty-in-view-genmc.kat` and checks that every
+    function of its checker that returns a value ends with a `return`
+    (`scripts/check-returns.sh`).
+
 Items 1–4, 7, 8, 11, 13 and 19 made Kater prove false claims, 12, 14 and 20
 could have, 15 made it run forever, 16 made an exported checker accept
 graphs its model forbids, 18 and 21 let Kater export models GenMC cannot
-explore, and 22 made exported checkers hand GenMC a stale label to report;
-the others crashed it, read memory it should not, or produced code GenMC
-rejects.
+explore, 22 made exported checkers hand GenMC a stale label to report, and
+23 printed a check with no result; the others crashed it, read memory it
+should not, or produced code GenMC rejects.
 Under the sanitizers the whole suite, the unit tests, 4000 fuzzed files and the
 export of every `kat/*-genmc.kat` model now run without a report, and the
 exported checkers are the same as without them.
@@ -1594,11 +1608,12 @@ After the fixes:
   exception `kater-oracle` did not catch. `certify` now catches it, and
   checks a pass of a chain without evidence only when its automata have at
   most 24 states per event of the bound.
-- **The check of `0 <= VIEW` does not return**
-  ([#51](https://github.com/vzhn/kater-fork/issues/51)): for an inclusion
-  `A <= VIEW` whose left-hand automaton accepts nothing, such as
-  `export 0 <= hb`, the `visit` function `printSubset` prints ends without a
-  `return`. None of the models has such a clause.
+- **Exported inclusions and equalities do not compile**
+  ([#58](https://github.com/vzhn/kater-fork/issues/58)): for a model that
+  exports `A <= B` or `A = B` as a consistency constraint, `isConsistent(g)`
+  calls a check over the whole graph, which only acyclicity constraints
+  have, and the `visit` function that joins an equality's two directions is
+  printed outside the class. None of the models has such an export.
 - **Not checked by the oracle**: of the printed code, the revisits of the
   dependency-tracking models (see
   [The exported checkers](#the-exported-checkers)).
