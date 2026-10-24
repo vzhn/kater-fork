@@ -1,0 +1,10 @@
+# vzhn/kater-fork#34: added in order as GenMCDriver adds them, the WW race of
+# e2 leaves cexLab = e0, which checkErrors(e5) gives as the race of the double
+# free (the clause free;[FREE|HPRET] = 0 sets no cexLab); its race is e4
+e0: T0 W(x) rlx
+e1: T1 TB acq
+e2: T1 W(x) rlx
+e3: T1 ALLOC(y) na
+e4: T1 FREE(y) na
+e5: T1 FREE(y) na
+mo(x): e0 e2

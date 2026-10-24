@@ -101,3 +101,14 @@ add_test(NAME oracle-genmc-issue-27
 set_tests_properties(oracle-genmc-issue-27 PROPERTIES LABELS "oracle;genmc"
   PASS_REGULAR_EXPRESSION "DISAGREE isConsistent\\(G\\): GenMC says true")
 
+# vzhn/kater-fork#34: an error whose unless clause is A = 0 (here a double
+# free) gives as its race what an earlier failing clause left, a warning's
+# race here; the comparisons above leave such races out, --all-races does
+# not. This passes while it does; once fixed, it fails: then expect the graph
+# to agree instead, and drop the option
+add_test(NAME oracle-genmc-issue-34
+  COMMAND kater-oracle genmc --runner $<TARGET_FILE:kater-oracle-runner> --all-races
+    --graph ${CMAKE_CURRENT_SOURCE_DIR}/graphs/issue-34.graph
+    ${PROJECT_SOURCE_DIR}/kat/rc11-genmc.kat)
+set_tests_properties(oracle-genmc-issue-34 PROPERTIES LABELS "oracle;genmc"
+  PASS_REGULAR_EXPRESSION "DISAGREE checkErrors\\(e5\\)[^\n]*e5 last: GenMC says VE_DoubleFree with the race e0")
