@@ -335,7 +335,9 @@ SHA-256 of each region, without whitespace, as of the last review of the
 Lean against it. `scripts/check-mirrors.sh` (the ctest `check-mirrors`,
 labeled `lint`) reports each region that changed since, with the Lean to
 review; after the review, `scripts/check-mirrors.sh --update` records the
-regions as they are.
+regions as they are. The fork has no CI, so every build runs the script
+too, with `--warn`: it prints each report as a warning, and the build
+succeeds.
 
 ### Evidence of the saturations
 

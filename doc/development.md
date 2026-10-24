@@ -79,7 +79,8 @@ Other helpers under `scripts/`:
 
  - `check-mirrors.sh`: reports the C++ that `formal/` mirrors in Lean and that
    changed since the Lean was last reviewed against it (the `check-mirrors`
-   test); `--update` records it after the review.
+   test); `--update` records it after the review. Every build runs it with
+   `--warn`, which prints the reports as warnings and succeeds.
 
 # Modifying Kater
 
