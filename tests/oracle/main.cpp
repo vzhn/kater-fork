@@ -46,13 +46,17 @@
  *       checkCertificateAndChain's verdict: the input of the checker in
  *       formal/.
  *
- *   kater-oracle evidence --json DIR FILE...
+ *   kater-oracle evidence --json DIR [--export] FILE...
  *       Has Kater prove FILE's assertions, and writes to DIR, as JSON, for
  *       each it proves, every step of the proof: the automata between the
  *       passes of each inclusion check, with the evidence of the
  *       saturations, and the final certificate, with the assertion's
  *       expressions and the module's declarations and assumptions: the
- *       input of the checker of whole proofs in formal/.
+ *       input of the checker of whole proofs in formal/. With --export,
+ *       has Kater export FILE instead, and writes the same of every claim
+ *       the export rests on: the inclusions the Checker proves on the way,
+ *       and every step of each extensibility check, from the constraint's
+ *       automaton to the certificates of its words.
  *
  *   kater-oracle explain FILE
  *       Prints the automaton of the left-hand side of each assertion of
@@ -128,6 +132,8 @@ struct Options {
 	ExtensibleOptions extensible;
 	bool verbose = false;
 	bool refutable = false;
+	/* evidence: of the claims of the export, not of the assertions */
+	bool exportClaims = false;
 	std::optional<std::filesystem::path> jsonDir;
 	std::vector<std::string> files;
 };
@@ -139,7 +145,7 @@ struct Options {
 		   "       kater-oracle certify [-n EVENTS] [-t SECONDS] [--json DIR]\n"
 		   "                            [-v] FILE...\n"
 		   "       kater-oracle export [-n EVENTS] [-t SECONDS] [--json DIR] [-v] FILE...\n"
-		   "       kater-oracle evidence --json DIR [-v] FILE...\n"
+		   "       kater-oracle evidence --json DIR [--export] [-v] FILE...\n"
 		   "       kater-oracle explain FILE...\n"
 		   "       kater-oracle audit [-n EVENTS] [-t SECONDS] [-v]\n"
 		   "       kater-oracle transforms [-n EVENTS] [-t SECONDS] [--cases N]\n"
@@ -196,6 +202,8 @@ auto parseOptions(int argc, char **argv, int first) -> Options
 			opts.transforms.evidenceOnly = true;
 		else if (arg == "--json")
 			opts.jsonDir = text();
+		else if (arg == "--export")
+			opts.exportClaims = true;
 		else if (arg == "--runner")
 			opts.genmc.runner = text();
 		else if (arg == "--threads")
@@ -365,7 +373,9 @@ auto main(int argc, char **argv) -> int
 		std::filesystem::create_directories(*opts.jsonDir);
 		auto ok = true;
 		for (const auto &f : opts.files)
-			ok &= writeEvidence(f, *opts.jsonDir, opts.verbose);
+			ok &= opts.exportClaims
+				      ? writeExportEvidence(f, *opts.jsonDir, opts.verbose)
+				      : writeEvidence(f, *opts.jsonDir, opts.verbose);
 		return ok ? 0 : 1;
 	}
 	if (cmd == "explain") {

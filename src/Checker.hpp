@@ -134,7 +134,9 @@ public:
 	 * final check, with the chain of passes on the right side. formal/
 	 * checks each automaton against the one before it. The states of each
 	 * automaton, on either side, have as origins the states of the one
-	 * before it they stand for
+	 * before it they stand for. An inclusion decideExitWords proves has no
+	 * left-hand side's expression: its left side starts at the automaton of
+	 * the words it got
 	 */
 	struct Evidence {
 		enum class Stage {
@@ -148,11 +150,16 @@ public:
 			/* ... then removeSimilarTransitions and to_DFA: the left
 			 * automaton of the final check */
 			LeftFinal,
+			/* The words decideExitWords got (from toEndOfWord), before the
+			 * normalize, removeSimilarTransitions and to_DFA that make its
+			 * LeftFinal */
+			Words,
 		};
 		struct Step {
 			Stage stage;
 			NFA nfa;
 		};
+		/* Null for decideExitWords */
 		std::unique_ptr<RegExp> lhs;
 		std::unique_ptr<RegExp> rhs;
 		bool sameEnds = false;
@@ -165,6 +172,40 @@ public:
 
 	/* Called with the evidence of each inclusion checkInclusion proves */
 	void setEvidenceSink(EvidenceSink sink) { evidenceSink = std::move(sink); }
+
+	/* formal: begin ExtensibilityEvidence, mirrored by formal/KaterCert/Extensible.lean */
+	/*
+	 * Every step of an extensibility check decideExtensibility proves: the
+	 * expression whose cycles it is about (of one word, with SINGLE); its
+	 * automaton, as exitsToCheck reads its cycles, without the lin steps;
+	 * the prefix relation pporf (createPPORF) and the ppo it is made of; and
+	 * the evidence of each inclusion decideExitWords proved, with which
+	 * right-hand side it decided (BACK_TO_EVENT: a cycle that leaves the
+	 * event where its word begins). The states of each words automaton
+	 * have as origins the states of CYCLES they copy
+	 */
+	struct ExtensibilityEvidence {
+		struct Words {
+			bool backToEvent = false;
+			Evidence evidence;
+		};
+		std::unique_ptr<RegExp> re;
+		bool single = false;
+		NFA cycles;
+		std::unique_ptr<RegExp> ppo;
+		std::unique_ptr<RegExp> pporf;
+		std::vector<Words> words;
+	};
+	/* formal: end ExtensibilityEvidence */
+	using ExtensibilityEvidenceSink =
+		std::function<void(const Constraint &, const ExtensibilityEvidence &)>;
+
+	/* Called with the evidence of each extensibility check that passes, with
+	 * the acyclicity or coherence constraint it is of */
+	void setExtensibilityEvidenceSink(ExtensibilityEvidenceSink sink)
+	{
+		extensibilityEvidenceSink = std::move(sink);
+	}
 
 	void setObserver(Observer obs) { observer = std::move(obs); }
 
@@ -219,15 +260,17 @@ private:
 		-> InclusionResult;
 	/* Whether every word of WORDS, read from an event GenMC may add, has a
 	 * pporf step out of the event, or else, with BACK_TO_EVENT, is a po
-	 * path to an event of its location and eco back */
-	auto decideExitWords(NFA &words, bool backToEvent, const Constraint &cst) const
-		-> InclusionResult;
+	 * path to an event of its location and eco back; if so, and EV, adds
+	 * the inclusion's evidence to EV */
+	auto decideExitWords(NFA &words, bool backToEvent, const Constraint &cst,
+			     ExtensibilityEvidence *ev) const -> InclusionResult;
 
 	KatModule *module;
 	Options options;
 	Observer observer;
 	CertificateSink certificateSink;
 	EvidenceSink evidenceSink;
+	ExtensibilityEvidenceSink extensibilityEvidenceSink;
 };
 
 /* A diagnostic note describing CEX, to be appended to an error message */

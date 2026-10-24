@@ -21,5 +21,8 @@ import KaterCert.Model
 import KaterCert.ReadChain
 import KaterCert.Hypotheses
 import KaterCert.Whole
+import KaterCert.Extensible
+import KaterCert.Cycles
+import KaterCert.Erase
 import KaterCert.ModelSound
 import KaterCert.EndToEnd

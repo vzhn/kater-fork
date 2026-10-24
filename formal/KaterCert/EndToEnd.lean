@@ -1,4 +1,7 @@
 import KaterCert.Whole
+import KaterCert.Extensible
+import KaterCert.Cycles
+import KaterCert.Erase
 import KaterCert.ModelSound
 
 /-!
@@ -25,15 +28,30 @@ namespace EndToEnd
 
 variable {E : Type}
 
+/-- Whether the assumptions of a module marked builtin are Kater's builtin
+ones. -/
+def builtinOk (m : ReadChain.Module) : Bool :=
+  m.assumptions.all fun a => !a.builtin || match a.constraint with
+    | .ok c => Model.builtinAssumptions.contains c
+    | .error _ => true
+
 /-- Whether Lean accepts the evidence of an assertion: the chain checks, and
 the assumptions marked builtin are Kater's builtin ones. -/
 def check (ev : ReadChain.Evidence) : Except String Unit :=
   match checkAssertion ev with
   | .error e => .error e
   | .ok () =>
-    if ev.assumptions.all fun a => !a.builtin || match a.constraint with
-        | .ok c => Model.builtinAssumptions.contains c
-        | .error _ => true then .ok ()
+    if builtinOk ev.module then .ok ()
+    else .error "an assumption marked builtin is not one of Kater's builtin assumptions"
+
+/-- Whether Lean accepts the evidence of an extensibility check: its
+inclusions check, and the assumptions marked builtin are Kater's builtin
+ones. -/
+def checkExtensibility (x : ReadChain.Extensibility) : Except String Unit :=
+  match Extensible.checkInclusions x with
+  | .error e => .error e
+  | .ok () =>
+    if builtinOk x.module then Extensible.checkCycles x
     else .error "an assumption marked builtin is not one of Kater's builtin assumptions"
 
 /-! ## Sequences -/
@@ -333,10 +351,10 @@ theorem incorporate_hold {d : Decls} (hd : d.Hold M) {c : Constraint} (hc : c.Ho
 
 /-- What the theory takes in of a module holds where its declarations and
 the assumptions the theory took in hold. -/
-theorem declsOf_hold {ev : ReadChain.Evidence}
-    (hdisj : ∀ D ∈ ev.disjoint, ∀ p ∈ D, ∀ q ∈ D, p ≠ q → ∀ e, ¬ (M.pred p e ∧ M.pred q e))
-    (hh : HypsHold M ev.assumptions) : (declsOf ev).Hold M := by
-  unfold declsOf
+theorem decls_hold {m : ReadChain.Module}
+    (hdisj : ∀ D ∈ m.disjoint, ∀ p ∈ D, ∀ q ∈ D, p ≠ q → ∀ e, ¬ (M.pred p e ∧ M.pred q e))
+    (hh : HypsHold M m.assumptions) : m.decls.Hold M := by
+  unfold ReadChain.Module.decls
   have : ∀ (l : List Assumption) (d : Decls), d.Hold M →
       (∀ a ∈ l, ∀ c, a.constraint = .ok c → c.Holds M) →
       (l.foldl (fun d a => match a.constraint with
@@ -362,8 +380,8 @@ theorem declsOf_hold {ev : ReadChain.Evidence}
     obtain ⟨i, hi⟩ := List.mem_iff_getElem?.mp ha
     exact hh i a c (by rw [← Array.getElem?_toList]; exact hi) hc
 
-theorem declsOf_perLoc (ev : ReadChain.Evidence) : (declsOf ev).perLoc = ev.perLoc := by
-  unfold declsOf
+theorem decls_perLoc (m : ReadChain.Module) : m.decls.perLoc = m.perLoc := by
+  unfold ReadChain.Module.decls
   have : ∀ (l : List Assumption) (d : Decls),
       (l.foldl (fun d a => match a.constraint with
         | .ok c => if a.saturated then d else incorporate d c
@@ -406,6 +424,44 @@ theorem facts {G : Graph} (hG : G.WF) (U : Graph.User G.E) (perLoc : List (Int �
     exact hG.po_trans _ _ _ h₁ h₂
   any_univ x y := by simp [interp_rel, Graph.rel]
 
+/-- The disjoint predicates of a module's declarations are disjoint on a
+graph. -/
+def DisjointHold {G : Graph} (U : Graph.User G.E) (m : ReadChain.Module) : Prop :=
+  ∀ D ∈ m.disjoint, ∀ p ∈ D, ∀ q ∈ D, p ≠ q →
+    ∀ e, ¬ ((G.interp U m.perLoc).pred p e ∧ (G.interp U m.perLoc).pred q e)
+
+/-- The assumptions of a module that are not builtin hold on a graph. -/
+def AssumptionsHold {G : Graph} (U : Graph.User G.E) (m : ReadChain.Module) : Prop :=
+  ∀ a ∈ m.assumptions, a.builtin = false → ∀ c, a.constraint = .ok c →
+    c.Holds (G.interp U m.perLoc)
+
+/-- The assumptions of a module hold on a graph where those that are not
+builtin do, if those marked builtin are Kater's. -/
+theorem hypsHold {G : Graph} (hG : G.WF) {U : Graph.User G.E} {m : ReadChain.Module}
+    (hb : builtinOk m = true) (hyps : AssumptionsHold U m) :
+    HypsHold (G.interp U m.perLoc) m.assumptions := by
+  intro i a c hi hc
+  have ha : a ∈ m.assumptions := Array.mem_of_getElem? hi
+  cases hab : a.builtin
+  · exact hyps a ha hab c hc
+  · simp only [builtinOk, Array.all_eq_true] at hb
+    obtain ⟨hj, hji⟩ := Array.getElem?_eq_some_iff.mp hi
+    have := hb i hj
+    rw [hji] at this
+    simp only [hab, Bool.not_true, Bool.false_or, hc] at this
+    exact builtinAssumptions_hold hG U m.perLoc c (List.contains_iff_mem.mp this)
+
+/-- The theory of a module is sound on a graph where its declarations and
+assumptions hold. -/
+theorem module_theory_sound {G : Graph} (hG : G.WF) {U : Graph.User G.E} {m : ReadChain.Module}
+    (hwf : m.decls.wf = true) (hdisj : DisjointHold U m)
+    (hh : HypsHold (G.interp U m.perLoc) m.assumptions) :
+    (Theory.ofDecls m.decls).Sound (G.interp U m.perLoc) G.sameLoc := by
+  have hd := decls_hold hdisj hh
+  have hθ := theory_sound hG U m.decls hwf (by rw [decls_perLoc]; exact hd)
+  rw [decls_perLoc] at hθ
+  exact hθ
+
 /-- **End to end.** If Lean accepts the evidence of an assertion, the
 assertion holds on every graph of the model where the module's `disjoint`
 declarations and its assumptions hold, whatever its own predicates and
@@ -423,28 +479,238 @@ theorem sound {ev : ReadChain.Evidence} (h : check ev = .ok ())
   · rename_i hchain
     split at h
     · rename_i hbuiltin
-      have hh : HypsHold (G.interp U ev.perLoc) ev.assumptions := by
-        intro i a c hi hc
-        have ha : a ∈ ev.assumptions := Array.mem_of_getElem? hi
-        cases hb : a.builtin
-        · exact hyps a ha hb c hc
-        · simp only [Array.all_eq_true] at hbuiltin
-          obtain ⟨hj, hji⟩ := Array.getElem?_eq_some_iff.mp hi
-          have := hbuiltin i hj
-          rw [hji] at this
-          simp only [hb, Bool.not_true, Bool.false_or, hc] at this
-          exact builtinAssumptions_hold hG U ev.perLoc c (List.contains_iff_mem.mp this)
+      have hh : HypsHold (G.interp U ev.perLoc) ev.assumptions :=
+        hypsHold (m := ev.module) hG hbuiltin hyps
       have hwf : (declsOf ev).wf = true := by
         unfold checkAssertion at hchain
         split at hchain
         · simp at hchain
         · rename_i hwf
           simpa using hwf
-      have hd := declsOf_hold hdisj hh
-      have hθ := theory_sound hG U (declsOf ev) hwf (by rw [declsOf_perLoc]; exact hd)
-      rw [declsOf_perLoc] at hθ
+      have hθ := module_theory_sound (m := ev.module) hG hwf hdisj hh
       exact checkAssertion_sound hchain hθ (rf_split U ev.perLoc) (facts hG U ev.perLoc) hh
     · simp at h
+
+/-- The right-hand sides of two prefix relations that denote the same denote
+the same. -/
+theorem rhsOf_congr {M : Interp E} {p q : Exp} (hpq : ∀ {x y}, p.denote M x y ↔ q.denote M x y)
+    (b : Bool) {x y : E} :
+    (Extensible.rhsOf p b).denote M x y ↔ (Extensible.rhsOf q b).denote M x y := by
+  have hseq : ∀ {x y}, (Exp.seq p (.star (Extensible.bare .any))).denote M x y ↔
+      (Exp.seq q (.star (Extensible.bare .any))).denote M x y := by
+    intro x y
+    simp only [Exp.denote, Rel.comp]
+    exact ⟨fun ⟨z, h₁, h₂⟩ => ⟨z, hpq.mp h₁, h₂⟩, fun ⟨z, h₁, h₂⟩ => ⟨z, hpq.mpr h₁, h₂⟩⟩
+  unfold Extensible.rhsOf
+  cases b
+  · exact hseq
+  · simp only [ite_true]
+    show Rel.union _ _ x y ↔ Rel.union _ _ x y
+    simp only [Rel.union]
+    rw [hseq]
+
+/-- **The words of an extensibility check denote no more than its
+right-hand side.** If Lean accepts the evidence of an extensibility check,
+then on every graph of the model where the module's `disjoint`
+declarations and its assumptions hold, the relation of each of its words
+automata, as Kater built them, is within `pporf ; any*`, and for the words
+that go back to the event within `pporf ; any* | po+ ; (rf | mo | fr)+`,
+`pporf` being `(ppo | rfe | tc | tj | lin)+`. -/
+theorem words_sound {x : ReadChain.Extensibility} (h : checkExtensibility x = .ok ())
+    (G : Graph) (hG : G.WF) (U : Graph.User G.E) (hdisj : DisjointHold U x.module)
+    (hyps : AssumptionsHold U x.module) :
+    ∀ w ∈ x.words, Rel.Sub (w.words.nfa.denote (Label.denote (G.interp U x.module.perLoc)))
+      ((Extensible.rhsOf (Extensible.pporfOf x.ppo) w.backToEvent).denote
+        (G.interp U x.module.perLoc)) := by
+  unfold checkExtensibility at h
+  split at h
+  · simp at h
+  · rename_i hinc
+    split at h
+    · rename_i hbuiltin
+      have hh := hypsHold (m := x.module) hG hbuiltin hyps
+      have hwf : x.module.decls.wf = true := by
+        unfold Extensible.checkInclusions at hinc
+        split at hinc
+        · simp at hinc
+        · rename_i hwf
+          simpa using hwf
+      have hok : Extensible.pporfOk x.ppo x.pporf = true := by
+        unfold Extensible.checkInclusions at hinc
+        split at hinc
+        · simp at hinc
+        · split at hinc
+          · simp at hinc
+          · rename_i hp
+            simpa using hp
+      have hθ := module_theory_sound (m := x.module) hG hwf hdisj hh
+      intro w hw a b hab
+      have := Extensible.checkInclusions_sound hinc hθ (facts hG U x.module.perLoc) hh w hw a b hab
+      exact (rhsOf_congr (fun {_ _} => Extensible.pporfOk_denote hok) _).mp this
+    · simp at h
+
+/-! ## Extensibility -/
+
+/-- What the constraint of an extensibility check says: its expression has
+no cycle (for coherence, `single`, it relates no event to itself). -/
+def _root_.KaterCert.ReadChain.Extensibility.Holds {E : Type} (x : ReadChain.Extensibility)
+    (M : Interp E) : Prop :=
+  ∀ a, ¬ (if x.single then x.re.denote M a a else Rel.Plus (x.re.denote M) a a)
+
+section Extensibility
+
+variable {G : Graph} {U : Graph.User G.E} {perLoc : List (Int × Int)}
+
+theorem ext_bare_denote (r : Builtin.Rel) {a b : G.E} :
+    (Extensible.bare r).denote (G.interp U perLoc) a b ↔ G.rel r a b :=
+  Model.bare_denote r
+
+theorem plus_po (hG : G.WF) {a b : G.E}
+    (h : Rel.Plus ((Extensible.bare .po).denote (G.interp U perLoc)) a b) : G.po a b := by
+  obtain ⟨c, hac, hcb⟩ := h
+  have : ∀ {c b}, Rel.Star ((Extensible.bare .po).denote (G.interp U perLoc)) c b →
+      G.po a c → G.po a b := by
+    intro c b h
+    induction h with
+    | refl => exact id
+    | step hxy _ ih =>
+      intro hax
+      exact ih (hG.po_trans _ _ _ hax ((ext_bare_denote .po).mp hxy))
+  exact this hcb ((ext_bare_denote .po).mp hac)
+
+/-- A step of `rf`, `mo` or `fr` is between accesses of one location. -/
+theorem eco_loc (hG : G.WF) {a b : G.E}
+    (h : (Exp.alt (.alt (Extensible.bare .rf) (Extensible.bare .mo)) (Extensible.bare .fr)).denote
+      (G.interp U perLoc) a b) :
+    G.located a ∧ G.located b ∧ G.loc a = G.loc b := by
+  simp only [Exp.denote, Rel.union, ext_bare_denote, Graph.rel] at h
+  rcases h with (h | h) | h
+  · obtain ⟨h₁, h₂, h₃⟩ := hG.rf_kinds a b h
+    exact ⟨.inr h₁, .inl h₂, h₃⟩
+  · obtain ⟨h₁, h₂, h₃⟩ := hG.mo_kinds a b h
+    exact ⟨.inr h₁, .inr h₂, h₃⟩
+  · obtain ⟨hne, h₁, h₂, h₃, -⟩ := h
+    rcases h₃ with h₃ | ⟨-, -, h₃⟩
+    · exact absurd h₃ hne
+    · exact ⟨.inl h₁, .inr h₂, h₃⟩
+
+theorem plus_eco_loc (hG : G.WF) {a b : G.E}
+    (h : Rel.Plus ((Exp.alt (.alt (Extensible.bare .rf) (Extensible.bare .mo))
+      (Extensible.bare .fr)).denote (G.interp U perLoc)) a b) :
+    G.located a ∧ G.located b ∧ G.loc a = G.loc b := by
+  obtain ⟨c, hac, hcb⟩ := h
+  have : ∀ {c b}, Rel.Star ((Exp.alt (.alt (Extensible.bare .rf) (Extensible.bare .mo))
+      (Extensible.bare .fr)).denote (G.interp U perLoc)) c b →
+      G.located a ∧ G.located c ∧ G.loc a = G.loc c →
+      G.located a ∧ G.located b ∧ G.loc a = G.loc b := by
+    intro c b h
+    induction h with
+    | refl => exact id
+    | step hxy _ ih =>
+      intro ⟨ha, _, hl⟩
+      obtain ⟨-, hy, hl'⟩ := eco_loc hG hxy
+      exact ih ⟨ha, hy, hl.trans hl'⟩
+  exact this hcb (eco_loc hG hac)
+
+end Extensibility
+
+/-- **Extensibility.** If Lean accepts the evidence of an extensibility
+check of an export's acyclicity or coherence constraint, then for every
+graph `G` of the model, and every event `e` of `G` that GenMC may add
+maximally (nothing reads from it, it is not `mo`-before or `fr`-before
+anything, it is not part of an RMW, nor a thread start or create, and
+nothing follows it in `pporf`), such that, for coherence, nothing
+`po`-after it accesses its location, and `G` has no `lin`: if `G` without
+`e` satisfies the constraint, so does `G`, where the module's `disjoint`
+declarations and assumptions hold, on both graphs, and the module's own
+relations and predicates mean in the graph without `e` what they do in `G`
+of its other events. -/
+theorem extensible {x : ReadChain.Extensibility} (h : checkExtensibility x = .ok ())
+    (G : Graph) (hG : G.WF) (U : Graph.User G.E) (e : G.E)
+    (hdisj : DisjointHold U x.module) (hyps : AssumptionsHold U x.module)
+    (hdisj₀ : DisjointHold (U.erase e) x.module) (hyps₀ : AssumptionsHold (U.erase e) x.module)
+    (hlin : ∀ a b, ¬ G.lin a b)
+    (hrf : ∀ b, ¬ G.rf e b) (hmo : ∀ b, ¬ G.mo e b) (hfr : ∀ b, ¬ G.fr e b)
+    (hexcl : ¬ G.excl e) (htb : G.kind e ≠ .TB) (htc : G.kind e ≠ .TC)
+    (hpporf : ∀ b, ¬ (Extensible.pporfOf x.ppo).denote (G.interp U x.module.perLoc) e b)
+    (hloc : x.single = true → ∀ z, G.po e z → G.located z → G.located e → G.loc z ≠ G.loc e)
+    (h₀ : x.Holds ((G.erase e).interp (U.erase e) x.module.perLoc)) :
+    x.Holds (G.interp U x.module.perLoc) := by
+  intro a ha
+  unfold checkExtensibility at h
+  split at h
+  · simp at h
+  rename_i hinc
+  split at h
+  · rename_i hbuiltin
+    have hwf : x.module.decls.wf = true := by
+      unfold Extensible.checkInclusions at hinc
+      split at hinc
+      · simp at hinc
+      · rename_i hwf
+        simpa using hwf
+    have hok : Extensible.pporfOk x.ppo x.pporf = true := by
+      unfold Extensible.checkInclusions at hinc
+      split at hinc
+      · simp at hinc
+      · split at hinc
+        · simp at hinc
+        · rename_i hp
+          simpa using hp
+    have hh := hypsHold (m := x.module) hG hbuiltin hyps
+    have hθ := module_theory_sound (m := x.module) hG hwf hdisj hh
+    have hG₀ := Graph.erase_wf hG hrf
+    have hh₀ := hypsHold (m := x.module) hG₀ hbuiltin hyps₀
+    have hθ₀ := module_theory_sound (m := x.module) hG₀ hwf hdisj₀ hh₀
+    -- what the model says of `e`, as the abstract check needs it
+    have heco : ∀ b, ¬ (G.interp U x.module.perLoc).rel Builtin.Rel.rf.id e b ∧
+        ¬ (G.interp U x.module.perLoc).rel Builtin.Rel.mo.id e b ∧
+        ¬ (G.interp U x.module.perLoc).rel Builtin.Rel.fr.id e b := by
+      intro b
+      simp only [interp_rel, Graph.rel]
+      exact ⟨hrf b, hmo b, hfr b⟩
+    have hadd : Checks (G.interp U x.module.perLoc) Extensible.addable e := by
+      intro p hp
+      simp only [Extensible.addable, List.mem_cons, List.not_mem_nil, or_false] at hp
+      rcases hp with rfl | rfl | rfl <;>
+        simp [Predicate.Holds, interp_pred, Graph.pred, Graph.isKind, hexcl, htb, htc]
+    have hpporf' : ∀ b, ¬ x.pporf.denote (G.interp U x.module.perLoc) e b :=
+      fun b hb => hpporf b ((Extensible.pporfOk_denote hok).mp hb)
+    have hback : x.single = true →
+        ¬ Extensible.backToEvent.denote (G.interp U x.module.perLoc) e e := by
+      intro hs ⟨z, hz₁, hz₂⟩
+      obtain ⟨hlz, hle, hloc'⟩ := plus_eco_loc hG hz₂
+      exact hloc hs z (plus_po hG hz₁) hlz hle hloc'
+    have hpl : ∀ a b c, (G.interp U x.module.perLoc).rel Builtin.Rel.po_loc.id a b →
+        (G.interp U x.module.perLoc).rel Builtin.Rel.po_loc.id b c →
+        (G.interp U x.module.perLoc).rel Builtin.Rel.po_loc.id a c := by
+      intro a b c h₁ h₂
+      simp only [interp_rel, Graph.rel, Graph.poLoc] at h₁ h₂ ⊢
+      exact ⟨hG.po_trans _ _ _ h₁.1 h₂.1, sameLoc_trans h₁.2 h₂.2⟩
+    have hlin' : ∀ a b, ¬ (G.interp U x.module.perLoc).rel Builtin.Rel.lin.id a b := by
+      intro a b
+      simp only [interp_rel, Graph.rel]
+      exact hlin a b
+    obtain ⟨a', ha'⟩ := Extensible.check_sound hinc h hθ (facts hG U _) hpl hh hlin' heco hadd
+      hpporf' hback ha
+    -- the cycle, of the events other than `e`, is one of the graph without `e`
+    obtain ⟨hstable, hNT⟩ := Extensible.checkCycles_automaton h
+    have hsub : ∀ {b c : (G.erase e).E},
+        x.cycles.denote (Label.denote ((G.interp U x.module.perLoc).without e)) b c →
+          x.re.denote ((G.erase e).interp (U.erase e) x.module.perLoc) b c := by
+      intro b c hbc
+      exact Thompson.nfa_sound _ x.re
+        (Guarded.prove_sound hθ₀ hNT b c (Graph.nfa_erase hrf hstable b c hbc))
+    apply h₀ a'
+    split
+    · rename_i hs
+      simp only [hs, ite_true] at ha'
+      exact hsub ha'
+    · rename_i hs
+      simp only [hs, Bool.false_eq_true, ite_false] at ha'
+      obtain ⟨z, h₁, h₂⟩ := ha'
+      exact ⟨z, hsub h₁, Rel.Star.mono (fun _ _ => hsub) _ _ h₂⟩
+  · simp at h
 
 end EndToEnd
 
@@ -458,3 +724,15 @@ info: 'KaterCert.EndToEnd.sound' depends on axioms: [propext, Classical.choice, 
 -/
 #guard_msgs in
 #print axioms KaterCert.EndToEnd.sound
+
+/--
+info: 'KaterCert.EndToEnd.words_sound' depends on axioms: [propext, Classical.choice, Quot.sound]
+-/
+#guard_msgs in
+#print axioms KaterCert.EndToEnd.words_sound
+
+/--
+info: 'KaterCert.EndToEnd.extensible' depends on axioms: [propext, Classical.choice, Quot.sound]
+-/
+#guard_msgs in
+#print axioms KaterCert.EndToEnd.extensible
