@@ -28,6 +28,7 @@
 #include <cassert>
 #include <compare>
 #include <cstdint>
+#include <iterator>
 #include <map>
 #include <memory>
 #include <numeric>
@@ -104,6 +105,9 @@ public:
 
 		/* Returns this state's ID */
 		[[nodiscard]] auto getId() const -> unsigned { return id; }
+
+		/* The states this one stands for (see origins_) */
+		[[nodiscard]] auto getOrigins() const -> const std::vector<unsigned> & { return origins_; }
 
 		/* Whether this state is a starting state of the NFA */
 		[[nodiscard]] auto isStarting() const -> bool { return starting; }
@@ -249,6 +253,10 @@ public:
 		 * states restores it via compressStateIDs()
 		 */
 		unsigned id;
+		/* The states of an earlier automaton this one stands for: what the
+		 * passes since NFA::resetOrigins made of them, for the evidence of
+		 * those passes (Checker::Evidence). Sorted */
+		std::vector<unsigned> origins_;
 		bool starting;
 		bool accepting;
 		TransitionsC transitions;
@@ -416,6 +424,7 @@ public:
 	template <typename F> auto splitState(State *s, F &&fun) -> State *
 	{
 		auto *d = createState();
+		d->origins_ = s->origins_;
 		if (s->isAccepting()) {
 			makeAccepting(d);
 		}
@@ -494,6 +503,22 @@ public:
 		if (src->isStarting()) {
 			makeStarting(dst);
 		}
+	}
+
+	/* Each state stands for itself: the origins of the states from here on
+	 * are of the states the automaton has now */
+	void resetOrigins()
+	{
+		for (auto &s : states())
+			s->origins_ = {s->getId()};
+	}
+
+	/* S stands for ORIGINS too */
+	static void addOrigins(State *s, const std::vector<unsigned> &origins)
+	{
+		std::vector<unsigned> merged;
+		std::ranges::set_union(s->origins_, origins, std::back_inserter(merged));
+		s->origins_ = std::move(merged);
 	}
 
 	auto addTransitionToFresh(State *src, const TransLabel &lab) -> State *

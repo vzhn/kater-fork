@@ -191,6 +191,7 @@ public:
 
 	void registerDisjointPreds(VSet<Predicate::ID> disjoint)
 	{
+		getModule()->registerDisjointDeclaration(disjoint);
 		getModule()->getTheory().registerDisjointPreds(std::move(disjoint));
 	}
 

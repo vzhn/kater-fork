@@ -70,6 +70,17 @@ public:
 	auto getAssumptions() const -> const Assumptions & { return assumptions_; }
 	auto getAssumptions() -> Assumptions & { return assumptions_; }
 
+	/* The predicates the module declares pairwise disjoint ("disjoint"),
+	 * as declared: the theory holds them closed under sub-predicates */
+	void registerDisjointDeclaration(VSet<Predicate::ID> preds)
+	{
+		disjointDeclarations_.push_back(std::move(preds));
+	}
+	[[nodiscard]] auto disjointDeclarations() const -> const std::vector<VSet<Predicate::ID>> &
+	{
+		return disjointDeclarations_;
+	}
+
 	void registerRelation(Relation r, RelationInfo info, bool perLoc = true)
 	{
 		auto &theory = getTheory();
@@ -170,6 +181,7 @@ private:
 	std::vector<std::unique_ptr<ExportStatement>> exports_{};
 	Theory theory_{};
 	Assumptions assumptions_{};
+	std::vector<VSet<Predicate::ID>> disjointDeclarations_{};
 
 	/* Store some commonly used expressions for easy access */
 	LetStatement *ppo_{};

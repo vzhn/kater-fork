@@ -340,9 +340,10 @@ static auto expandSubsetAssumption(NFA &rhs, const SubsetConstraint *assm, const
 		ev.emplace();
 	auto *evidence = ev ? &*ev : nullptr;
 	auto record = [&](const char *name) {
-		if (passes != nullptr)
-			passes->push_back(
-				{.name = name, .evidence = std::move(ev), .result = copy(rhs)});
+		if (passes == nullptr)
+			return;
+		passes->push_back({.name = name, .evidence = std::move(ev), .result = copy(rhs)});
+		rhs.resetOrigins();
 	};
 
 	/* If `any` is used in the assumption, realize it as `any*` */
@@ -464,10 +465,12 @@ void expandAssumption(NFA &rhs, const AssumeStatement *assm, const KatModule &mo
 		if (passes != nullptr)
 			ev.emplace();
 		saturateTransitive(rhs, *charRE->getLabel().getRelation(), ev ? &*ev : nullptr);
-		if (passes != nullptr)
+		if (passes != nullptr) {
 			passes->push_back({.name = "saturateTransitive",
 					   .evidence = std::move(ev),
 					   .result = copy(rhs)});
+			rhs.resetOrigins();
+		}
 		return;
 	}
 	if (const auto *ec = dynamic_cast<const SubsetConstraint *>(cst)) {
@@ -841,24 +844,28 @@ auto Checker::isDFASubLanguageOfNFA(NFA &nfa, const NFA &other, Certificate *cer
 }
 
 auto Checker::decideInclusion(NFA &lhs, const NFA &rhs, const Constraint &cst,
-			      std::optional<Chain> chain) const -> InclusionResult
+			      std::optional<Chain> chain, Certificate *out) const -> InclusionResult
 {
-	if (!certificateSink)
+	if (!certificateSink && out == nullptr)
 		return isDFASubLanguageOfNFA(lhs, rhs);
 	Certificate cert;
 	auto result = isDFASubLanguageOfNFA(lhs, rhs, &cert);
 	cert.chain = std::move(chain);
-	if (result.result)
+	if (result.result && certificateSink)
 		certificateSink(cst, cert);
+	if (out != nullptr)
+		*out = std::move(cert);
 	return result;
 }
 
-/* Records in CHAIN, if any, that pass NAME, without evidence, left NFA */
-static void recordPass(std::optional<Checker::Chain> &chain, const char *name, const NFA &nfa)
+/* Records in CHAIN, if any, that pass NAME, without evidence, left NFA, and
+ * makes NFA's states the origins from here on */
+static void recordPass(std::optional<Checker::Chain> &chain, const char *name, NFA &nfa)
 {
-	if (chain)
-		chain->passes.push_back(
-			{.name = name, .evidence = std::nullopt, .result = copy(nfa)});
+	if (!chain)
+		return;
+	chain->passes.push_back({.name = name, .evidence = std::nullopt, .result = copy(nfa)});
+	nfa.resetOrigins();
 }
 
 void Checker::saturateRHS(NFA &rhs, const NFA &lhs, std::optional<Chain> &chain) const
@@ -876,29 +883,55 @@ void Checker::saturateRHS(NFA &rhs, const NFA &lhs, std::optional<Chain> &chain)
 	recordPass(chain, "prune", rhs);
 }
 
+/* formal: begin checkInclusion, mirrored by formal/KaterCert/Whole.lean */
 auto Checker::checkInclusion(SubsetConstraint &subsetC) const -> InclusionResult
 {
 	auto &module = getModule();
 	auto &theory = module.getTheory();
 
+	/* The evidence of every step, if someone wants it */
+	std::optional<Evidence> ev;
+	if (evidenceSink)
+		ev.emplace(Evidence{.lhs = subsetC.getLHS()->clone(),
+				    .rhs = subsetC.getRHS()->clone(),
+				    .sameEnds = subsetC.sameEnds(),
+				    .rotated = subsetC.rotated()});
+	/* Records NFA, whose states' origins are of the automaton recorded last,
+	 * and makes NFA's states the origins from here on */
+	auto record = [&](Evidence::Stage stage, NFA &nfa) {
+		if (!ev)
+			return;
+		ev->steps.push_back({.stage = stage, .nfa = copy(nfa)});
+		nfa.resetOrigins();
+	};
+
 	expandRfs(subsetC, module);
 
 	auto nfa1 = subsetC.getLHS()->toNFA();
+	nfa1.resetOrigins();
 	normalize(nfa1, theory);
 	removeSimilarTransitions(nfa1);
 	if (subsetC.sameEnds()) {
+		record(Evidence::Stage::Left, nfa1);
 		saturateInitFinalPreds(nfa1, theory);
+		record(Evidence::Stage::LeftInitFinal, nfa1);
 		saturateLoc(nfa1, theory);
+		record(Evidence::Stage::LeftLoc, nfa1);
 	}
 	removeSimilarTransitions(nfa1);
 	auto lhs = nfa1.to_DFA().first;
+	record(Evidence::Stage::LeftFinal, lhs);
 
 	auto nfa2 = subsetC.getRHS()->toNFA();
+	nfa2.resetOrigins();
 	normalize(nfa2, theory);
-	/* How the right automaton comes from NFA2, for the certificate */
+	/* How the right automaton comes from NFA2, for the certificate and the
+	 * evidence */
 	std::optional<Chain> chain;
-	if (certificateSink)
+	if (certificateSink || ev) {
 		chain.emplace(Chain{.start = copy(nfa2), .passes = {}});
+		nfa2.resetOrigins();
+	}
 	saturateRHS(nfa2, lhs, chain);
 	if (subsetC.rotated()) {
 		saturateRotate(nfa2, theory);
@@ -910,8 +943,13 @@ auto Checker::checkInclusion(SubsetConstraint &subsetC) const -> InclusionResult
 	 * doesn't seem to help. The remaining time
 	 * is determined by the LHS anyway, and these
 	 * passes are costly */
-	return decideInclusion(lhs, nfa2, subsetC, std::move(chain));
+	auto result = decideInclusion(lhs, nfa2, subsetC, std::move(chain),
+				      ev ? &ev->certificate : nullptr);
+	if (ev && result.result)
+		evidenceSink(subsetC, *ev);
+	return result;
 }
+/* formal: end checkInclusion */
 
 auto Checker::checkAssertion(Constraint &cst) -> InclusionResult
 {

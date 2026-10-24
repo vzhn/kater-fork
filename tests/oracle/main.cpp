@@ -46,6 +46,14 @@
  *       checkCertificateAndChain's verdict: the input of the checker in
  *       formal/.
  *
+ *   kater-oracle evidence --json DIR FILE...
+ *       Has Kater prove FILE's assertions, and writes to DIR, as JSON, for
+ *       each it proves, every step of the proof: the automata between the
+ *       passes of each inclusion check, with the evidence of the
+ *       saturations, and the final certificate, with the assertion's
+ *       expressions and the module's declarations and assumptions: the
+ *       input of the checker of whole proofs in formal/.
+ *
  *   kater-oracle explain FILE
  *       Prints the automaton of the left-hand side of each assertion of
  *       FILE through the stages of Kater's inclusion check.
@@ -84,6 +92,7 @@
 
 #include "Audit.hpp"
 #include "Certificate.hpp"
+#include "Evidence.hpp"
 #include "Export.hpp"
 #include "Extensible.hpp"
 #include "GenMC.hpp"
@@ -130,6 +139,7 @@ struct Options {
 		   "       kater-oracle certify [-n EVENTS] [-t SECONDS] [--json DIR]\n"
 		   "                            [-v] FILE...\n"
 		   "       kater-oracle export [-n EVENTS] [-t SECONDS] [--json DIR] [-v] FILE...\n"
+		   "       kater-oracle evidence --json DIR [-v] FILE...\n"
 		   "       kater-oracle explain FILE...\n"
 		   "       kater-oracle audit [-n EVENTS] [-t SECONDS] [-v]\n"
 		   "       kater-oracle transforms [-n EVENTS] [-t SECONDS] [--cases N]\n"
@@ -347,6 +357,15 @@ auto main(int argc, char **argv) -> int
 		auto ok = true;
 		for (const auto &f : opts.files)
 			ok &= certifyFile(f, opts.search, opts.verbose, opts.jsonDir);
+		return ok ? 0 : 1;
+	}
+	if (cmd == "evidence") {
+		if (!opts.jsonDir || opts.files.empty())
+			usage();
+		std::filesystem::create_directories(*opts.jsonDir);
+		auto ok = true;
+		for (const auto &f : opts.files)
+			ok &= writeEvidence(f, *opts.jsonDir, opts.verbose);
 		return ok ? 0 : 1;
 	}
 	if (cmd == "explain") {

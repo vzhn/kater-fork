@@ -62,6 +62,14 @@ auto checkCertificateAndChain(const Checker::Certificate &cert) -> std::optional
 auto certifyFile(const std::string &file, const SearchOptions &opts, bool verbose,
 		 const std::optional<std::filesystem::path> &jsonDir = std::nullopt) -> bool;
 
+/* The pieces of the certificates' JSON, for other writers of it: a string, a
+ * letter, an automaton, a chain, as formal/KaterCert/Read.lean reads them */
+auto jsonString(const std::string &s) -> std::string;
+auto jsonBool(bool b) -> const char *;
+void writeLabel(std::ostream &out, const TransLabel &label, const Theory &theory);
+void writeNFA(std::ostream &out, const NFA &nfa, const Theory &theory);
+void writeChain(std::ostream &out, const Checker::Chain &chain, const Theory &theory);
+
 /*
  * Writes CERT, the NTH certificate of FILE, a proof of CLAIM, with its chain,
  * to DIR/<stem>.<nth>.json, and copies of it that differ in one place to

@@ -10,6 +10,7 @@ add_executable(kater-oracle
   Certificate.cpp
   Chain.cpp
   Enumerate.cpp
+  Evidence.cpp
   Execution.cpp
   Export.cpp
   Extensible.cpp
