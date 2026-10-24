@@ -91,15 +91,13 @@ foreach(m ${GENMC_MODELS})
   set_tests_properties(oracle-genmc-${m} PROPERTIES LABELS "oracle;genmc" TIMEOUT 1800)
 endforeach()
 
-# vzhn/kater-fork#27: the acyclicity checks can miss a cycle, depending on
-# the order they explore labels in. This passes while GenMC still accepts
-# the graph; once fixed, it fails: then expect the graph to agree instead
+# vzhn/kater-fork#27: the acyclicity checks missed a cycle, depending on the
+# order they explored labels in. The full check of this graph has to find it
 add_test(NAME oracle-genmc-issue-27
   COMMAND kater-oracle genmc --runner $<TARGET_FILE:kater-oracle-runner>
     --graph ${CMAKE_CURRENT_SOURCE_DIR}/graphs/issue-27.graph
     ${PROJECT_SOURCE_DIR}/kat/imm-genmc.kat)
-set_tests_properties(oracle-genmc-issue-27 PROPERTIES LABELS "oracle;genmc"
-  PASS_REGULAR_EXPRESSION "DISAGREE isConsistent\\(G\\): GenMC says true")
+set_tests_properties(oracle-genmc-issue-27 PROPERTIES LABELS "oracle;genmc")
 
 # vzhn/kater-fork#34: an error whose unless clause is A = 0 (here a double
 # free) gives as its race what an earlier failing clause left, a warning's
