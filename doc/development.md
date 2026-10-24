@@ -83,6 +83,9 @@ Other helpers under `scripts/`:
    changed since the Lean was last reviewed against it (the `check-mirrors`
    test); `--update` records it after the review. Every build runs it with
    `--warn`, which prints the reports as warnings and succeeds.
+ - `check-returns.sh FILE...`: reports the functions of an exported checker
+   that return a value but do not end with a `return` (the `export-issue-51`
+   test runs it on an export).
 
 # Modifying Kater
 

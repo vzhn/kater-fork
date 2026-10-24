@@ -15,4 +15,4 @@ let robs = prop1; hb*;(fr|mo) | hb*;(fr|mo);prop1
 
 let eco = (rf | mo | fr)+
 
-let ar = obs | (mo | fr | rfe | prop2)+ | (mo|rfe|prop1)+ | hb+ | eco*;po?;eco* | robs
+let ar = obs | (mo | fr | rfe | prop2)+ | (mo|rfe|prop1)+ | hb+ | eco;po?;eco* | robs
