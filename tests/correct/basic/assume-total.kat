@@ -1,0 +1,5 @@
+// total r makes r a strict total order, so it is transitive
+relation r
+assume total r
+assert r;r <= r
+assert r+ <= r

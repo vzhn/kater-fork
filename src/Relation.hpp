@@ -144,6 +144,7 @@ public:
 	/* Whether this relation is inversed */
 	[[nodiscard]] constexpr auto isInverse() const -> bool { return inverse; }
 
+	/* formal: begin Relation, mirrored by formal/KaterCert/Label.lean */
 	auto operator<=>(const Relation &) const = default;
 	friend auto operator<<(std::ostream &ostr, const Relation &r) -> std::ostream &;
 
@@ -157,6 +158,7 @@ private:
 
 	static inline ID dispenser{}; // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
 };
+/* formal: end Relation */
 
 struct RelationHasher {
 	auto operator()(const Relation &r) const -> size_t

@@ -79,6 +79,9 @@ Other helpers under `scripts/`:
  - `check-drivers.sh`: exports GenMC consistency checkers from the `kat/` models
    and builds/tests them against a GenMC checkout (`KATER`, `GENMC`, `DRIVERS`).
  - `check-regression.sh`: compares performance between two refs (used on MRs).
+ - `check-mirrors.sh`: reports the C++ that `formal/` mirrors in Lean and that
+   changed since the Lean was last reviewed against it (the `check-mirrors`
+   test); `--update` records it after the review.
 
 # Modifying Kater
 

@@ -1,0 +1,8 @@
+// The saturation of total was meant for cycles, but skipping an r-step is
+// unsound there too: with r = {(a,b)}, x = {(a,b)} and y = {(b,a)}, x;y has a
+// cycle and x;r;y is empty (#19)
+relation r
+relation x
+relation y
+assume total r
+assert ((x;y) & id) <= rot (x;r;y)

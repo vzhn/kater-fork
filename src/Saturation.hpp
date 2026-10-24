@@ -57,11 +57,6 @@ void saturateBuiltin(NFA &nfa, const Relation &rel, NFA sat, const Theory &theor
 void saturateEmpty(NFA &nfa, NFA &&empty);
 
 /*
- * Saturates the NFA given a relation REL. total(REL)
- */
-void saturateTotal(NFA &nfa, const Relation &rel);
-
-/*
  * Saturates by adding domains/codomains for all builtins.
  * (If a dom/codom does not compose with the existing
  * pre/post-checks of a label, the label is removed.)

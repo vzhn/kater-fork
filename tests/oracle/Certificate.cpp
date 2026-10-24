@@ -36,6 +36,7 @@ namespace oracle {
 
 namespace {
 
+/* formal: begin CertificateJSON, mirrored by formal/KaterCert/Read.lean */
 /*
  * Certificates as JSON, for the checker in formal/: a certificate's automata,
  * simulation, pairs and letter inclusions, as Checker::Certificate has them.
@@ -169,6 +170,7 @@ void writeJSON(const std::filesystem::path &path, const std::string &file,
 	}
 	out << "]}\n";
 }
+/* formal: end CertificateJSON */
 
 auto clone(const Checker::Certificate &cert) -> Checker::Certificate
 {
@@ -297,6 +299,7 @@ void writeJSONs(const std::filesystem::path &dir, const std::string &file, unsig
 
 } // namespace
 
+/* formal: begin checkCertificate, mirrored by formal/KaterCert/Checker.lean */
 auto checkCertificate(const Checker::Certificate &cert) -> std::optional<std::string>
 {
 	const auto &lhs = cert.lhs;
@@ -392,6 +395,7 @@ auto checkCertificate(const Checker::Certificate &cert) -> std::optional<std::st
 	}
 	return std::nullopt;
 }
+/* formal: end checkCertificate */
 
 auto certifyFile(const std::string &file, const SearchOptions &opts, bool verbose,
 		 const std::optional<std::filesystem::path> &jsonDir) -> bool

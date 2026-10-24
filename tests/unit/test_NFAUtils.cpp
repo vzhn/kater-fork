@@ -25,6 +25,7 @@
 
 #include "Predicate.hpp"
 #include "Relation.hpp"
+#include "Theory.hpp"
 #include "TransLabel.hpp"
 
 #include <gtest/gtest.h>
@@ -227,6 +228,48 @@ TEST(LanguageOracle, DetectsNondeterminismAndMalformedness)
 	auto *inOther = other.createAccepting();
 	NFA::addTransition(inHost, NFA::Transition(po(), inOther));
 	EXPECT_FALSE(wellFormed(host));
+}
+
+/*
+ * addTransitivePredicateEdges merges two consecutive predicate steps into
+ * one. It used to add a state's shortcuts as soon as it visited the state, so
+ * that a state visited later took them for second steps and removed them
+ * (#20). States are visited in order of creation: 0, then 2, then 4.
+ *
+ *   -->(0) --[]--> (2) --[ACQ&F]--> (16) --[]--> ((18))
+ *                   ^
+ *          (4) --[]-'
+ *
+ * Visiting 4 removed 2's shortcut to 18, and the word [ACQ&F] from 0 with it.
+ */
+TEST(AddTransitivePredicateEdges, KeepsAPathThroughThreePredicates)
+{
+	Theory theory;
+	auto acqF = TransLabel(std::nullopt, {Predicate::createBuiltin(Predicate::BuiltinID::ACQ),
+					      Predicate::createBuiltin(Predicate::BuiltinID::F)});
+	NFA nfa;
+	auto *s0 = nfa.createStarting();
+	auto *s2 = nfa.createState();
+	auto *s4 = nfa.createState();
+	auto *s16 = nfa.createState();
+	auto *s18 = nfa.createAccepting();
+	NFA::addTransition(s0, NFA::Transition(makeLabel(), s2));
+	NFA::addTransition(s2, NFA::Transition(acqF, s16));
+	NFA::addTransition(s16, NFA::Transition(makeLabel(), s18));
+	NFA::addTransition(s4, NFA::Transition(makeLabel(), s2));
+
+	addTransitivePredicateEdges(nfa, theory);
+
+	/* Each accepted word is predicates that merge into [ACQ&F] */
+	auto words = acceptedWordsUpTo(nfa, 3);
+	ASSERT_TRUE(words.has_value());
+	ASSERT_FALSE(words->empty());
+	for (const auto &word : *words) {
+		auto merged = TransLabel(std::nullopt);
+		for (const auto &label : word)
+			EXPECT_TRUE(merged.merge(label)) << printWord(word);
+		EXPECT_EQ(merged, acqF) << printWord(word);
+	}
 }
 
 /******************************************************************************

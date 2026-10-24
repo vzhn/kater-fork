@@ -1,0 +1,5 @@
+// data <= [EXCL] is saturated as data <= id, with a copy of data at every
+// state of the right-hand side; compactEdges then looped forever on the cycle
+// of predicates the copies made, removing steps and adding them back (#22)
+assume data = [EXCL]
+assert rmw = po
