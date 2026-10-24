@@ -1,0 +1,9 @@
+// An inclusion of nothing in a view, exported and as the unless clause of an
+// error: the check of A <= VIEW, for an A that accepts nothing, printed a
+// visit function without a return (#51)
+let ppo = po
+view hb = (po | [ATOM];rf;[ATOM] | tc | tj | lin)+
+export coherence hb
+export acyclic (po | rf | mo | fr)
+export 0 <= hb
+export error VE_AccessNonMalloc unless 0 <= hb

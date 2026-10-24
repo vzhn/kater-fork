@@ -18,7 +18,9 @@ and evidence a checker proved sound in Lean checks (see
 [Evidence of the saturations](#evidence-of-the-saturations)), and whole
 proofs: a checker proved sound in Lean checks every step of Kater's proof of
 an assertion, and the assertion then holds on every execution graph of a
-model in Lean (see [Whole proofs](#whole-proofs)).
+model in Lean (see [Whole proofs](#whole-proofs)); and of the claims an
+export rests on, among them the extensibility checks, whose constraints are
+then extensible in the model (see [What Lean checks](#what-lean-checks)).
 
 ## The reference semantics
 
@@ -124,8 +126,9 @@ Conventions:
 
 Kater's verdict on each assertion next to a counterexample search. A
 counterexample to an assertion Kater proved is reported as `UNSOUND`, with
-the graph. With `--refutable`, an assertion without a counterexample is an
-error: for files of false claims Kater has to reject.
+the graph. With `--refutable`, an assertion Kater rejects without a
+counterexample is an error: for files of false claims, where a true claim
+Kater cannot prove would belong in `tests/incomplete`.
 
     kater-oracle audit [-n EVENTS]
 
@@ -202,7 +205,7 @@ as `.kat` files.
 
 The ctests labeled `oracle` (built when Z3 is found) run the audit, the
 transformation contracts, the correct suite against counterexamples and with
-certificates, the soundness regressions with `--refutable`, the export check
+certificates, every false claim of `tests/wrong` with `--refutable`, the export check
 and the extensibility of every `kat/*-genmc.kat` model, and the graphs of
 `tests/oracle/extensible` that refute it, for IMM, LKMM and the two models
 there; when `lake` is found too,
@@ -670,6 +673,35 @@ shapes of assumptions, the builtins, the theory's inclusions), and the
 regions are marked as above. Writing it found three bugs in the theory,
 now fixed (items 19–21 of [Findings](#findings)).
 
+**The exports.** `kater-oracle evidence --export` has Kater export a model
+and writes the evidence of every claim the export rests on: of each
+inclusion the Checker proves on the way, in the format of the assertions',
+and of each extensibility check, whose words Lean builds again from the
+constraint (see [What Lean checks](#what-lean-checks), with the theorem it
+proves of them):
+
+    Release/kater-oracle evidence --export --json /tmp/export-evidence kat/*-genmc.kat
+    cd formal && lake exe kater-chain-check /tmp/export-evidence
+
+Of the six models of `kat/*-genmc.kat`, the checker accepts the evidence of
+the 54 inclusions the Checker proves (the export requirements, the closure
+checks of incremental views, and the `unless` clauses of RC11's and IMM's
+`psc`, proved under their temporary assumption, which the evidence lists
+with the module's), and of the 8 extensibility checks that pass, with 13
+words automata: 67 certificates, the starts of 67 chains, 202 saturations
+(100 `saturateBuiltin`, 100 `saturateTransitive`, 2 `saturateID`), 270
+`normalize` and 67 `prune` passes, in about four minutes, most of it
+LKMM's coherence, whose chains of `pporf ; any*` reach 2522 states (the
+ctest `formal-export-evidence-check`, labeled `oracle` and `formal`). An
+inclusion claim is an assertion to `EndToEnd.sound`: it holds where the
+module's assumptions, and its temporary ones, hold. The claims needed four
+facts that Kater's theory took in for the extensibility check (thread
+creates and finishes release, starts and joins acquire: `TC <= REL`,
+`TE <= REL`, `TB <= ACQ`, `TJ <= ACQ`, and all four `ATOM`), which Lean's
+theory lacked: the C++ of `BuiltinPredicates` had been recorded as
+reviewed without them. Lean has them now, and the model the orderings that
+make them true.
+
 ## The exported checkers
 
 `kater-oracle export` checks what the exporter proves and rewrites; the code
@@ -1112,6 +1144,143 @@ of `tests/oracle/extensible`, IMM and LKMM at their graphs, and
 `oracle-extensible-maximal-refuted-imm-join` the one where IMM can add the
 event, but not maximally.
 
+### What Lean checks
+
+The certificates of the extensibility checks are checked in Lean, but not
+what they are certificates of: the words automaton, and how it came from
+the constraint. The checker of whole proofs checks those too, and the
+argument above, from the cycles of the constraint's automaton to the words,
+is a theorem (`formal/KaterCert/Extensible.lean`, `Cycles.lean`,
+`Erase.lean`).
+
+`kater-oracle evidence --export` has Kater export a model and writes the
+evidence of every claim the export rests on (`tests/oracle/Evidence.cpp`):
+of each inclusion the Checker proves on the way, as for assertions (see
+[Whole proofs](#whole-proofs)), with the temporary assumptions of an
+`unless` clause among the module's; and of each extensibility check that
+passes (`Checker::ExtensibilityEvidence`): the constraint's expression (for
+coherence, the view composed with `(rf | mo | fr)+`), its automaton `N` as
+`exitsToCheck` reads its cycles (normalized, without the steps within
+`lin`), the module's `ppo` and `pporf`, and for each words automaton that
+`decideExitWords` decides, the automaton `toEndOfWord` built, the left
+automaton of the final check, the chain of the right-hand side and the
+certificate. `kater-chain-check` checks it:
+
+- **The words are within the right-hand side.** Each words automaton is
+  within the left automaton of its final check, the chain of
+  `pporf ; any*` (or `pporf ; any* | po+ ; (rf | mo | fr)+`) checks as an
+  assertion's right-hand side does, from Lean's automaton of the
+  expression on, and so does the certificate; `pporf` has the
+  alternatives of `(ppo | rfe | tc | tj | lin)+`. `EndToEnd.words_sound`
+  proves that the words then denote no more than the right-hand side, on
+  every graph where the module's declarations and assumptions hold.
+- **The words are those of the constraint.** `N` takes in Lean's automaton
+  of the constraint without the letters within `lin`, denotes no more than
+  the constraint, and accepts no word of predicates alone
+  (`acceptsPredicatesOnly`). Lean builds the words again from `N`: for each
+  state a relation's letter enters, a search finds the configurations
+  (state, the predicates read of the event, whether the cycle went on into
+  the next word) that the predicates' letters and the ends of words reach,
+  and a verified check confirms that they are closed under them; the steps
+  out of those are the exits, and Lean keeps the ones the check asks about,
+  with its own `isEco`, `canSkip` and theory. Its words automaton has to be
+  within Kater's.
+- **The argument.** A cycle of `N` is a closed run over events: letters
+  between events, and ends of words, where the next word starts at the same
+  event. If `e` has no step within `rf`, `mo` or `fr` out of it, is
+  `addable`, and the words relate it to nothing (for coherence: the words
+  of the exits into the next word do not relate it to itself), then a
+  shortest closed run does not visit `e` (`avoid`, in `Cycles.lean`). At a visit, the
+  exit is not an `eco` step and checks nothing `addable` rules out; it is
+  not one the check asks about, whose words would relate `e` to the end of
+  its word; so it can be skipped after the step the run entered `e` by, and
+  one letter of `N` in place of that step, the predicates of `e` and the
+  exit gives a shorter closed run (`shorten`).
+- **The graph without `e`** (`Graph.erase`) is a graph of the model, if
+  nothing reads from `e`, and each builtin relation but `unprotected`, and
+  each builtin predicate but `HPPROT`, `NOTHPPROT` and `HEAP`, which depend
+  on the protections, allocations and retires around an event, relates
+  its other events at least as the graph with `e` does: the positional
+  relations (`po-imm`, `mo-imm`, `fr-imm`, `last_*`, ...) only gain pairs.
+  The check makes sure the letters of `N` are of those; so a run of `N`
+  that avoids `e` is one of the graph without `e`, and so is the cycle of
+  the constraint it reads.
+
+`lake build` proves the end-to-end theorem
+(`formal/KaterCert/EndToEnd.lean`):
+
+```lean
+theorem extensible {x : ReadChain.Extensibility} (h : checkExtensibility x = .ok ())
+    (G : Graph) (hG : G.WF) (U : Graph.User G.E) (e : G.E)
+    (hdisj : DisjointHold U x.module) (hyps : AssumptionsHold U x.module)
+    (hdisj₀ : DisjointHold (U.erase e) x.module) (hyps₀ : AssumptionsHold (U.erase e) x.module)
+    (hlin : ∀ a b, ¬ G.lin a b)
+    (hrf : ∀ b, ¬ G.rf e b) (hmo : ∀ b, ¬ G.mo e b) (hfr : ∀ b, ¬ G.fr e b)
+    (hexcl : ¬ G.excl e) (htb : G.kind e ≠ .TB) (htc : G.kind e ≠ .TC)
+    (hpporf : ∀ b, ¬ (Extensible.pporfOf x.ppo).denote (G.interp U x.module.perLoc) e b)
+    (hloc : x.single = true → ∀ z, G.po e z → G.located z → G.located e → G.loc z ≠ G.loc e)
+    (h₀ : x.Holds ((G.erase e).interp (U.erase e) x.module.perLoc)) :
+    x.Holds (G.interp U x.module.perLoc)
+```
+
+If Lean accepts the evidence of the extensibility check of an export's
+constraint, then for every graph `G` of the model without `lin`, and every
+event `e` of it that nothing reads from, that is not `mo`-before or
+`fr`-before anything, not part of an RMW, nor a thread start or create,
+that nothing follows in `pporf`, and that, for coherence, no event
+`po`-after it accesses the location of: if the constraint holds of `G`
+without `e`, it holds of `G`, where the module's declarations and
+assumptions hold on both graphs, and its own relations and predicates mean
+of the events other than `e` the same in both. That is the property above,
+for one constraint, with the graph GenMC adds `e` to as `G` without `e`,
+and `e` added maximally. The proof has no `sorry` and uses only Lean's
+standard axioms.
+
+**How far Lean checks the words.** Lean takes neither the words automaton
+nor how Kater built it on trust: it builds the words again from the
+constraint's automaton, which it checks against the constraint, and the
+reasons the check gives for leaving an exit out (`isEco`, `addable`,
+`canSkip`) are lemmas, wherever the theory is sound and `po` and `po-loc`
+are transitive. Kater's search is mirrored where it
+matters for agreement, not for soundness: Lean's words have to be within
+Kater's, so where Lean's search finds more (a predicate set Kater caps, a
+combination Kater's `composes` rules out and Lean's theory does not), the
+check rejects. What it does not formalize is GenMC, which stays trusted:
+
+- that the graph GenMC adds `e` to is `G` without `e`, and that `e`, added
+  maximally, is what the theorem asks: a read reads the last write in `mo`
+  (and so is `fr`-before nothing), a write is last in `mo`, nothing reads
+  from it, it is no RMW's, thread start or create, and nothing follows it
+  in `pporf`, which GenMC's order of addition gives the event it adds and
+  the maximal addition keeps (above);
+- that the graphs GenMC explores have no `lin`, which it adds to complete
+  graphs only, for Relinche;
+- that the module's own relations and predicates mean in the graph without
+  `e` what they do of its events in `G`: GenMC computes some (LKMM's
+  `prop-int`), which need not, but none of the constraints of the eight
+  checks reads one;
+- that consistency is what the constraints say, which the exported
+  checkers are compared against (see [The exported checkers](#the-exported-checkers));
+- and, as for assertions, the model, the C++ that writes the evidence and
+  the Lean that reads it, and Lean's kernel and compiler.
+
+On the six models, the checker accepts the 8 extensibility checks that
+pass (the coherence of all but IMM, which is `nonextensible`, and the
+acyclicity of SC's, TSO's and RC11's exports), and their 13 words
+automata; for each, Lean's words are within Kater's, which takes it under
+a second but for LKMM (see [Whole proofs](#whole-proofs)). In a one-off
+experiment, of 40 copies of the evidence of five checks that each differ
+in one place (a transition of the constraint's automaton dropped, an `any`
+step added to it, an alternative of the constraint dropped, an exit's
+checks narrowed or a step out of the words' start dropped, another
+`pporf`, right-hand side or `single`), the checker rejected 32, each at the
+step the difference breaks. The 8 it accepted are still proofs: a step out
+of the start that a wider one covers (`[TJ] ; po` where `[] ; po` leads to
+the same state, or `[ACQ & TJ] ; po`, as `TJ` is within `ACQ`), and a
+constraint without an alternative that the others imply (`lin`, which the
+check drops, and RC11's `SC ; po ; SC` in `psc`, within
+`[SC] ; fhb? ; scb ; hbf? ; [SC]`).
+
 ## Findings
 
 All fixed, with a regression test each. Most were found by the oracle, the
@@ -1333,12 +1502,26 @@ Kater used to prove; the oracle refutes each (`ctest -L oracle`).
     `tests/oracle/genmc/graphs/issue-34.graph`, where a WW race left its race
     to a double free.
 
+23. **The check of `0 <= VIEW` did not return** ("GenMCPrinter: the check of
+    A <= VIEW returns when A accepts nothing"; #51). For an inclusion
+    `A <= VIEW` whose left-hand automaton accepts nothing, such as
+    `export 0 <= hb` or the clause of `export error ... unless 0 <= hb`,
+    `printSubset` stopped printing the `visit` function after it had set up
+    its arrays, so control fell off its end: undefined behaviour, which
+    GenMC's build warns about (`-Wreturn-type`). It now returns true, as the
+    check of any other inclusion does when its left-hand side accepts
+    nothing. None of the models has such a clause; their exported checkers
+    are unchanged. Found while fixing item 22; the ctest `export-issue-51`
+    exports `tests/export/empty-in-view-genmc.kat` and checks that every
+    function of its checker that returns a value ends with a `return`
+    (`scripts/check-returns.sh`).
+
 Items 1–4, 7, 8, 11, 13 and 19 made Kater prove false claims, 12, 14 and 20
 could have, 15 made it run forever, 16 made an exported checker accept
 graphs its model forbids, 18 and 21 let Kater export models GenMC cannot
-explore, and 22 made exported checkers hand GenMC a stale label to report;
-the others crashed it, read memory it should not, or produced code GenMC
-rejects.
+explore, 22 made exported checkers hand GenMC a stale label to report, and
+23 printed a check with no result; the others crashed it, read memory it
+should not, or produced code GenMC rejects.
 Under the sanitizers the whole suite, the unit tests, 4000 fuzzed files and the
 export of every `kat/*-genmc.kat` model now run without a report, and the
 exported checkers are the same as without them.
@@ -1365,6 +1548,9 @@ After the fixes:
   certificates, before #33 was fixed (7 of the claims the extensibility
   checks, which were vacuous); since, 923 claims, rewrites and letter
   inclusions up to 3 events, with 13 extensibility checks, none vacuous;
+  and the evidence of every claim the exports rest on checks in Lean, the
+  8 extensibility checks that pass among them, whose constraints are then
+  extensible in the model (see [What Lean checks](#what-lean-checks));
 - every model is extensible on every graph up to 3 events, and maximally
   so for the events Kater's extensibility check is about (see
   [Extensibility](#extensibility));
@@ -1378,13 +1564,14 @@ After the fixes:
 
 ## Open issues
 
-- **Incompleteness.** `tests/wrong/equivalence/eq-ra1-ra2-no-universe.kat`
-  has no counterexample with up to 5 events: it is probably true, but outside
-  what Kater can prove. The four files of `tests/wrong/compilation` have none
-  with up to 6 events either; two of them state assumptions Kater ignores
-  (`po?;[R] <= [F];po;[R]` even rules out reads), and the two compilations of
-  C11 to POWER either need larger graphs or are true once the right-hand
-  sides exclude the uninteresting counterexamples they do.
+- **Incompleteness.** `tests/incomplete` holds true claims Kater cannot
+  prove; `checkall.sh` expects Kater to reject them, so a proof shows up.
+  `eq-ra1-ra2-cycles.kat` is the equivalence of two definitions of
+  release/acquire as `ra1 & id <= ra2`: an `hb1` cycle crosses threads only by
+  `rfe`, and within a thread collapses to `[R];po` or `po;[W]`, which `hb2`
+  has. The paper wanted this as `ra ∩ id = ra2 ∩ id` and settled for
+  `sameEnds`, which needs every event to be a read, a write or a fence (§3.3);
+  Kater's `& id` is not complete either (vzhn/kater-fork#23).
 - **Inverses of recursive relations.** `x^-1` for a `let rec x` flips the
   definitions in place, and Kater's automaton construction does not recognize
   the flipped self-reference `x^-1` as the recursion: it treats it as an
@@ -1414,7 +1601,9 @@ After the fixes:
   to 3 events, 4760 of IMM's 10915 events into a hole, and 45348 of LKMM's
   198645). It takes a relation GenMC computes for one that relates two
   events the same way with or without the event GenMC adds, which LKMM's
-  `prop-int` need not.
+  `prop-int` need not. Lean's theorem of the check
+  ([What Lean checks](#what-lean-checks)) has both as hypotheses, with
+  what else it takes of GenMC's addition of the event.
 - **The oracle's semantics of automata overflows Z3**
   ([#44](https://github.com/vzhn/kater-fork/issues/44)): `NFASemantics`
   nests its formulas once per round, states times events, and on automata
@@ -1422,11 +1611,12 @@ After the fixes:
   exception `kater-oracle` did not catch. `certify` now catches it, and
   checks a pass of a chain without evidence only when its automata have at
   most 24 states per event of the bound.
-- **The check of `0 <= VIEW` does not return**
-  ([#51](https://github.com/vzhn/kater-fork/issues/51)): for an inclusion
-  `A <= VIEW` whose left-hand automaton accepts nothing, such as
-  `export 0 <= hb`, the `visit` function `printSubset` prints ends without a
-  `return`. None of the models has such a clause.
+- **Exported inclusions and equalities do not compile**
+  ([#58](https://github.com/vzhn/kater-fork/issues/58)): for a model that
+  exports `A <= B` or `A = B` as a consistency constraint, `isConsistent(g)`
+  calls a check over the whole graph, which only acyclicity constraints
+  have, and the `visit` function that joins an equality's two directions is
+  printed outside the class. None of the models has such an export.
 - **Not checked by the oracle**: of the printed code, the revisits of the
   dependency-tracking models (see
   [The exported checkers](#the-exported-checkers)).
@@ -1438,11 +1628,12 @@ After the fixes:
    evidence of the saturations of the right-hand side, and a checker proved
    sound in Lean checks both (see [The checker in Lean](#the-checker-in-lean)
    and [Evidence of the saturations](#evidence-of-the-saturations)); the
-   evidence of whole proofs, of assertions, is checked too (see
-   [Whole proofs](#whole-proofs)). What remains is the other claims Kater
-   proves: the export's (the extensibility check, the claims GenMC's
-   checkers rest on), whose certificates have chains but not the evidence
-   of a whole proof.
+   evidence of whole proofs, of assertions and of the claims an export rests
+   on, is checked too (see [Whole proofs](#whole-proofs) and
+   [What Lean checks](#what-lean-checks)). What remains of the export is
+   outside Kater's proofs: GenMC's addition of an event, which the theorem
+   of extensibility takes as hypotheses, and the printed checkers, which
+   the oracle runs inside GenMC (see [The exported checkers](#the-exported-checkers)).
 2. **Formalization.** The model above is the specification: graphs and their
    axioms, the meaning of the builtins, of expressions and of automata. It
    is in Lean now (`formal/KaterCert/Model.lean`), with the axioms the facts

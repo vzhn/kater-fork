@@ -169,15 +169,15 @@ theorem find_base {d : Decls} (hwf : d.wf = true) {b v : Int} (hmem : (b, v) ∈
 
 theorem subPred_sound (hG : G.WF) {a b : Builtin.Pred} (h : subPred a b = true) {e : G.E}
     (ha : G.pred a e) : G.pred b e := by
-  have hr := hG.order_rel e
-  have hq := hG.order_acq e
+  have hrel := hG.order_rel e
+  have hacq := hG.order_acq e
   cases a <;> cases b <;> (try exact absurd h (by decide)) <;>
     simp only [Graph.pred, Graph.atLeastAcq, Graph.atLeastRel, Graph.isKind, Graph.dependable,
       Graph.hasLocation, Graph.located] at ha ⊢ <;>
     first
     | (simp [ha]; done)
     | (rcases ha with h | h | h <;> simp [h])
-    | simp_all
+    | (simp [ha] at hrel hacq; simp [hrel, hacq])
 
 /-- Kater's disjoint sets of builtin predicates are pairwise disjoint. -/
 theorem disjoint_builtin (hG : G.WF) {D : List Builtin.Pred} (hD : D ∈ disjointSets)

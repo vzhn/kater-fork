@@ -1595,8 +1595,11 @@ void GenMCPrinter::printSubset(const SubsetConstraint *subCst, std::string prefi
 		}
 
 		if (!shouldVisitRHS) {
-			if (std::ranges::empty(nfaLHS.accepting()))
+			/* An LHS that accepts nothing is within the view */
+			if (std::ranges::empty(nfaLHS.accepting())) {
+				cpp.line("return true;");
 				return;
+			}
 
 			cpp.line("auto &v = lab->view({});", *rhsViewIdx).blank();
 

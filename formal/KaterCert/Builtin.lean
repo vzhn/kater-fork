@@ -80,7 +80,9 @@ def Rel.ofId (i : Int) : Option Rel := Rel.all.find? (·.id == i)
 
 /-! ## Predicates -/
 
-/-- Kater's sub-predicates (`subsetPredSets_`): `p` implies `q`. -/
+/-- Kater's sub-predicates (`subsetPredSets_`): `p` implies `q`. GenMC's
+thread events synchronize: a create and a finish release, a start and a
+join acquire. -/
 def subPred : Pred → Pred → Bool
   | .RLX, .ATOM | .ACQ, .ATOM | .REL, .ATOM => true
   | .SC, .ATOM | .SC, .ACQ | .SC, .REL => true

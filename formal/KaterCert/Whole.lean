@@ -256,10 +256,13 @@ def incorporate (d : Decls) : Constraint → Decls
 
 /-- A module's declarations, and what Kater's theory took in of its
 assumptions. -/
-def declsOf (ev : ReadChain.Evidence) : Decls :=
-  ev.assumptions.foldl (fun d a => match a.constraint with
+def _root_.KaterCert.ReadChain.Module.decls (m : ReadChain.Module) : Decls :=
+  m.assumptions.foldl (fun d a => match a.constraint with
     | .ok c => if a.saturated then d else incorporate d c
-    | .error _ => d) { disjoint := ev.disjoint, perLoc := ev.perLoc }
+    | .error _ => d) { disjoint := m.disjoint, perLoc := m.perLoc }
+
+/-- The declarations of an assertion's module. -/
+def declsOf (ev : ReadChain.Evidence) : Decls := ev.module.decls
 
 /-! ## The chain -/
 

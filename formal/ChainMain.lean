@@ -3,8 +3,10 @@ import KaterCert.EndToEnd
 /-!
 `kater-chain-check [-v] PATH...`: checks the evidence of whole proofs in PATH
 (files, or directories of `.json` files) as `kater-oracle evidence --json`
-writes it (`EndToEnd.check`), printing why it rejects each assertion it
-rejects, and with `-v` the time each takes. Exits with 1 if a file does not
+writes it (`EndToEnd.check`), and that of the extensibility checks of
+exports, as `kater-oracle evidence --export --json` writes it
+(`EndToEnd.checkExtensibility`), printing why it rejects each it rejects,
+and with `-v` the time each takes. Exits with 1 if a file does not
 read or an assertion is rejected. `--profile FILE` and `--profile-step FILE
 K` time the searches of the checks, for triage.
 -/
@@ -97,10 +99,33 @@ def timeIt (name : String) (θ : Theory) (X Y : NFA Label) (cycle : Bool) (limit
       let r := Guarded.statsSearch θ X Y cycle (limit / 4)
       IO.println s!"  gave up: {r}"
 
+/-- Times the right side of an inclusion: the start of its chain against
+Lean's automaton of the right-hand side, and each pass. -/
+def profileRight (θ : Theory) (hyps : List Constraint) (rhs : Exp) (ch : Chain)
+    (origins : List (Array (List Nat))) (limit : Nat) : IO Unit := do
+  timeIt "right" θ ch.start (Thompson.nfa rhs) false limit
+  let mut prev := ch.start
+  for (p, o) in Whole.withOrigins ch.passes origins.tail do
+    match p.evidence with
+    | some ev =>
+      let t0 ← IO.monoMsNow
+      let ok := saturates θ hyps prev p.result ev
+      let t1 ← IO.monoMsNow
+      IO.println s!"{p.name} (saturation): {prev.size} -> {p.result.size} {t1 - t0} ms ok {ok}"
+    | none =>
+      if p.name == "normalize" || p.name == "prune" then
+        timeIt p.name θ p.result prev false limit (some o)
+    prev := p.result
+
 def profile (f : System.FilePath) (limit : Nat) : IO Unit := do
-  match ReadChain.evidence (← IO.FS.readFile f) with
+  match ReadChain.file (← IO.FS.readFile f) with
   | .error e => IO.println e
-  | .ok ev =>
+  | .ok (.extensibility x) =>
+    let θ := Theory.ofDecls x.module.decls
+    for w in x.words do
+      timeIt "words" θ w.words.nfa w.final.nfa false limit (some w.final.origins)
+      profileRight θ (Whole.hypsOf x.module.assumptions) w.rhs w.chain w.chainOrigins limit
+  | .ok (.assertion ev) =>
     let θ := Theory.ofDecls (Whole.declsOf ev)
     for inc in ev.inclusions do
       let lhs := Exp.expandRfs inc.lhs inc.rhs
@@ -143,23 +168,28 @@ def main (args : List String) : IO UInt32 := do
     IO.eprintln "usage: kater-chain-check [-v] PATH..."
     return 2
   let mut accepted := 0
+  let mut extensible := 0
   let mut rejected := 0
   let mut unread := 0
   for f in ← files paths do
-    match ReadChain.evidence (← IO.FS.readFile f) with
+    match ReadChain.file (← IO.FS.readFile f) with
     | .error e =>
       IO.println s!"{f}: cannot read: {e}"
       unread := unread + 1
-    | .ok ev =>
+    | .ok file =>
       let t0 ← IO.monoMsNow
-      let r := EndToEnd.check ev
+      let (r, what) := match file with
+        | .assertion ev => (EndToEnd.check ev, ev.assertion)
+        | .extensibility x => (EndToEnd.checkExtensibility x, s!"extensibility of {x.claim}")
       let t1 ← IO.monoMsNow
       match r with
       | .ok () =>
-        accepted := accepted + 1
-        if verbose then IO.println s!"{f}: accepted ({t1 - t0} ms): {ev.assertion}"
+        match file with
+        | .assertion _ => accepted := accepted + 1
+        | .extensibility _ => extensible := extensible + 1
+        if verbose then IO.println s!"{f}: accepted ({t1 - t0} ms): {what}"
       | .error why =>
         rejected := rejected + 1
         IO.println s!"{f}: rejected ({t1 - t0} ms): {why}"
-  IO.println s!"{accepted} assertions accepted, {rejected} rejected, {unread} unread"
+  IO.println s!"{accepted} assertions accepted, {extensible} extensibility checks accepted, {rejected} rejected, {unread} unread"
   return if rejected + unread = 0 then 0 else 1

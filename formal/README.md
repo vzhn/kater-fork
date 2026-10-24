@@ -24,6 +24,15 @@ checker accepts the evidence of an assertion, the assertion holds on every
 execution graph, in a model of them, where the module's declarations and
 assumptions hold.
 
+The claims an export rests on have evidence too: the inclusions the Checker
+proves on the way, as for assertions, and each extensibility check of an
+acyclicity or coherence constraint (`Checker::ExtensibilityEvidence`). The
+checker checks the inclusions of its words, builds the words again from
+the constraint's automaton, which it checks against the constraint, and
+requires them within Kater's; the project proves that the constraint of an
+accepted check is extensible: on every graph of the model, adding an event
+GenMC may add maximally keeps it if the graph without the event had it.
+
 | File | What it has |
 |------|-------------|
 | `KaterCert/Rel.lean` | relations on events |
@@ -48,10 +57,13 @@ assumptions hold.
 | `KaterCert/Model.lean` | the model: execution graphs, their axioms, and what the builtins mean in them |
 | `KaterCert/ModelSound.lean` | the theory is sound, and Kater's builtin assumptions hold, on every graph |
 | `KaterCert/Hypotheses.lean` | which assumption gives a saturation its hypothesis, and that the hypothesis then holds |
-| `KaterCert/ReadChain.lean` | reads the evidence of whole proofs written as JSON |
+| `KaterCert/ReadChain.lean` | reads the evidence of whole proofs, and of extensibility checks, written as JSON |
 | `KaterCert/Whole.lean` | `checkAssertion`: every step of a proof, and `checkAssertion_sound` |
-| `KaterCert/EndToEnd.lean` | `EndToEnd.sound`: the assertion of an accepted proof holds on every graph |
-| `ChainMain.lean` | `kater-chain-check`: reads and checks the evidence of whole proofs |
+| `KaterCert/Extensible.lean` | an extensibility check: the inclusions of its words (`checkInclusions`), and Lean's own words, from the constraint's automaton (`checkCycles`) |
+| `KaterCert/Cycles.lean` | runs of an automaton over events, and `check_sound`: a cycle through an event GenMC adds does without it, if the words relate it to nothing |
+| `KaterCert/Erase.lean` | a graph without one of its events, and the letters that mean the same there |
+| `KaterCert/EndToEnd.lean` | `EndToEnd.sound`: the assertion of an accepted proof holds on every graph; `EndToEnd.extensible`: the constraint of an accepted extensibility check is extensible |
+| `ChainMain.lean` | `kater-chain-check`: reads and checks the evidence of whole proofs and of extensibility checks |
 
 `lake build` checks the proofs and builds `kater-cert-check` and
 `kater-chain-check`. To check the certificates and the whole proofs of
@@ -64,13 +76,19 @@ Kater's test suite, from the repository's root, with a build configured with
     Release/kater-oracle evidence --json /tmp/evidence tests/correct/*/*.kat
     cd formal && lake exe kater-chain-check /tmp/evidence
 
+and the evidence of the claims the exports of the GenMC models rest on:
+
+    Release/kater-oracle evidence --export --json /tmp/export-evidence kat/*-genmc.kat
+    cd formal && lake exe kater-chain-check /tmp/export-evidence
+
 `ctest -L formal` does the same.
 
 The Lean mirrors parts of Kater's C++: its letters, its certificates,
 `checkCertificate`, the evidence of the saturations, the chain and their
 checks, the evidence of whole proofs and the passes it comes from, the
-builtins and the theory's inclusions, the assumptions the theory takes in,
-the oracle's meaning of letters, expressions and automata, and the JSON
+extensibility check (its evidence, `exitsToCheck`, `decideExtensibility`),
+the builtins and the theory's inclusions, the assumptions the theory takes
+in, the oracle's meaning of letters, expressions and automata, and the JSON
 writers. Those parts are marked in the C++ with `formal: begin` and
 `formal: end` comments, and `mirrors.txt` records a hash of each as of the
 last review of the Lean against it. `scripts/check-mirrors.sh` reports the
@@ -79,5 +97,5 @@ Kater warns about them; after the review, `scripts/check-mirrors.sh
 --update` records them as they are.
 
 See `doc/verification.md` (The checker in Lean, Evidence of the
-saturations, Whole proofs) for the models, what the proofs need, and what
-remains trusted.
+saturations, Whole proofs, and What Lean checks of Extensibility) for the
+models, what the proofs need, and what remains trusted.

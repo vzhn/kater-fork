@@ -23,6 +23,14 @@ defines is a reference to it (`ref`), and must have no checks and not be
 inverted, as Kater's `CharRE::expandOnNFA` ignores them. `and`, `minus` and
 `rot` do not read: `toNFA` rejects them.
 
+The evidence of an extensibility check, as `kater-oracle evidence --export`
+writes it, has the expression of the constraint, whether a cycle is one of
+its words, the module's `ppo` and `pporf`, the automaton of the constraint
+the check takes the exits from (`cycles`), and an inclusion for each words
+automaton: as above, but with no left-hand side's expression, and the steps
+of its left side the words automaton (`words`) and the automaton of the
+final check (`leftFinal`).
+
 What is read here is trusted to be what Kater wrote: the proofs are about
 what this produces.
 
@@ -118,13 +126,22 @@ structure Inclusion where
   cert : Certificate
 
 /-- An assumption of the module, as declared. `saturated` if the theory did
-not take it in; its constraint does not read if it is of a form the checkers
-do not support. -/
+not take it in; `temporary` if the exporter made it for a while (an `unless`
+clause); its constraint does not read if it is of a form the checkers do not
+support. -/
 structure Assumption where
   text : String
   builtin : Bool
   saturated : Bool
+  temporary : Bool := false
   constraint : Except String Constraint
+
+/-- What the evidence says of a module: its `disjoint` declarations, the
+per-location variants of its relations, and its assumptions. -/
+structure Module where
+  disjoint : List (List Int)
+  perLoc : List (Int × Int)
+  assumptions : Array Assumption
 
 /-- The evidence of an assertion. -/
 structure Evidence where
@@ -135,6 +152,38 @@ structure Evidence where
   perLoc : List (Int × Int)
   assumptions : Array Assumption
   inclusions : List Inclusion
+
+def Evidence.module (ev : Evidence) : Module := ⟨ev.disjoint, ev.perLoc, ev.assumptions⟩
+
+/-- The evidence of an inclusion `decideExitWords` proved: whether its words
+go back to the event, its right-hand side, the words automaton Kater built
+(`toEndOfWord`), with the states of `cycles` its states copy as origins, the
+automaton of the final check, with origins in the words, the chain of passes
+of the right side with the origins of its automata, and the certificate. -/
+structure WordsInclusion where
+  backToEvent : Bool
+  rhs : Exp
+  words : LeftStep
+  final : LeftStep
+  chain : Chain
+  chainOrigins : List (Array (List Nat))
+  cert : Certificate
+
+/-- The evidence of an extensibility check (`Checker::ExtensibilityEvidence`):
+the claim, the expression whose cycles it is about (`single`: of one word),
+the module's `ppo` and the prefix relation `pporf` made of it, the automaton
+of the expression the exits are taken from, the inclusions of its words,
+and the module. -/
+structure Extensibility where
+  file : String
+  claim : String
+  re : Exp
+  single : Bool
+  ppo : Exp
+  pporf : Exp
+  cycles : NFA Label
+  words : List WordsInclusion
+  module : Module
 
 def origins (j : Json) : Except String (Array (List Nat)) :=
   (·.toArray) <$> list j fun l => list l Json.getNat?
@@ -161,19 +210,77 @@ def assumption (j : Json) : Except String Assumption := do
     text := ← (← j.getObjVal? "text").getStr?
     builtin := ← (← j.getObjVal? "builtin").getBool?
     saturated := ← (← j.getObjVal? "saturated").getBool?
+    temporary := match j.getObjVal? "temporary" with
+      | .ok t => t.getBool?.toOption.getD false
+      | .error _ => false
     constraint := constraint (← j.getObjVal? "constraint") }
 
-def evidence (s : String) : Except String Evidence := do
-  let j ← Json.parse s
+def module (j : Json) : Except String Module := do
   return {
-    file := ← (← j.getObjVal? "file").getStr?
-    assertion := ← (← j.getObjVal? "assertion").getStr?
-    constraint := ← constraint (← j.getObjVal? "constraint")
     disjoint := ← list (← j.getObjVal? "disjoint") fun d => list d Json.getInt?
     perLoc := ← list (← j.getObjVal? "perLoc") fun p => do
       let (r, v) ← pair p
       return (← r.getInt?, ← v.getInt?)
-    assumptions := (← list (← j.getObjVal? "assumptions") assumption).toArray
+    assumptions := (← list (← j.getObjVal? "assumptions") assumption).toArray }
+
+def evidenceOf (j : Json) : Except String Evidence := do
+  let m ← module j
+  return {
+    file := ← (← j.getObjVal? "file").getStr?
+    assertion := ← (← j.getObjVal? "assertion").getStr?
+    constraint := ← constraint (← j.getObjVal? "constraint")
+    disjoint := m.disjoint
+    perLoc := m.perLoc
+    assumptions := m.assumptions
     inclusions := ← list (← j.getObjVal? "inclusions") inclusion }
+
+def evidence (s : String) : Except String Evidence := do
+  evidenceOf (← Json.parse s)
+
+/-- An inclusion of `decideExitWords`: no left-hand side's expression, and
+the steps of its left side the words and the final automaton. -/
+def wordsInclusion (j : Json) : Except String WordsInclusion := do
+  let i ← j.getObjVal? "inclusion"
+  if let .ok l := i.getObjVal? "lhs" then
+    unless l matches .null do
+      throw "the inclusion of a words automaton has a left-hand side's expression"
+  match ← list (← i.getObjVal? "steps") leftStep with
+  | [w, f] =>
+    unless w.stage == "words" && f.stage == "leftFinal" do
+      throw s!"the steps of a words inclusion are {w.stage} and {f.stage}"
+    return {
+      backToEvent := ← (← j.getObjVal? "backToEvent").getBool?
+      rhs := ← exp (← i.getObjVal? "rhs")
+      words := w
+      final := f
+      chain := ← chain (← i.getObjVal? "chain")
+      chainOrigins := ← list (← i.getObjVal? "chainOrigins") origins
+      cert := ← certificate (← i.getObjVal? "certificate") }
+  | _ => throw "a words inclusion's steps are not the words and the final automaton"
+
+def extensibilityOf (j : Json) : Except String Extensibility := do
+  let x ← j.getObjVal? "extensibility"
+  return {
+    file := ← (← j.getObjVal? "file").getStr?
+    claim := ← (← j.getObjVal? "claim").getStr?
+    re := ← exp (← x.getObjVal? "re")
+    single := ← (← x.getObjVal? "single").getBool?
+    ppo := ← exp (← x.getObjVal? "ppo")
+    pporf := ← exp (← x.getObjVal? "pporf")
+    cycles := ← nfa (← x.getObjVal? "cycles")
+    words := ← list (← x.getObjVal? "words") wordsInclusion
+    module := ← module j }
+
+/-- A file of evidence: of an assertion (or a claim an export rests on), or
+of an extensibility check. -/
+inductive File where
+  | assertion (ev : Evidence)
+  | extensibility (x : Extensibility)
+
+def file (s : String) : Except String File := do
+  let j ← Json.parse s
+  match j.getObjVal? "extensibility" with
+  | .ok _ => return .extensibility (← extensibilityOf j)
+  | .error _ => return .assertion (← evidenceOf j)
 
 end KaterCert.ReadChain

@@ -1,0 +1,4 @@
+// The word goes on after rf, the letter the right-hand side cannot read:
+// Kater printed the counterexample [R] po [W] rf ===> [F], with only the last
+// letter of the path from there to the end of the word (#37)
+assert [R] ; po ; [W] ; rf ; [R] ; po ; [F] <= [R] ; po ; [R]

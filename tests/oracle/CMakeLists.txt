@@ -35,12 +35,15 @@ add_test(NAME oracle-transforms COMMAND kater-oracle transforms -n 3 --cases 40 
 file(GLOB ORACLE_CORRECT ${PROJECT_SOURCE_DIR}/tests/correct/basic/*.kat
   ${PROJECT_SOURCE_DIR}/tests/correct/equivalence/*.kat)
 add_test(NAME oracle-check-correct COMMAND kater-oracle check -n 3 ${ORACLE_CORRECT})
-# The soundness regressions are false claims: each has a counterexample
-file(GLOB ORACLE_SOUNDNESS ${PROJECT_SOURCE_DIR}/tests/wrong/soundness/*.kat)
-add_test(NAME oracle-soundness-cases
-  COMMAND kater-oracle check -n 4 --refutable ${ORACLE_SOUNDNESS})
+# tests/wrong holds false claims: each one Kater rejects has a counterexample
+# (6 events for C11 to Power). True claims Kater cannot prove go in
+# tests/incomplete instead
+file(GLOB ORACLE_WRONG ${PROJECT_SOURCE_DIR}/tests/wrong/*/*.kat)
+list(FILTER ORACLE_WRONG EXCLUDE REGEX "/parsing/")
+add_test(NAME oracle-wrong-cases
+  COMMAND kater-oracle check -n 6 --refutable ${ORACLE_WRONG})
 set_tests_properties(oracle-audit oracle-transforms oracle-check-correct
-  oracle-soundness-cases PROPERTIES LABELS "oracle" TIMEOUT 900)
+  oracle-wrong-cases PROPERTIES LABELS "oracle" TIMEOUT 900)
 
 # What the export of each GenMC model relies on: the Checker's claims (the
 # inclusions its extensibility checks decide among them), and that the
@@ -199,9 +202,32 @@ if(LAKE)
   set_tests_properties(formal-evidence-clean formal-evidence-write formal-evidence-check
     PROPERTIES LABELS "oracle;formal" TIMEOUT 1800)
 
+  # The same for every claim the export of each GenMC model rests on: the
+  # inclusions the Checker proves on the way, and each extensibility check,
+  # from the constraint's automaton to the certificates of its words; the
+  # build proves that an accepted check makes the export's constraint
+  # extensible in the model
+  set(EXPORT_EVIDENCE_JSON ${CMAKE_CURRENT_BINARY_DIR}/export-evidence)
+  add_test(NAME formal-export-evidence-clean
+    COMMAND ${CMAKE_COMMAND} -E rm -rf ${EXPORT_EVIDENCE_JSON})
+  add_test(NAME formal-export-evidence-write
+    COMMAND kater-oracle evidence --export --json ${EXPORT_EVIDENCE_JSON} ${ORACLE_GENMC_MODELS})
+  add_test(NAME formal-export-evidence-check
+    COMMAND ${LAKE} exe kater-chain-check ${EXPORT_EVIDENCE_JSON}
+    WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}/formal)
+  set_tests_properties(formal-export-evidence-clean PROPERTIES
+    FIXTURES_SETUP export-evidence-clean)
+  set_tests_properties(formal-export-evidence-write PROPERTIES
+    FIXTURES_REQUIRED export-evidence-clean FIXTURES_SETUP export-evidence-json)
+  set_tests_properties(formal-export-evidence-check PROPERTIES
+    FIXTURES_REQUIRED export-evidence-json ENVIRONMENT "${LAKE_ENVIRONMENT}"
+    FAIL_REGULAR_EXPRESSION "(^|\n)0 assertions accepted|, 0 extensibility checks accepted")
+  set_tests_properties(formal-export-evidence-clean formal-export-evidence-write
+    formal-export-evidence-check PROPERTIES LABELS "oracle;formal" TIMEOUT 1800)
+
   # One lake at a time in formal/
   set_tests_properties(formal-certificates-check formal-export-certificates-check
-    formal-evidence-check PROPERTIES RESOURCE_LOCK formal-lake)
+    formal-evidence-check formal-export-evidence-check PROPERTIES RESOURCE_LOCK formal-lake)
 endif()
 
 # The exported checkers, run inside GenMC, against the reference semantics
