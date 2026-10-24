@@ -20,6 +20,7 @@
 
 #include <algorithm>
 #include <numeric>
+#include <utility>
 
 namespace oracle {
 
@@ -409,6 +410,22 @@ auto enumerate(const Alphabet &alphabet, const Bounds &bounds, bool cycles,
 	       const std::function<bool(const Execution &)> &visit) -> bool
 {
 	return Enumerator(alphabet, bounds, cycles, visit).run();
+}
+
+auto respectsPo(const Execution &graph) -> bool
+{
+	for (auto read = 0U; read < graph.size(); read++) {
+		auto src = graph.rf[read];
+		/* rf never goes backwards in po */
+		if (std::cmp_greater(src, read) &&
+		    graph.events[src].thread == graph.events[read].thread)
+			return false;
+	}
+	return frRespectsPo(graph) &&
+	       std::ranges::all_of(
+		       graph.mo,
+		       [&](const auto &order) -> bool { return moRespectsPo(graph, order); }) &&
+	       isAtomic(graph);
 }
 
 namespace {

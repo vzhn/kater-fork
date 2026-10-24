@@ -80,7 +80,10 @@ public:
 		std::vector<std::pair<TransLabel, TransLabel>> inclusions;
 	};
 	/* formal: end Certificate */
-	using CertificateSink = std::function<void(const SubsetConstraint &, const Certificate &)>;
+	/* Gets the certificate of an inclusion, and the constraint it proves it
+	 * for: the subset constraint checkInclusion decides, or the acyclicity
+	 * constraint whose stretches isPPOIntersectionInPPO checks */
+	using CertificateSink = std::function<void(const Constraint &, const Certificate &)>;
 
 	Checker() = delete;
 	Checker(KatModule &mod, Options opts = {}) : module(&mod), options(opts) {}
@@ -97,11 +100,22 @@ public:
 
 	void setObserver(Observer obs) { observer = std::move(obs); }
 
-	/* Called with the certificate of each inclusion checkAssertion proves */
+	/* Called with the certificate of each inclusion checkAssertion and
+	 * isPPOIntersectionInPPO prove */
 	void setCertificateSink(CertificateSink sink) { certificateSink = std::move(sink); }
 
-	/* Whether ACYC's extension with eco edges stays within ppo; the
-	 * code exporter relies on this to prune its acyclicity checks */
+	/*
+	 * The exporter's check of extensibility: GenMC adds an event once its
+	 * pporf-predecessors are in the graph, and, when ppo is not po, the
+	 * event may have po-successors there already, which the constraints
+	 * must let it join without a cycle. Decides whether the eco-free
+	 * stretches the starred ACYC is cut into, between its eco steps, are
+	 * within (any* ; pporf ; any*) | id.
+	 * FIXME (vzhn/kater-fork#33): the eco steps are looked for in the
+	 * inverted labels of incoming transitions, so no stretch is cut and
+	 * the left-hand automaton accepts nothing: the inclusion holds of
+	 * every constraint
+	 */
 	auto isPPOIntersectionInPPO(const AcyclicConstraint *acyc) const -> InclusionResult;
 
 private:
@@ -109,6 +123,10 @@ private:
 	[[nodiscard]] auto getOptions() const -> const Options & { return options; }
 
 	auto isDFASubLanguageOfNFA(NFA &nfa, const NFA &other, Certificate *cert = nullptr) const
+		-> InclusionResult;
+	/* isDFASubLanguageOfNFA, with the certificate, if it holds, handed to
+	 * the certificate sink with CST, the constraint it is a proof for */
+	auto decideInclusion(NFA &lhs, const NFA &rhs, const Constraint &cst) const
 		-> InclusionResult;
 	[[nodiscard]] auto checkInclusion(SubsetConstraint &subsetC) const -> InclusionResult;
 

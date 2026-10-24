@@ -18,6 +18,7 @@
 
 #include "Certificate.hpp"
 
+#include "Constraint.hpp"
 #include "NFAUtils.hpp"
 #include "ParsingDriver.hpp"
 #include "Theory.hpp"
@@ -283,21 +284,19 @@ auto mutants(const Checker::Certificate &cert)
 	return result;
 }
 
-/* Writes CERT, the K-th certificate of FILE, for constraint C, to DIR, and
- * its mutants; VERDICT is checkCertificate's */
-void writeJSONs(const std::filesystem::path &dir, const std::string &file, unsigned k,
-		const SubsetConstraint &c, const Checker::Certificate &cert,
-		const std::optional<std::string> &verdict, const Theory &theory)
+} // namespace
+
+void writeCertificateJSONs(const std::filesystem::path &dir, const std::string &file, unsigned nth,
+			   const std::string &claim, const Checker::Certificate &cert,
+			   const Theory &theory)
 {
-	auto base = std::format("{}.{}", std::filesystem::path(file).stem().string(), k);
-	auto constraint = toString(c, theory);
-	writeJSON(dir / std::format("{}.json", base), file, constraint, "", cert, verdict, theory);
+	auto base = std::format("{}.{}", std::filesystem::path(file).stem().string(), nth);
+	writeJSON(dir / std::format("{}.json", base), file, claim, "", cert, checkCertificate(cert),
+		  theory);
 	for (const auto &[name, m] : mutants(cert))
-		writeJSON(dir / std::format("{}.{}.json", base, name), file, constraint, name, m,
+		writeJSON(dir / std::format("{}.{}.json", base, name), file, claim, name, m,
 			  checkCertificate(m), theory);
 }
-
-} // namespace
 
 /* formal: begin checkCertificate, mirrored by formal/KaterCert/Checker.lean */
 auto checkCertificate(const Checker::Certificate &cert) -> std::optional<std::string>
@@ -413,19 +412,20 @@ auto certifyFile(const std::string &file, const SearchOptions &opts, bool verbos
 	auto certificates = 0U;
 	std::set<std::pair<TransLabel, TransLabel>> inclusions;
 	checker.setCertificateSink(
-		[&](const SubsetConstraint &c, const Checker::Certificate &cert) {
+		[&](const Constraint &cst, const Checker::Certificate &cert) -> void {
 			certificates++;
 			auto why = checkCertificate(cert);
 			if (jsonDir)
-				writeJSONs(*jsonDir, file, certificates, c, cert, why, theory);
+				writeCertificateJSONs(*jsonDir, file, certificates,
+						      toString(cst, theory), cert, theory);
 			if (why) {
 				ok = false;
-				std::cout << "INVALID certificate for " << WithTheory(c, theory)
+				std::cout << "INVALID certificate for " << WithTheory(cst, theory)
 					  << ": " << *why << "\n";
 				return;
 			}
 			if (verbose)
-				std::cout << "valid certificate for " << WithTheory(c, theory)
+				std::cout << "valid certificate for " << WithTheory(cst, theory)
 					  << " (" << cert.pairs.size() << " pairs)\n";
 			for (const auto &[a, b] : cert.inclusions)
 				if (a != b)

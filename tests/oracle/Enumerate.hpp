@@ -94,6 +94,10 @@ auto isAtomic(const Execution &x) -> bool;
  * protections are of blocks */
 auto isHeapWellFormed(const Execution &x) -> bool;
 
+/* Whether GRAPH's rf, co and fr respect po and its RMWs are atomic, as those
+ * of the graphs enumerate() makes do */
+auto respectsPo(const Execution &graph) -> bool;
+
 /* Whether po | rf | tc | tj | lin has a cycle in X */
 auto hasPorfCycle(const Execution &x) -> bool;
 

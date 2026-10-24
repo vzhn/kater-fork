@@ -808,6 +808,18 @@ auto Checker::isDFASubLanguageOfNFA(NFA &nfa, const NFA &other, Certificate *cer
 	return {.result = true, .cex = {}};
 }
 
+auto Checker::decideInclusion(NFA &lhs, const NFA &rhs, const Constraint &cst) const
+	-> InclusionResult
+{
+	if (!certificateSink)
+		return isDFASubLanguageOfNFA(lhs, rhs);
+	Certificate cert;
+	auto result = isDFASubLanguageOfNFA(lhs, rhs, &cert);
+	if (result.result)
+		certificateSink(cst, cert);
+	return result;
+}
+
 auto Checker::checkInclusion(SubsetConstraint &subsetC) const -> InclusionResult
 {
 	auto &module = getModule();
@@ -843,13 +855,7 @@ auto Checker::checkInclusion(SubsetConstraint &subsetC) const -> InclusionResult
 	 * doesn't seem to help. The remaining time
 	 * is determined by the LHS anyway, and these
 	 * passes are costly */
-	if (!certificateSink)
-		return isDFASubLanguageOfNFA(lhs, nfa2);
-	Certificate cert;
-	auto result = isDFASubLanguageOfNFA(lhs, nfa2, &cert);
-	if (result.result)
-		certificateSink(subsetC, cert);
-	return result;
+	return decideInclusion(lhs, nfa2, subsetC);
 }
 
 auto Checker::checkAssertion(Constraint &cst) -> InclusionResult
@@ -992,5 +998,5 @@ auto Checker::isPPOIntersectionInPPO(const AcyclicConstraint *acyc) const -> Inc
 	pruneNFA(nfa2, lhs, theory);
 	removeDeadStates(nfa2);
 	normalize(nfa2, theory);
-	return isDFASubLanguageOfNFA(lhs, nfa2);
+	return decideInclusion(lhs, nfa2, *acyc);
 }

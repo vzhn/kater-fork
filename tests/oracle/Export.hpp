@@ -21,6 +21,8 @@
 
 #include "Search.hpp"
 
+#include <filesystem>
+#include <optional>
 #include <string>
 
 namespace oracle {
@@ -29,12 +31,20 @@ namespace oracle {
  * Validates the export of FILE as GenMC code, short of the printing:
  *  - every claim the Checker proves on the way (the export requirements,
  *    the closure checks of incremental views) has no counterexample;
+ *  - the inclusion the extensibility check of each acyclicity export
+ *    (Checker::isPPOIntersectionInPPO) decides between automata of its
+ *    own, taken from its certificate, has no counterexample either; each
+ *    whose left automaton accepts nothing is reported as vacuous;
+ *  - every certificate of these claims checks, and the letter inclusions
+ *    they rest on hold;
  *  - every definition, view and export constraint the exporter rewrites
  *    (po into po-imm+, transitive views into recursive ones, ...) means
  *    the same as before.
- * Returns whether both hold up to the search bound.
+ * Returns whether all of it holds up to the search bound. With JSONDIR,
+ * also writes the certificates, as certifyFile does.
  */
-auto validateExport(const std::string &file, const SearchOptions &opts, bool verbose) -> bool;
+auto validateExport(const std::string &file, const SearchOptions &opts, bool verbose,
+		    const std::optional<std::filesystem::path> &jsonDir = std::nullopt) -> bool;
 
 } // namespace oracle
 
