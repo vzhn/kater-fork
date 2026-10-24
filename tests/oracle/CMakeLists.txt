@@ -14,6 +14,7 @@ add_executable(kater-oracle
   GenMC.cpp
   Graph.cpp
   Matrix.cpp
+  Reference.cpp
   Search.cpp
   Semantics.cpp
   Transforms.cpp
