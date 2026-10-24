@@ -1,0 +1,3 @@
+// Dependencies go to po-later events, not to events of the same location:
+// Theory::isIncludedIn used to put them in po-loc
+assert addr <= po-loc

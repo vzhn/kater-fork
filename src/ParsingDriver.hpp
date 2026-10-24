@@ -177,12 +177,15 @@ public:
 	// Handle "assert c" declaration in the input file
 	void registerAssert(std::unique_ptr<AssertStatement> assrt)
 	{
+		checkRotation(*assrt->getConstraint(), assrt->getDbgInfo());
 		getModule()->registerAssert(std::move(assrt));
 	}
 
 	// Handle "assume c" declaration in the input file
 	void registerAssume(std::unique_ptr<AssumeStatement> assm)
 	{
+		if (assm->getDbgInfo().has_value())
+			checkRotation(*assm->getConstraint(), *assm->getDbgInfo());
 		getModule()->getAssumptions().add(std::move(assm));
 	}
 
@@ -273,6 +276,37 @@ private:
 	{
 		auto id = getUnqualifiedName(idRed);
 		return id == "po" || id == "po-loc" || id == "po-imm";
+	}
+
+	/* Whether RE only relates events to themselves, as predicates do */
+	static auto isWithinId(const RegExp &re) -> bool
+	{
+		if (re.isPredicate())
+			return true;
+		if (dynamic_cast<const AndRE *>(&re) != nullptr)
+			return std::ranges::any_of(re.kids(),
+						   [](auto &k) { return isWithinId(*k); });
+		if (dynamic_cast<const SeqRE *>(&re) != nullptr ||
+		    dynamic_cast<const AltRE *>(&re) != nullptr ||
+		    dynamic_cast<const PlusRE *>(&re) != nullptr ||
+		    dynamic_cast<const StarRE *>(&re) != nullptr ||
+		    dynamic_cast<const QMarkRE *>(&re) != nullptr)
+			return std::ranges::all_of(re.kids(),
+						   [](auto &k) { return isWithinId(*k); });
+		return false;
+	}
+
+	/* Only a cycle can be rotated: `A <= rot B` needs `& id` on the left
+	 * (or an A within id, whose `& id` the parser folds away), or Kater
+	 * proves rf;po <= rot (po;rf) */
+	static void checkRotation(const Constraint &cst, const DbgInfo &dbg)
+	{
+		const auto *sub = dynamic_cast<const SubsetConstraint *>(&cst);
+		if (sub == nullptr || !sub->rotated() || sub->sameEnds() ||
+		    isWithinId(*sub->getLHS()))
+			return;
+		std::cerr << dbg << ": rot needs & id on the left-hand side: only cycles rotate\n";
+		exit(EPARSE); // NOLINT(concurrency-mt-unsafe): parsing is single-threaded
 	}
 
 	void saveState();

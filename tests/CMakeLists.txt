@@ -17,3 +17,6 @@ set_tests_properties(check-layers PROPERTIES LABELS "lint")
 
 # Unit tests
 add_subdirectory(unit)
+
+# Kater against a reference semantics (needs Z3)
+add_subdirectory(oracle)

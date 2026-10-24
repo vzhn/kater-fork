@@ -1,0 +1,4 @@
+// total of anything but a relation is unsupported, and used to crash Kater
+assume total (po | rf)
+assume total [R]
+assert po <= po

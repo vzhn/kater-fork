@@ -330,12 +330,32 @@ cmake --build Release -j$(nproc)
       </div>
       <div>
         <h3>Tests</h3>
-        <p><code>tests/correct</code> and <code>tests/wrong</code> hold models that must pass or fail, grouped as basic, compilation, equivalence and parsing. <code>tests/unit</code> covers the NFA and regular-expression code.</p>
+        <p><code>tests/correct</code> and <code>tests/wrong</code> hold models that must pass or fail, grouped as basic, compilation, equivalence, parsing and soundness. <code>tests/unit</code> covers the NFA and regular-expression code.</p>
 <pre>cd scripts &amp;&amp; ./checkall.sh
 ./scripts/lint.sh</pre>
         <p><code>check-drivers.sh</code> exports checkers from <code>kat/</code> and builds them against a GenMC checkout.</p>
       </div>
     </div>
+  </section>
+
+  <section>
+    <span class="eyebrow">Checking Kater · tests/oracle</span>
+    <h2>A reference semantics to test against</h2>
+    <p class="col"><code>kater-oracle</code> gives <code>.kat</code> its meaning on GenMC's execution graphs and asks Z3 for a small graph that refutes what Kater claims. It shares Kater's parser and nothing of its inference, so a counterexample to a proved assertion is a soundness bug.</p>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>Command</th><th>What it checks</th></tr></thead>
+        <tbody>
+          <tr><td><code>check</code></td><td>Each assertion's verdict against a counterexample search</td></tr>
+          <tr><td><code>audit</code></td><td>Every fact the Theory states about the builtins, against GenMC's meaning</td></tr>
+          <tr><td><code>transforms</code></td><td>Each automaton pass of the decision procedure against its contract</td></tr>
+          <tr><td><code>export</code></td><td>The claims an export relies on, and that its rewrites keep their meaning</td></tr>
+          <tr><td><code>certify</code></td><td>Kater's proofs, from certificates it emits, without searching</td></tr>
+          <tr><td><code>fuzz.py</code></td><td>Random assertions and assumptions, Kater against the oracle</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="col">It found seven ways in which Kater proved false claims, a false fact its normal forms happened to mask, and four crashes or code-generation errors, all fixed with regression tests; among them <code>ctrl &lt;= po-loc</code> in the theory, compilation schemes saturated as an empty set, and words dropped by the <code>&amp; id</code> passes. <code>doc/verification.md</code> has the model, the contracts and the findings; <code>ctest -L oracle</code> runs the checks.</p>
   </section>
 
   <footer>

@@ -1,0 +1,4 @@
+// A starting state with a loop: its [R] is not the first letter of the
+// words that go round po-loc first, so it must not be merged with [UW]
+relation u0
+assert ((po-loc)* ; [R] ; u0^-1 ; [UW]) & id <= moi^-1

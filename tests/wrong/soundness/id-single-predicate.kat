@@ -1,0 +1,3 @@
+// An acquire read is a cycle of [R;ACQ] & id: saturateInitFinalPreds used
+// to drop a word made of a single predicate, leaving an empty LHS
+assert [R;ACQ] & id <= 0

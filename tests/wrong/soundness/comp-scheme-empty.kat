@@ -1,0 +1,5 @@
+// A compilation scheme says that a fence separates every [R];po;[W] pair;
+// it does not say there are no such pairs (R; F; W in one thread has one).
+// The scheme used to be saturated as if [R];(po;[~F])*;po;[W] were empty
+assume [R];po;[W] <= [R];po;[F];po;[W]
+assert [R];po;[W] <= 0

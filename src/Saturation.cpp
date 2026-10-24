@@ -21,7 +21,10 @@
 #include "NFAUtils.hpp"
 #include "Theory.hpp"
 
+#include <algorithm>
 #include <ranges>
+#include <set>
+#include <vector>
 
 namespace RV = std::views;
 
@@ -38,6 +41,13 @@ void duplicateStatesForInitPreds(NFA &nfa)
 		nfa.splitState(s, [](auto & /*t*/) { return false; });
 	}
 	nfa.flip();
+
+	/* ... and starting states no incoming ones: the predicates a starting
+	 * state is left by are then the first letters of words, not the
+	 * letters after a loop back to it */
+	for (auto *s : nfa.starting() | RV::filter([](auto *s) { return s->hasIncoming(); })) {
+		nfa.splitState(s, [](auto & /*t*/) { return false; });
+	}
 
 	std::set<PredicateSet> preds;
 	for (auto *s : nfa.starting()) {
@@ -86,6 +96,19 @@ void saturateInitFinalPreds(NFA &nfa, const Theory &theory)
 	if (ipreds.empty()) {
 		return;
 	}
+
+	/* The states on words without an initial predicate: the starting states
+	 * (a final predicate leaving one is a word on its own) and the states
+	 * after a first relation. A final predicate leaving one of them has to
+	 * stay as it is, as there is no initial predicate to merge it with */
+	std::vector<NFA::State *> afterRelation;
+	for (auto *s : nfa.starting())
+		for (auto &t : s->outs() | RV::filter([](auto &t) { return t.label.isRelation(); }))
+			afterRelation.push_back(t.dest);
+	auto unmerged = calculateReachableFrom(nfa, afterRelation);
+	for (auto *s : nfa.starting())
+		unmerged[s->getId()] = true;
+
 	std::for_each(nfa.accept_begin(), nfa.accept_end(), [&](auto *s) {
 		std::vector<NFA::Transition> toAdd;
 		std::vector<NFA::Transition> toRemove;
@@ -94,7 +117,8 @@ void saturateInitFinalPreds(NFA &nfa, const Theory &theory)
 				continue;
 			}
 
-			toRemove.push_back(*tIt);
+			if (!unmerged[tIt->dest->getId()])
+				toRemove.push_back(*tIt);
 			auto reaching = calculateReachingTo(nfa, {tIt->dest});
 			std::for_each(ipreds.begin(), ipreds.end(), [&](auto &ip) {
 				auto t = *tIt;
@@ -136,9 +160,14 @@ void saturateLoc(NFA &nfa, const Theory &theory)
 			if (!perloc) {
 				continue;
 			}
+			/* The variant goes the way the relation does, with its checks */
+			auto rloc = theory.getPerLoc(t.label);
+			if (t.label.getRelation()->isInverse())
+				rloc.invert();
 			toRemove.push_back(t);
-			toAdd.push_back(
-				NFA::Transition(TransLabel(theory.getPerLoc(t.label)), t.dest));
+			toAdd.push_back(NFA::Transition(
+				TransLabel(rloc, t.label.getPreChecks(), t.label.getPostChecks()),
+				t.dest));
 		}
 		nfa.removeTransitions(&*s, toRemove.begin(), toRemove.end());
 		nfa.addTransitions(&*s, toAdd.begin(), toAdd.end());
@@ -309,6 +338,71 @@ void saturateDomains(NFA &nfa, const Theory &theory)
 		nfa.removeTransitions(&*s, toRemove.begin(), toRemove.end());
 		nfa.addTransitions(&*s, toAdd.begin(), toAdd.end());
 	});
+}
+
+void saturateSubword(NFA &nfa, const NFA &e, const std::vector<TransLabel> &word,
+		     const Theory &theory)
+{
+	/* Where the search is: the NFA's state, how much of WORD it has read, and
+	 * what WORD's predicates say about the current event */
+	struct Position {
+		NFA::State *state;
+		size_t read;
+		PredicateSet known;
+
+		auto operator<=>(const Position &) const = default;
+	};
+
+	std::vector<std::pair<NFA::State *, NFA::State *>> shortcuts;
+	for (auto &startUP : nfa.states()) {
+		std::set<Position> visited;
+		std::vector<Position> work;
+		auto visit = [&](Position pos) {
+			if (visited.insert(pos).second)
+				work.push_back(std::move(pos));
+		};
+
+		visit({&*startUP, 0, {}});
+		while (!work.empty()) {
+			auto pos = work.back();
+			work.pop_back();
+
+			if (pos.read == word.size())
+				shortcuts.emplace_back(&*startUP, pos.state);
+
+			/* WORD checks a predicate: it knows more about the event */
+			if (pos.read < word.size() && word[pos.read].isPredicate()) {
+				const auto &checks = word[pos.read].getPreChecks();
+				if (pos.known.size() + checks.size() <=
+				    PredicateSet::inlineCapacity) {
+					auto known = pos.known;
+					known.insert(checks);
+					visit({pos.state, pos.read + 1, known});
+				}
+				continue;
+			}
+
+			for (const auto &t : pos.state->outs()) {
+				/* The NFA checks a predicate WORD implies */
+				if (t.label.isPredicate()) {
+					if (theory.isIncludedIn(pos.known, t.label.getPreChecks()))
+						visit({t.dest, pos.read, pos.known});
+					continue;
+				}
+				/* Both read a relation, WORD's in the NFA's */
+				if (pos.read < word.size() &&
+				    theory.isIncludedIn(
+					    TransLabel(word[pos.read].getRelation(), pos.known),
+					    t.label))
+					visit({t.dest, pos.read + 1, {}});
+			}
+		}
+	}
+
+	std::ranges::sort(shortcuts);
+	shortcuts.erase(std::ranges::unique(shortcuts).begin(), shortcuts.end());
+	for (auto [p, q] : shortcuts)
+		addNFAPath(nfa, e, p, q);
 }
 
 void saturateRotate(NFA &nfa, const Theory &theory)

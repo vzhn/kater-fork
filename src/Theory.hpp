@@ -161,6 +161,12 @@ public:
 		return std::ranges::find(invalidPreds_, preds) == invalidPreds_.end();
 	}
 
+	/** The sets of pairwise disjoint predicates, builtin and user-declared */
+	[[nodiscard]] auto disjointPredicateSets() const -> const VSet<VSet<Predicate::ID>> &
+	{
+		return disjointPreds_;
+	}
+
 	auto isEco(const TransLabel &lab) const -> bool;
 
 	auto hasInfo(const Relation &r) const -> bool { return relations_.contains(r.getID()); }

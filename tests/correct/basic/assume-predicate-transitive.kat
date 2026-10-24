@@ -1,0 +1,5 @@
+// "Transitivity" of a predicate is the identity, not a relation's: these
+// used to read the relation of [R]
+assume [R];[R] <= [R]
+assume [R]+ <= [R]
+assert po <= po

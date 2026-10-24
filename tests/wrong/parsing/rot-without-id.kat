@@ -1,0 +1,2 @@
+// Only cycles rotate: without & id, Kater used to prove rf;po <= po;rf
+assert rf;po <= rot (po;rf)

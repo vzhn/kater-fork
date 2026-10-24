@@ -302,28 +302,19 @@ std::pair<bool, CompSchemeRHS> isSupportedCompScheme(const SubsetConstraint *ass
 	return {true, rhs};
 }
 
-NFA createCompilationNFA(const CompSchemeRHS &rhs, const Theory &theory)
+/* The word [A];po;[C];po;[B] of a compilation scheme */
+static auto compilationWord(const CompSchemeRHS &rhs) -> std::vector<TransLabel>
 {
-	std::vector<std::unique_ptr<RegExp>> disj;
-	for (auto &p : rhs.fence) {
-		auto pc = p;
-		pc.complement();
-		disj.push_back(CharRE::create(TransLabel(std::nullopt, {pc})));
-	}
-	assert(!disj.empty());
-	auto fenceExp = disj.size() == 1 ? std::move(disj[0]) : AltRE::create(std::move(disj));
-	auto po = CharRE::create(TransLabel(Relation::createBuiltin(Relation::BuiltinID::po)));
-	PredicateSet pre = rhs.pre.has_value() ? *rhs.pre : PredicateSet{};
-	PredicateSet post = rhs.post.has_value() ? *rhs.post : PredicateSet{};
-
-	auto reC = SeqRE::createOpt(
-		CharRE::create(TransLabel(std::nullopt, pre)),
-		StarRE::createOpt(SeqRE::createOpt(po->clone(), std::move(fenceExp))), po->clone(),
-		CharRE::create(TransLabel(std::nullopt, post)));
-
-	auto lNFA = reC->toNFA();
-	normalize(lNFA, theory);
-	return lNFA;
+	auto po = TransLabel(Relation::createBuiltin(Relation::BuiltinID::po));
+	std::vector<TransLabel> word;
+	if (rhs.pre.has_value())
+		word.emplace_back(std::nullopt, *rhs.pre);
+	word.push_back(po);
+	word.emplace_back(std::nullopt, rhs.fence);
+	word.push_back(po);
+	if (rhs.post.has_value())
+		word.emplace_back(std::nullopt, *rhs.post);
+	return word;
 }
 
 /* Saturates RHS with ASSM; returns whether the assumption was of a supported shape */
@@ -333,6 +324,11 @@ static auto expandSubsetAssumption(NFA &rhs, const SubsetConstraint *assm, const
 	auto &theory = module.getTheory();
 	auto *lRE = assm->getLHS();
 	auto *rRE = assm->getRHS();
+
+	/* `A & id <= B` only says something about the cycles of A, and no
+	 * saturation below can use that: `r & id <= 0` is not `r <= 0` */
+	if (assm->sameEnds() || assm->rotated())
+		return false;
 
 	/* If `any` is used in the assumption, realize it as `any*` */
 	auto lNFA = starifyAny(lRE->clone())->toNFA();
@@ -352,15 +348,14 @@ static auto expandSubsetAssumption(NFA &rhs, const SubsetConstraint *assm, const
 
 	/* Transform `A ; A <= A` to `transitive A` */
 	auto *seqRE = dynamic_cast<const SeqRE *>(lRE);
-	if (seqRE && *rRE == *seqRE->getKid(0) && *rRE == *seqRE->getKid(1) &&
-	    dynamic_cast<const CharRE *>(rRE)) {
+	if (seqRE && *rRE == *seqRE->getKid(0) && *rRE == *seqRE->getKid(1) && rRE->isRelation()) {
 		auto rel = *dynamic_cast<const CharRE *>(rRE)->getLabel().getRelation();
 		saturateTransitive(rhs, rel);
 		return true;
 	}
 	/* Transform `A+ <= A` to `transitive A` */
 	auto *plusRE = dynamic_cast<const PlusRE *>(&*lRE);
-	if (plusRE && *rRE == *plusRE->getKid(0) && dynamic_cast<const CharRE *>(rRE)) {
+	if (plusRE && *rRE == *plusRE->getKid(0) && rRE->isRelation()) {
 		auto rel = *dynamic_cast<const CharRE *>(rRE)->getLabel().getRelation();
 		saturateTransitive(rhs, rel);
 		return true;
@@ -372,17 +367,30 @@ static auto expandSubsetAssumption(NFA &rhs, const SubsetConstraint *assm, const
 	if (charRE && dynamic_cast<const QMarkRE *>(&*rRE) && *rRE->getKid(0) == *charRE) {
 		return true;
 	}
-	/* Handle `A <= builtin` assumption */
+	/* Handle `A <= builtin` assumption; `A <= [P]` gives `A <= id` */
 	auto *charRHS = dynamic_cast<const CharRE *>(&*rRE);
-	if (charRHS) {
-		saturateBuiltin(rhs, *dynamic_cast<const CharRE *>(rRE)->getLabel().getRelation(),
-				std::move(lNFA), theory);
+	if (charRHS && charRHS->getLabel().isPredicate()) {
+		saturateID(rhs, std::move(lNFA));
 		return true;
 	}
-	/* Handle `[A];po;[B] <= [A];po;[C];po;[B]` assumption */
+	if (charRHS) {
+		saturateBuiltin(rhs, *charRHS->getLabel().getRelation(), std::move(lNFA), theory);
+		return true;
+	}
+	/* Handle `[A];po;[B] <= [A];po;[C];po;[B]` assumption: wherever the RHS
+	 * reads [A];po;[C];po;[B], it may read [A];po;[B], i.e. [A];po+;[B] as
+	 * po is transitive. The + lets the shortcut read the po-chains of LHSs */
 	auto [supported, compRHS] = isSupportedCompScheme(assm, module.getRegisteredRE("po"));
 	if (supported) {
-		saturateEmpty(rhs, createCompilationNFA(compRHS, theory));
+		auto chain = SeqRE::createOpt(
+			CharRE::create(
+				TransLabel(std::nullopt, compRHS.pre.value_or(PredicateSet{}))),
+			PlusRE::createOpt(module.getRegisteredRE("po")->clone()),
+			CharRE::create(
+				TransLabel(std::nullopt, compRHS.post.value_or(PredicateSet{}))));
+		auto chainNFA = chain->toNFA();
+		normalize(chainNFA, theory);
+		saturateSubword(rhs, chainNFA, compilationWord(compRHS), theory);
 		return true;
 	}
 
@@ -418,11 +426,15 @@ void expandAssumption(NFA &rhs, const AssumeStatement *assm, const KatModule &mo
 		return;
 	}
 	if (const auto *tc = dynamic_cast<const TotalityConstraint *>(cst)) {
-		saturateTotal(rhs,
-			      *dynamic_cast<const CharRE *>(tc->getRE())->getLabel().getRelation());
+		/* Only a relation of its own can be total */
+		const auto *charRE = dynamic_cast<const CharRE *>(tc->getRE());
+		if (charRE == nullptr || !charRE->getLabel().isRelation()) {
+			warnUnsupportedAssumption(assm, module.getTheory());
+			return;
+		}
+		saturateTotal(rhs, *charRE->getLabel().getRelation());
 		return;
 	}
-	// FIXME: What about SubsetSameEnds???
 	if (const auto *ec = dynamic_cast<const SubsetConstraint *>(cst)) {
 		if (!expandSubsetAssumption(rhs, ec, module))
 			warnUnsupportedAssumption(assm, module.getTheory());
@@ -543,6 +555,17 @@ public:
 					   [&](auto id) -> bool { return accepting[id] != 0; });
 	}
 
+	/* The letter inclusions the theory answered yes to so far */
+	[[nodiscard]] auto inclusions() const -> std::vector<std::pair<TransLabel, TransLabel>>
+	{
+		std::vector<std::pair<TransLabel, TransLabel>> result;
+		for (const auto &[label, answers] : included)
+			for (auto i = 0U; i < answers.size(); i++)
+				if (answers[i] != 0)
+					result.emplace_back(label, labels[static_cast<int>(i)]);
+		return result;
+	}
+
 private:
 	auto indexOf(const TransLabel &label) const -> unsigned
 	{
@@ -584,11 +607,11 @@ std::vector<TransLabel> maybeSplitToComplements(const TransLabel &label,
 			l.merge(TransLabel(std::nullopt, {p}));
 			result.push_back(l);
 		}
-		/* Then also with ~p */
+		/* Then also with ~p: the two cases cover LABEL */
 		auto pneg = Predicate(p).complement();
 		if (theory.composes(label, TransLabel(std::nullopt, {pneg}))) {
 			auto l = label;
-			l.merge(TransLabel(std::nullopt, {p}));
+			l.merge(TransLabel(std::nullopt, {pneg}));
 			result.push_back(l);
 		}
 	}
@@ -650,6 +673,8 @@ public:
 		return related[pid];
 	}
 
+	[[nodiscard]] auto matrix() const -> const std::vector<uint8_t> & { return similar; }
+
 private:
 	unsigned nrStates;
 	std::vector<uint8_t> similar;
@@ -691,14 +716,27 @@ static auto antichainInsert(const SimState &state,
 	return true;
 }
 
-auto Checker::isDFASubLanguageOfNFA(NFA &nfa, const NFA &other) const -> InclusionResult
+auto Checker::isDFASubLanguageOfNFA(NFA &nfa, const NFA &other, Certificate *cert) const
+	-> InclusionResult
 {
 	KATER_DEBUG(std::cout << "Checking inclusion between automata:" << std::endl;
 		    std::cout << nfa << "and " << other << std::endl;);
 
 	if (other.getNumStarting() == 0) {
 		Counterexample cex;
-		return {.result = nfa.acceptsNoString(cex), .cex = cex};
+		auto empty = nfa.acceptsNoString(cex);
+		/* The certificate of an empty language: no reachable state accepts */
+		if (empty && cert != nullptr) {
+			std::vector<NFA::State *> starts(nfa.start_begin(), nfa.start_end());
+			auto reachable = calculateReachableFrom(nfa, starts);
+			for (auto id = 0U; id < reachable.size(); id++)
+				if (reachable[id])
+					cert->pairs.emplace_back(id, VSet<unsigned>{});
+			cert->lhs = copy(nfa);
+			cert->rhs = copy(other);
+			cert->simulation = Simulation(nfa).matrix();
+		}
+		return {.result = empty, .cex = cex};
 	}
 
 	auto negatedOf = collectNegatedOutgoing(other);
@@ -717,6 +755,8 @@ auto Checker::isDFASubLanguageOfNFA(NFA &nfa, const NFA &other) const -> Inclusi
 	std::for_each(nfa.start_begin(), nfa.start_end(), [&](auto *s1) {
 		visited[s1->getId()].push_back(start);
 		workList.push_back({{s1, start}, Counterexample()});
+		if (cert != nullptr)
+			cert->pairs.emplace_back(s1->getId(), start);
 	});
 	while (!workList.empty()) {
 		auto [state, cex] = std::move(workList.front());
@@ -749,9 +789,18 @@ auto Checker::isDFASubLanguageOfNFA(NFA &nfa, const NFA &other) const -> Inclusi
 				SimState next = {t.dest, std::move(nextRHS)};
 				if (!antichainInsert(next, visited, sim))
 					continue;
+				if (cert != nullptr)
+					cert->pairs.emplace_back(next.getLHS()->getId(),
+								 next.getRHS());
 				workList.emplace_back(std::move(next), nextCex);
 			}
 		}
+	}
+	if (cert != nullptr) {
+		cert->lhs = copy(nfa);
+		cert->rhs = copy(other);
+		cert->simulation = sim.matrix();
+		cert->inclusions = rhs.inclusions();
 	}
 	return {.result = true, .cex = {}};
 }
@@ -791,7 +840,13 @@ auto Checker::checkInclusion(SubsetConstraint &subsetC) const -> InclusionResult
 	 * doesn't seem to help. The remaining time
 	 * is determined by the LHS anyway, and these
 	 * passes are costly */
-	return isDFASubLanguageOfNFA(lhs, nfa2);
+	if (!certificateSink)
+		return isDFASubLanguageOfNFA(lhs, nfa2);
+	Certificate cert;
+	auto result = isDFASubLanguageOfNFA(lhs, nfa2, &cert);
+	if (result.result)
+		certificateSink(subsetC, cert);
+	return result;
 }
 
 auto Checker::checkAssertion(Constraint &cst) -> InclusionResult
@@ -816,6 +871,8 @@ auto Checker::checkAssertion(Constraint &cst) -> InclusionResult
 			}
 		});
 	visitor(cst);
+	if (observer)
+		observer(cst, result);
 	return result;
 }
 
