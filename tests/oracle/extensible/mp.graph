@@ -1,0 +1,12 @@
+# mp-genmc.kat: x := 1 (e0) is in a hole before y := 1 (e1), which a := y
+# (e3) reads; b := x (e4) reads 0. Without e0 the graph is consistent; with
+# it, e4 -fr-> e0 -[W];po;[W]-> e1 -rfe-> e3 -[R];po;[R]-> e4 is a cycle, and
+# e0, the only write to x, has no other place in mo.
+e0: T0 W(x) rlx
+e1: T0 W(y) rlx
+e2: T1 TB acq
+e3: T1 R(y) rlx
+e4: T1 R(x) rlx
+rf: e1->e3
+mo(x): e0
+mo(y): e1

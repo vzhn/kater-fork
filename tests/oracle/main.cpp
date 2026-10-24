@@ -30,10 +30,12 @@
  *       Checks every fact Kater's Theory states about the builtin relations
  *       and predicates against their meaning in GenMC.
  *
- *   kater-oracle export [-n EVENTS] [-t SECONDS] FILE...
+ *   kater-oracle export [-n EVENTS] [-t SECONDS] [--json DIR] FILE...
  *       Exports FILE as GenMC code and checks what the export relies on:
- *       the claims the Checker proves on the way, and that each definition
- *       the exporter rewrites keeps its meaning.
+ *       the claims the Checker proves on the way (the inclusion its
+ *       extensibility check decides among them), their certificates, and
+ *       that each definition the exporter rewrites keeps its meaning. With
+ *       --json, also writes the certificates to DIR, as certify does.
  *
  *   kater-oracle certify [-n EVENTS] [-t SECONDS] [--json DIR] FILE...
  *       Has Kater prove FILE's assertions with certificates, checks each
@@ -61,11 +63,21 @@
  *       (with --shard, on the K-th of every N) and on N random ones up to
  *       M, or on the graphs of FILEs, and compares their verdicts with the
  *       reference semantics. --count only counts the graphs.
+ *
+ *   kater-oracle extensible [-n EVENTS] [--threads T] [--locations L]
+ *                           [--graph FILE]... [--refutable] FILE...
+ *       Checks that the models of the kat/NAME-genmc.kat FILEs are
+ *       extensible, as GenMC's exploration needs: on every graph up to
+ *       EVENTS events, or on the graphs of FILEs, an event GenMC may add
+ *       last (nothing follows it in ppo | rfe | tc | tj | lin, nothing reads
+ *       from it) can be added to the rest, if consistent, consistently.
+ *       With --refutable, the models are expected not to be.
  */
 
 #include "Audit.hpp"
 #include "Certificate.hpp"
 #include "Export.hpp"
+#include "Extensible.hpp"
 #include "GenMC.hpp"
 #include "Search.hpp"
 #include "Transforms.hpp"
@@ -96,6 +108,7 @@ struct Options {
 	SearchOptions search;
 	TransformOptions transforms;
 	GenMCOptions genmc;
+	ExtensibleOptions extensible;
 	bool verbose = false;
 	bool refutable = false;
 	std::optional<std::filesystem::path> jsonDir;
@@ -108,6 +121,7 @@ struct Options {
 		<< "usage: kater-oracle check [-n EVENTS] [-t SECONDS] [--refutable] [-v] FILE...\n"
 		   "       kater-oracle certify [-n EVENTS] [-t SECONDS] [--json DIR]\n"
 		   "                            [-v] FILE...\n"
+		   "       kater-oracle export [-n EVENTS] [-t SECONDS] [--json DIR] [-v] FILE...\n"
 		   "       kater-oracle explain FILE...\n"
 		   "       kater-oracle audit [-n EVENTS] [-t SECONDS] [-v]\n"
 		   "       kater-oracle transforms [-n EVENTS] [-t SECONDS] [--cases N]\n"
@@ -115,7 +129,9 @@ struct Options {
 		   "       kater-oracle genmc --runner RUNNER [-n EVENTS] [--threads T]\n"
 		   "                          [--locations L] [--random N] [--random-events M]\n"
 		   "                          [--seed S] [--limit G] [--shard K/N] [--count]\n"
-		   "                          [--graph FILE]... FILE...\n";
+		   "                          [--graph FILE]... FILE...\n"
+		   "       kater-oracle extensible [-n EVENTS] [--threads T] [--locations L]\n"
+		   "                               [--graph FILE]... [--refutable] [-v] FILE...\n";
 	exit(2); // NOLINT(concurrency-mt-unsafe): single-threaded
 }
 
@@ -137,11 +153,12 @@ auto parseOptions(int argc, char **argv, int first) -> Options
 			return argv[++i]; // NOLINT(cppcoreguidelines-pro-bounds-pointer-arithmetic)
 		};
 		if (arg == "-n")
-			opts.search.maxEvents = opts.genmc.bounds.events = value();
+			opts.search.maxEvents = opts.genmc.bounds.events =
+				opts.extensible.bounds.events = value();
 		else if (arg == "-t")
 			opts.search.timeoutMs = value() * 1000;
 		else if (arg == "-v")
-			opts.verbose = opts.genmc.verbose = true;
+			opts.verbose = opts.genmc.verbose = opts.extensible.verbose = true;
 		else if (arg == "--refutable")
 			opts.refutable = true;
 		else if (arg == "--cases")
@@ -157,9 +174,9 @@ auto parseOptions(int argc, char **argv, int first) -> Options
 		else if (arg == "--runner")
 			opts.genmc.runner = text();
 		else if (arg == "--threads")
-			opts.genmc.bounds.threads = value();
+			opts.genmc.bounds.threads = opts.extensible.bounds.threads = value();
 		else if (arg == "--locations")
-			opts.genmc.bounds.locations = value();
+			opts.genmc.bounds.locations = opts.extensible.bounds.locations = value();
 		else if (arg == "--random")
 			opts.genmc.random = value();
 		else if (arg == "--random-events")
@@ -298,9 +315,11 @@ auto main(int argc, char **argv) -> int
 	if (cmd == "audit")
 		return audit(opts.search, opts.verbose) ? 0 : 1;
 	if (cmd == "export") {
+		if (opts.jsonDir)
+			std::filesystem::create_directories(*opts.jsonDir);
 		auto ok = true;
 		for (const auto &f : opts.files)
-			ok &= validateExport(f, opts.search, opts.verbose);
+			ok &= validateExport(f, opts.search, opts.verbose, opts.jsonDir);
 		return ok ? 0 : 1;
 	}
 	if (cmd == "certify") {
@@ -321,6 +340,16 @@ auto main(int argc, char **argv) -> int
 		opts.transforms.search = opts.search;
 		opts.transforms.verbose = opts.verbose;
 		return testTransforms(opts.transforms) ? 0 : 1;
+	}
+	if (cmd == "extensible") {
+		if (opts.files.empty())
+			usage();
+		opts.extensible.refutable = opts.refutable;
+		opts.extensible.graphs = opts.genmc.graphs;
+		auto ok = true;
+		for (const auto &f : opts.files)
+			ok &= checkExtensible(f, opts.extensible);
+		return ok ? 0 : 1;
 	}
 	if (cmd == "genmc") {
 		if (opts.files.empty() || opts.genmc.runner.empty())

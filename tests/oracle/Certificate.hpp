@@ -56,6 +56,15 @@ auto checkCertificate(const Checker::Certificate &cert) -> std::optional<std::st
 auto certifyFile(const std::string &file, const SearchOptions &opts, bool verbose,
 		 const std::optional<std::filesystem::path> &jsonDir = std::nullopt) -> bool;
 
+/*
+ * Writes CERT, the NTH certificate of FILE, a proof of CLAIM, to
+ * DIR/<stem>.<nth>.json, and copies of it that differ in one place to
+ * DIR/<stem>.<nth>.<how>.json, each with checkCertificate's verdict
+ */
+void writeCertificateJSONs(const std::filesystem::path &dir, const std::string &file, unsigned nth,
+			   const std::string &claim, const Checker::Certificate &cert,
+			   const Theory &theory);
+
 } // namespace oracle
 
 #endif /* KATER_ORACLE_CERTIFICATE_HPP */

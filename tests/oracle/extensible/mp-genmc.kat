@@ -1,0 +1,22 @@
+// A model GenMC cannot explore, which Kater exports all the same.
+//
+// The acyclicity constraint orders a thread's writes, and its reads, but
+// ppo does not: a revisit keeps a write without the writes po-before it,
+// and GenMC adds those later, into the hole. In message passing,
+//
+//     x := 1;  y := 1;  ||  a := y;  b := x;
+//
+// once y := 1 has revisited a := y (a = 1) and b := x has read 0, x := 1
+// cannot be added: b -fr-> x := 1 -[W];po;[W]-> y := 1 -rfe-> a -[R];po;[R]-> b
+// is a cycle, and x := 1 has no other place in mo. The model is not
+// extensible (mp.graph, kater-oracle extensible), like the formulation of
+// POWER in MP-EXT of Kokologiannakis's thesis (section 5.4.1). Kater checks
+// extensibility with isPPOIntersectionInPPO, which decides nothing
+// (vzhn/kater-fork#33).
+
+let ppo = data | addr | ctrl
+
+view hb = po
+export coherence hb
+
+export acyclic (ppo | rfe | mo | fr | [W];po;[W] | [R];po;[R] | tc | tj | lin)
