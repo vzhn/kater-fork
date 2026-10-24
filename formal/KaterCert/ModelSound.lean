@@ -167,14 +167,17 @@ theorem find_base {d : Decls} (hwf : d.wf = true) {b v : Int} (hmem : (b, v) ∈
 
 /-! ## Builtin facts -/
 
-theorem subPred_sound {a b : Builtin.Pred} (h : subPred a b = true) {e : G.E}
+theorem subPred_sound (hG : G.WF) {a b : Builtin.Pred} (h : subPred a b = true) {e : G.E}
     (ha : G.pred a e) : G.pred b e := by
+  have hrel := hG.order_rel e
+  have hacq := hG.order_acq e
   cases a <;> cases b <;> (try exact absurd h (by decide)) <;>
     simp only [Graph.pred, Graph.atLeastAcq, Graph.atLeastRel, Graph.isKind, Graph.dependable,
       Graph.hasLocation, Graph.located] at ha ⊢ <;>
     first
     | (simp [ha]; done)
     | (rcases ha with h | h | h <;> simp [h])
+    | (simp [ha] at hrel hacq; simp [hrel, hacq])
 
 /-- Kater's disjoint sets of builtin predicates are pairwise disjoint. -/
 theorem disjoint_builtin (hG : G.WF) {D : List Builtin.Pred} (hD : D ∈ disjointSets)
@@ -407,7 +410,7 @@ theorem interp_base {d : Decls} (hwf : d.wf = true) {b v : Int} (hmem : (b, v) �
 
 /-! ## The facts of the theory, one by one -/
 
-theorem subPredId_sound {p q : Int} (h : Theory.subPredId p q = true) {e : G.E}
+theorem subPredId_sound (hG : G.WF) {p q : Int} (h : Theory.subPredId p q = true) {e : G.E}
     (hp : (G.interp U perLoc).pred p e) : (G.interp U perLoc).pred q e := by
   unfold Theory.subPredId at h
   simp only [Bool.or_eq_true, beq_iff_eq] at h
@@ -422,9 +425,9 @@ theorem subPredId_sound {p q : Int} (h : Theory.subPredId p q = true) {e : G.E}
         simp only [hpa, hqb] at h
         rw [interp_pred_of hpa] at hp
         rw [interp_pred_of hqb]
-        exact subPred_sound h hp
+        exact subPred_sound hG h hp
 
-theorem predIncl_sound (d : Decls) (p q : Predicate)
+theorem predIncl_sound (hG : G.WF) (d : Decls) (p q : Predicate)
     (h : (Theory.ofDecls d).predIncl p q = true) (e : G.E)
     (hp : p.Holds (G.interp U perLoc) e) : q.Holds (G.interp U perLoc) e := by
   simp only [Theory.ofDecls, Bool.or_eq_true, Bool.and_eq_true, beq_iff_eq,
@@ -432,9 +435,9 @@ theorem predIncl_sound (d : Decls) (p q : Predicate)
   rcases h with (rfl | ⟨⟨hpc, hqc⟩, hs⟩) | ⟨⟨hpc, hqc⟩, hs⟩
   · exact hp
   · simp only [Predicate.Holds, hpc, hqc, Bool.false_eq_true, ↓reduceIte] at hp ⊢
-    exact subPredId_sound hs hp
+    exact subPredId_sound hG hs hp
   · simp only [Predicate.Holds, hpc, hqc, ↓reduceIte] at hp ⊢
-    exact fun hq => hp (subPredId_sound hs hq)
+    exact fun hq => hp (subPredId_sound hG hs hq)
 
 theorem unsat_sound (hG : G.WF) (d : Decls) (hd : d.Hold (G.interp U perLoc))
     (ps : List Predicate) (h : (Theory.ofDecls d).unsat ps = true) (e : G.E) :
@@ -455,8 +458,8 @@ theorem unsat_sound (hG : G.WF) (d : Decls) (hd : d.Hold (G.interp U perLoc))
     have h₁ := hc p hp
     have h₂ := hc q hq
     simp only [Predicate.Holds, hpc, hqc, Bool.false_eq_true, ↓reduceIte] at h₁ h₂
-    have ha' := subPredId_sound hpa h₁
-    have hb' := subPredId_sound hqb h₂
+    have ha' := subPredId_sound hG hpa h₁
+    have hb' := subPredId_sound hG hqb h₂
     rcases hD with hD | ⟨D', hD', rfl⟩
     · exact hd.1 D hD a ha b hb hab e ⟨ha', hb'⟩
     · obtain ⟨a', ha'', rfl⟩ := List.mem_map.mp ha
@@ -619,7 +622,7 @@ end Interp
 theorem theory_sound (hG : G.WF) (U : Graph.User G.E) (d : Decls) (hwf : d.wf = true)
     (hd : d.Hold (G.interp U d.perLoc)) :
     (Theory.ofDecls d).Sound (G.interp U d.perLoc) G.sameLoc where
-  predIncl := predIncl_sound d
+  predIncl := predIncl_sound hG d
   unsat := unsat_sound hG d hd
   relIncl := relIncl_sound hG d hwf
   dom := dom_sound hG d hd
