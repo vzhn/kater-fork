@@ -27,6 +27,7 @@
 #include "NFA.hpp"
 #include "RegExp.hpp"
 
+#include <deque>
 #include <stdexcept>
 #include <unordered_map>
 
@@ -53,6 +54,10 @@ public:
 
 	/* The relation RE denotes */
 	auto eval(const RegExp &re) -> Matrix;
+
+	/* The same, evaluated once for all the expressions equal to RE (a
+	 * model's clauses repeat its views): not inside a recursive definition */
+	auto evalShared(const RegExp &re) -> const Matrix &;
 	auto eval(const TransLabel &lab) -> Matrix;
 	auto eval(const Relation &r) -> Matrix;
 
@@ -73,12 +78,28 @@ public:
 	/* The axioms of the module's user declarations (disjoint predicates) */
 	auto declarationAxioms(const VSet<VSet<Predicate::ID>> &disjointSets) -> Term;
 
+	/* GenMC's hb: the view the module names hb, which GenMC's driver records
+	 * the accesses of its execution state with (getHbView()) */
+	auto genmcHb() -> const Matrix &;
+
 private:
 	auto evalMutRec(const MutRecRE &re) -> Matrix;
 	auto holdsSubset(const SubsetConstraint &c) -> Term;
 
+	/* The positional builtins that GenMC's hb defines (last_*, unprotected);
+	 * nullopt for the others */
+	auto positional(Relation::BuiltinID r) -> std::optional<Matrix>;
+
 	Graph *g_;
 	const Theory *theory_;
+
+	/* The module's view hb, and GenMC's hb and positional builtins once evaluated */
+	const RegExp *hbView_ = nullptr;
+	std::optional<Matrix> hb_;
+	std::unordered_map<int, Matrix> positional_;
+
+	/* The expressions evalShared() evaluated (where they stay) */
+	std::deque<std::pair<const RegExp *, Matrix>> shared_;
 
 	/* Objects for the module's symbols, by ID */
 	std::unordered_map<Predicate::ID, Predicate> predicates_;
