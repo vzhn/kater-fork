@@ -52,6 +52,15 @@ graphs. Its tests are labeled `oracle`:
 cd Release && ctest -L oracle
 ```
 
+Given a GenMC source tree, the build also runs the exported GenMC checkers on
+small graphs against that semantics (it builds GenMC's core library, without
+LLVM, in the build directory); those tests are labeled `genmc`:
+
+```shell
+cmake -DGENMC_SOURCE_DIR=path/to/genmc Release
+cd Release && ctest -L genmc
+```
+
 `formal/` is a Lean 4 project that proves sound a checker of the
 certificates Kater emits for its inclusion checks. With Lean installed
 (through [elan](https://github.com/leanprover/elan)), `lake build` in

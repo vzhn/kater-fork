@@ -4,8 +4,9 @@ Kater proves assertions about memory models and exports consistency checkers
 for GenMC. A wrong "holds" is the worst failure it can have: a metatheoretic
 result that is not true, or a checker that accepts executions the model
 forbids. This document describes how Kater is checked against an independent
-semantics, the contracts its decision procedure has to meet, and what the
-checking has found so far.
+semantics, the contracts its decision procedure has to meet, how its exported
+checkers are run against that semantics, and what the checking has found so
+far.
 
 Almost everything here is *bounded* testing: a claim is refuted by a graph of
 at most N events, or not refuted up to N. It finds bugs; it does not prove
@@ -128,6 +129,15 @@ checker in Lean (below).
 The left-hand automaton of each assertion through the stages of the inclusion
 check, for triage.
 
+    kater-oracle genmc --runner RUNNER [-n EVENTS] [--threads T] [--locations L]
+                       [--random N] [--random-events M] [--seed S] [--shard K/N]
+                       [--graph FILE]... FILE...
+
+Runs the GenMC checker Kater exports for each `kat/NAME-genmc.kat` FILE, inside
+GenMC, on every graph up to EVENTS events and on N random ones, and compares its
+answers with the reference semantics (see
+[The exported checkers](#the-exported-checkers)).
+
     tests/oracle/fuzz.py [--cases N] [--jobs J] [--seed S] [--profile P]
 
 Random files with one assertion and a few assumptions; the right-hand side
@@ -142,7 +152,8 @@ The ctests labeled `oracle` (built when Z3 is found) run the audit, the
 transformation contracts, the correct suite against counterexamples and with
 certificates, the soundness regressions with `--refutable`, and the export
 check of every `kat/*-genmc.kat` model; when `lake` is found too, the ones
-labeled `formal` check the suite's certificates with the checker in Lean:
+labeled `formal` check the suite's certificates with the checker in Lean, and
+with GenMC (below), the ones labeled `genmc` run the exported checkers:
 
     ctest -L oracle
 
@@ -256,6 +267,164 @@ the certificates and the Lean that reads them, since the theorem is about the
 automata in the file; and Lean's kernel and compiler. What the automata mean
 for the expressions rests on the contracts above.
 
+## The exported checkers
+
+`kater-oracle export` checks what the exporter proves and rewrites; the code
+`GenMCPrinter` prints from that has to be run. `kater-oracle genmc` runs it: it
+hands small graphs to the checker Kater exports for a model, inside GenMC, and
+compares the checker's answers with the model's meaning in the reference
+semantics.
+
+Kater and GenMC both define a global `Config`, a `VSet` template and the same
+error macros, so they cannot share a translation unit, nor safely a link. The
+checker runs in a process of its own, `kater-oracle-runner MODEL`, which links
+GenMC's core library and the six exported checkers (exported by the build as
+`ORACLE<MODEL>Checker`) and nothing of Kater. It reads a graph and queries from
+a pipe, builds GenMC's execution graph, calls the checker, and writes the
+answers back; `kater-oracle genmc` works out the reference's answers and
+compares. A runner that crashes, or takes over a minute on a graph, is
+restarted, and the graph reported.
+
+A graph is an `Execution` (`tests/oracle/Execution.hpp`): events with a kind,
+an ordering, a location and the class of their GenMC label (LKMM's fences,
+locks, SRCU accesses, fully ordered and non-returning RMWs, failed
+compare-and-swaps), and the edges `rf`, `mo`, the dependencies, `tc`, `tj` and
+`lin`. The reference is the oracle's semantics as it stands: `Graph` has a
+concrete mode, in which every unknown is a constant, so every formula over the
+graph folds to one, and the code that gives `.kat` its meaning for the solver
+gives it on the single graph. (`Term` keeps a constant as a plain truth value
+and makes it a solver term only on demand, which made this six times faster.)
+
+### From a graph to GenMC's
+
+The runner adds the events to an `ExecutionGraph` (a `DepExecutionGraph` for
+IMM and LKMM) as GenMC's driver does: each after its `po`, `rf`, `tc`, `tj` and
+`lin` predecessors (`Execution::additionOrder`), a read with its `rf`, a write
+put in `co` after the writes before it there, then `updateMMViews`. The first
+thread starts with GenMC's initial label, every other thread with a thread
+start. An RMW is a `FaiRead` and a `FaiWrite` (`NoRetFai*` and `LockCas*` for
+LKMM), a failed compare-and-swap a `CasRead` expecting a value no write writes.
+`lin` is added last, as Relinche adds it to a complete graph. A graph with a
+porf cycle, which only IMM and LKMM build, has every event added before any
+`rf` or `co`, and its views computed again until they settle.
+
+The graphs are those GenMC builds: they satisfy the oracle's axioms, their
+RMWs are atomic (in `co`, an RMW's write comes right after the write its read
+reads), and they have no cycle of `po | rf | tc | tj | lin` (for IMM and LKMM,
+of GenMC's prefix relation, `(ppo | rfe | tc | tj | lin)+`). For a graph with
+`lin`, that is the graph without it: Relinche adds `lin` to a graph GenMC
+built, whatever cycles it closes. Dependencies come from reads, and go to the
+events GenMC records them for (not thread starts, method calls, or the write
+of an RMW).
+
+### What is compared
+
+| Check | GenMC | The reference |
+|-------|-------|---------------|
+| `consistent` | `isConsistent(G)` | every `acyclic` and inclusion export holds (not its `unless` clause, which the full check ignores) |
+| `incremental` | `isConsistent(e)`, `e` added last as GenMC adds it: its views, then its `rf` or `co` | every export holds or its `unless` clause does; where `G \ e` satisfies the exports |
+| `view` | each view of each event | the event and its predecessors in the view's definition; on graphs without a porf cycle |
+| `prefix` | `calculatePrefixView(e)` | `e` and its `(ppo \| rfe \| tc \| tj \| lin)+` predecessors (`KatModule::createPPORF`) |
+| `rprefix` | `calculateRevisitPrefixView(e)` (LKMM) | the same with `rppo` |
+| `stores` | `getCoherentStores(r)`, `r` added last, without its `rf` | the writes, and the initial value, `r` can read from with `G` coherent; where `G \ r` is coherent |
+| `placings` | `getCoherentPlacings(w)`, `w` added last, not in `co` | the places in `co` that leave `G` coherent and RMWs atomic |
+| `revisits` | `filterCoherentRevisits(w, reads)`, `w` added last (SC, TSO, RA, RC11) | the reads outside `w`'s prefix whose revisit by `w` leaves a coherent graph: the events added up to the read, and `w`'s prefix, with the read reading from `w` |
+| `relinche` | `isCoherentRelinche(G)`, on graphs with `lin` | `G` is coherent; where it is without `lin` |
+
+`G` is coherent when the view `export coherence` names, composed with
+`(rf | mo | fr)+`, is irreflexive. LKMM's user predicates mean what the GenMC
+code `kat/lkmm-genmc.kat` gives them does, on the labels the runner makes;
+`prop-int`, which GenMC computes by hand (`prop_int_preds`), is
+`(prop \ id) & int`.
+
+The graphs are every one up to a number of events (thread starts aside),
+threads and locations, over instructions that tell apart what the model does:
+SC's `na` and `sc` accesses; TSO's, RA's and RC11's orderings; RMWs and fences;
+for IMM and LKMM, a dependency on the read before an event; for LKMM its twelve
+kinds of fence, locks and unlocks, SRCU, and its RMWs. And random graphs of up
+to `--random-events` events, with thread creation and joins, method calls and
+`lin`, each of a few instruction kinds or of one ordering: half of them built
+as GenMC builds a graph (events in a random interleaving, each read reading
+from a write, and each write going in `co`, where the graph so far stays
+coherent), half anything the axioms allow.
+
+The ctests labeled `genmc`, one per model, are built when `GENMC_SOURCE_DIR`
+(a CMake variable, or the environment variable when configuring) names a GenMC
+source tree; the build makes its core library without LLVM. Each takes about a
+minute:
+
+    cmake -DGENMC_SOURCE_DIR=PATH/TO/genmc BUILD-DIR
+    ctest -L genmc
+
+### Results
+
+Every graph up to the bound (3 threads, 2 locations) and random ones (up to
+8 events, 4 threads, 3 locations); each cell is how many times the check
+ran and, in parentheses, how often the answer was false or ruled some choice
+out:
+
+| | SC | TSO | RA | RC11 | IMM | LKMM |
+|---|---|---|---|---|---|---|
+| every graph up to | 5 events: 1484510 | 4: 408207 | 4: 87326 | 4: 1278894 | 4: 7221304 | 3: 367790 |
+| random graphs | 100000 | 100000 | 100000 | 100000 | 100000 | 200000 |
+| `isConsistent(G)` | 1584510 (187085) | 508207 (20460) | 187326 (0) | 1378894 (1740) | 7306486 (11588) | 562162 (1399) |
+| `isConsistent(e)` | 3285060 (135372) | 1019919 (15611) | 335214 (0) | 2915110 (1026) | 11788590 (9217) | 828330 (1141) |
+| views | 32.0M | 9.1M | 3.9M | 23.4M | 107.2M | 5.8M |
+| prefixes | 10.7M | 3.0M | 1.3M | 7.8M | 35.8M | 2.9M, and 2.9M of `rppo` |
+| `getCoherentStores` | 1495816 (396942) | 400154 (66358) | 101259 (16636) | 1185687 (200533) | 4789424 (1003086) | 237175 (27018) |
+| `getCoherentPlacings` | 1532211 (417274) | 432421 (75846) | 148883 (24355) | 1240301 (212409) | 4864352 (1019148) | 250493 (28992) |
+| `filterCoherentRevisits` | 673967 (64997) | 140654 (8565) | 35379 (2125) | 429858 (26026) | | |
+| `isCoherentRelinche` | 6819 (422) | 6881 (300) | 6336 (282) | 6687 (329) | 6351 (471) | 13640 (751) |
+| disagreements | 0 | 0 | 0 | 0 | 2 | 0 |
+
+(RA's consistency is coherence alone: its `isConsistent` is always true.)
+The two disagreements are a bug, filed as
+[#27](https://github.com/vzhn/kater-fork/issues/27): two random graphs of IMM
+whose method calls `lin` orders in a circle, so that `hb` and then `psc` have a
+cycle, which the full `isConsistent(G)` misses. The answer depends on the
+order the check explores the labels in: renumbering the threads of the graph
+they shrink to makes it find the cycle. The traversal `GenMCPrinter`
+prints for acyclicity never explores a (state, label) pair again once it has
+finished it, and the full check keeps these marks across its starting labels,
+so a pair finished while no starting state was on the stack hides the cycles
+through it (see [Open issues](#open-issues)).
+`tests/oracle/genmc/graphs/issue-27.graph` is that graph; the ctest
+`oracle-genmc-issue-27` replays it and fails once the bug is fixed. Another
+20000 random graphs per model, with `lin` free to close cycles in all of
+them, found five more for IMM and none for the other models.
+
+Three differences are explained, and the comparison allows for them:
+
+- A GenMC `View` is a vector clock whose entries default to index 0, so it
+  always contains every thread's start: views and prefixes are compared
+  without thread starts.
+- The full `isConsistent(G)` ignores `unless` clauses and the incremental one
+  honours them (`GenMCPrinter::output`). An `unless` clause excuses a cycle only
+  in a coherent graph: `[SC];any;[SC] <= id` implies `acyclic psc` only when
+  `hb;eco` is irreflexive. In an incoherent graph, removing one of two SC fences
+  can leave a `psc` cycle that the clause then excuses, and that the
+  incremental check from that fence, which looks for cycles through it, cannot
+  see. GenMC builds only coherent graphs, and keeps the constraints themselves
+  before it adds an event; so does the comparison.
+- The printed prefix of the models without dependency tracking
+  (`calcPPoRfBefore`) follows `po`, `rf`, `tc` and `tj`, not `lin`, which
+  `createPPORF` has. GenMC adds `lin` only when Relinche checks a complete
+  graph, after every prefix is computed, so the difference cannot show; views
+  and prefixes are compared on graphs without `lin`.
+
+Not covered:
+
+- `checkErrors` and `checkWarnings`: their `unless` clauses use `alloc`, `free`,
+  `retire`, `unprotected` and `last_*`, which the oracle has no meaning for.
+- Revisits under IMM and LKMM, whose revisited graph has holes, and the
+  reads-from of the reads in it (`GenMCDriver::getRevisitView`), which is
+  GenMC's driver more than the checker; and reads added before events a revisit
+  kept, which GenMC's LKMM mode relocates.
+- Labels the instructions do not make: allocation and freeing, hazard
+  pointers, abstract locks, helped compare-and-swaps, barriers, condition
+  variables, thread kills; and GenMC's hand-written LKMM checks (RCU, plain
+  accesses).
+
 ## Findings
 
 All fixed, with a regression test each. Most were found by the oracle, the
@@ -368,7 +537,10 @@ After the fixes:
   rewrites with up to 5 events, and 488 letter inclusions of the claims'
   certificates;
 - the exported checkers of all six models type-check against GenMC
-  (0.19.0-vzhn.10) and are byte-identical to the ones before the fixes.
+  (0.19.0-vzhn.10) and are byte-identical to the ones before the fixes;
+- run inside GenMC, they answer as the reference semantics does, but for
+  graphs that hit [#27](https://github.com/vzhn/kater-fork/issues/27), still
+  open (see [Results](#results)).
 
 ## Open issues
 
@@ -406,9 +578,21 @@ After the fixes:
   (`assume data = [EXCL]`, `assume po-loc = [DEP]`, ...): `saturateID` adds a
   copy of the assumption's automaton at every state of the right-hand side,
   and the result grows past what the inclusion check handles.
+- **The exported acyclicity checks can miss a cycle**
+  ([#27](https://github.com/vzhn/kater-fork/issues/27)): the DFS
+  `GenMCPrinter::outputTraversal` prints for them never explores a
+  (state, label) pair again once it has finished it, and the full check keeps
+  these marks across the labels it starts from, so a pair finished while no
+  starting state was on the stack hides the cycles through it. Found by
+  `kater-oracle genmc` on IMM, on graphs whose method calls `lin` orders in a
+  circle; `tests/oracle/genmc/graphs/issue-27.graph` is the reproducer, and
+  the ctest `oracle-genmc-issue-27` fails once this is fixed. Tarjan's
+  algorithm over the pairs, or a nested DFS, would decide the cycles exactly.
 - **Not checked by the oracle**: `isPPOIntersectionInPPO`, which the exporter
   uses to prune acyclicity checks (it is not a constraint the observer sees);
-  and the printed code of `GenMCPrinter`, beyond type-checking it.
+  and, of the printed code, the error and warning checks and the revisits of
+  the dependency-tracking models (see
+  [The exported checkers](#the-exported-checkers)).
 - The oracle trusts Z3, its own axioms, and Kater's parser, which it shares.
 
 ## Next steps
@@ -424,6 +608,3 @@ After the fixes:
    contracts of the passes and the audit's facts are the lemmas. The oracle's
    counterexamples fix the corner cases a formalization must get right (the
    initial writes, `po-loc-imm`, same-location for non-accesses).
-3. **The printer.** Differential testing of the exported checkers inside
-   GenMC: graphs from the oracle, run through the generated `isConsistent`,
-   against the model's acyclicity constraints evaluated by the oracle.
