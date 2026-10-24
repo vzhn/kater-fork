@@ -2,10 +2,13 @@
 
 Work on vzhn/kater-fork issues is tracked on the kater-fork board
 (https://github.com/users/vzhn/projects/4), with the columns Todo,
-In Progress and Done. Keep it current with `scripts/board-move.sh`:
+In Progress, In Review and Done. Keep it current with `scripts/board-move.sh`:
 
 - When you start work on an issue: `./scripts/board-move.sh <issue> "In Progress"`.
 - When you file a new issue: `./scripts/board-move.sh <issue> Todo`.
+- When its PR is ready for review (opened, or marked ready from a draft):
+  `./scripts/board-move.sh <issue> "In Review"`, for every issue the PR
+  closes. A draft PR leaves the issue In Progress.
 - Write `Closes #<issue>` in the PR description; the board moves the issue
   to Done when the PR merges. Move it to Done yourself only for work that
   finishes without a PR.
