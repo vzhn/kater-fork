@@ -33,10 +33,12 @@
 #include "Statement.hpp"
 
 #include <filesystem>
+#include <fstream>
 #include <initializer_list>
 #include <map>
 #include <memory>
 #include <optional>
+#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <type_traits>
@@ -111,6 +113,31 @@ auto lkmmPredicate(const std::string &name, const Execution &x, unsigned e) -> s
 	return std::nullopt;
 }
 
+/* An error or warning export as its line of the .kat has it, from the
+ * error's name on, without comments; empty if the line is not at hand */
+static auto sourceOf(const ExportStatement &stmt) -> std::string
+{
+	const auto &dbg = stmt.getDbgInfo();
+	if (!dbg || dbg->filename.empty())
+		return {};
+	std::ifstream is(dbg->filename);
+	std::string line;
+	for (auto i = 0; i < dbg->line && std::getline(is, line); i++)
+		;
+	if (auto comment = line.find("//"); comment != std::string::npos)
+		line.resize(comment);
+	std::istringstream words(line);
+	std::string word;
+	std::string text;
+	auto named = false;
+	while (words >> word) {
+		if (named)
+			text += (text.empty() ? "" : " ") + word;
+		named |= word == "error" || word == "warning";
+	}
+	return text;
+}
+
 Reference::Reference(std::unique_ptr<KatModule> module) : module_(std::move(module))
 {
 	for (const auto &stmt : module_->exports()) {
@@ -120,6 +147,24 @@ Reference::Reference(std::unique_ptr<KatModule> module) : module_(std::move(modu
 		if (dynamic_cast<const AcyclicConstraint *>(c) != nullptr ||
 		    dynamic_cast<const SubsetConstraint *>(c) != nullptr)
 			consistency_.push_back({.constraint = c, .unless = stmt->getUnless()});
+		if (const auto *w = dynamic_cast<const WarningConstraint *>(c)) {
+			auto text = sourceOf(*stmt);
+			if (text.empty()) {
+				std::ostringstream dump;
+				dump << w->getWarningName();
+				if (const auto *u = stmt->getUnless()) {
+					dump << " unless ";
+					u->dump(dump, &module_->getTheory());
+				}
+				text = dump.str();
+			}
+			clauses_.push_back(
+				{.code = w->getWarningName(),
+				 .error = dynamic_cast<const ErrorConstraint *>(c) != nullptr,
+				 .unless =
+					 dynamic_cast<const SubsetConstraint *>(stmt->getUnless()),
+				 .text = text});
+		}
 	}
 	if (const auto *coh = module_->getCOHDeclaration())
 		coherence_ = coh->getRE();
@@ -140,15 +185,19 @@ Reference::Reference(std::unique_ptr<KatModule> module) : module_(std::move(modu
 }
 
 template <typename F>
-auto Reference::evaluate(const Execution &x, F f) -> std::invoke_result_t<F, Graph &, Semantics &>
+auto Reference::evaluate(const Execution &x, F f, std::optional<std::vector<unsigned>> order)
+	-> std::invoke_result_t<F, Graph &, Semantics &>
 {
-	Graph g(ctx_, x, [&](const Predicate &p, unsigned e) {
-		auto name = baseName(nameOf(p, &module_->getTheory()));
-		auto v = lkmmPredicate(name, x, e);
-		if (!v)
-			throw Unsupported("user predicate " + name);
-		return *v;
-	});
+	Graph g(
+		ctx_, x,
+		[&](const Predicate &p, unsigned e) {
+			auto name = baseName(nameOf(p, &module_->getTheory()));
+			auto v = lkmmPredicate(name, x, e);
+			if (!v)
+				throw Unsupported("user predicate " + name);
+			return *v;
+		},
+		std::move(order));
 	Semantics sem(g, *module_);
 	/* prop-int is (prop \ id) & int, which GenMC computes by hand */
 	if (propInt_ && prop_ != nullptr) {
@@ -234,6 +283,70 @@ auto Reference::revisitPrefix(const Execution &x) -> Pairs
 		x, [&](Graph & /*g*/, Semantics &sem) { return constant(sem.eval(*rpporf_)); });
 }
 
+auto Reference::checks(const Execution &x, const std::vector<unsigned> &order)
+	-> std::vector<std::vector<Verdict>>
+{
+	std::vector<std::vector<Verdict>> result(x.size());
+	std::vector<bool> related(x.size(), false);
+	auto at = [&](const Execution &y, const std::vector<unsigned> &events) {
+		evaluate(
+			y,
+			[&](Graph &g, Semantics &sem) {
+				for (const auto &c : clauses_)
+					verdicts(g, sem, c, events, result, related);
+				return 0;
+			},
+			order);
+	};
+	std::vector<unsigned> checked;
+	for (auto e = 0U; e < x.size(); e++)
+		if (x.events[e].isChecked())
+			checked.push_back(e);
+	at(x, checked);
+	/* A read, without its rf, where a clause relates events to it (its
+	 * left-hand side reads the execution state, which holds the events
+	 * before the read, not its rf) */
+	for (auto e : checked) {
+		if (x.events[e].kind != Kind::R || x.rf[e] < 0 || !related[e])
+			continue;
+		auto y = x;
+		y.rf[e] = -1;
+		result[e].clear();
+		at(y, {e});
+	}
+	return result;
+}
+
+void Reference::verdicts(Graph &g, Semantics &sem, const Clause &c,
+			 const std::vector<unsigned> &events,
+			 std::vector<std::vector<Verdict>> &result, std::vector<bool> &related)
+{
+	auto n = g.size();
+	if (c.unless == nullptr) {
+		for (auto e : events)
+			result[e].push_back({.holds = false, .witnesses = {}});
+		return;
+	}
+	const auto &lhs = sem.evalShared(*c.unless->getLHS());
+	const auto &rhs = sem.evalShared(*c.unless->getRHS());
+	auto both = dynamic_cast<const EqualityConstraint *>(c.unless) != nullptr;
+	for (auto e : events) {
+		Verdict v;
+		for (auto f = 0U; f < n; f++) {
+			if (c.unless->sameEnds() && f != e)
+				continue;
+			auto l = constant(lhs(f, e));
+			auto r = constant(rhs(f, e));
+			related[e] = related[e] || l || (both && r);
+			if ((l && !r) || (both && r && !l)) {
+				v.holds = false;
+				v.witnesses.push_back(static_cast<int>(f));
+			}
+		}
+		result[e].push_back(v);
+	}
+}
+
 auto alphabetOf(const std::string &model) -> Alphabet
 {
 	using enum Order;
@@ -292,6 +405,30 @@ auto alphabetOf(const std::string &model) -> Alphabet
 	}
 	a.threadEvents = true;
 	a.methods = true;
+	return a;
+}
+
+auto heapAlphabetOf(const std::string &model, unsigned hazards) -> Alphabet
+{
+	using enum Order;
+	using I = Alphabet::Instruction;
+	Alphabet a;
+	auto add = [&](Kind k, std::initializer_list<Order> orders) {
+		for (auto o : orders)
+			a.instructions.push_back(I{.kind = k, .order = o});
+	};
+	add(Kind::Alloc, {NA});
+	add(Kind::Free, {NA});
+	add(Kind::HpRetire, {NA});
+	for (auto h = 0U; h < hazards; h++)
+		a.instructions.push_back(I{.kind = Kind::HpProtect, .order = REL, .hp = h});
+	if (model == "sc") {
+		add(Kind::R, {NA, SC});
+		add(Kind::W, {NA, SC});
+	} else {
+		add(Kind::R, {NA, RLX, ACQ});
+		add(Kind::W, {NA, RLX, REL});
+	}
 	return a;
 }
 

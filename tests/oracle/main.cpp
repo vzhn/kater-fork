@@ -55,14 +55,17 @@
  *       against their semantic contracts, on random expressions.
  *
  *   kater-oracle genmc --runner RUNNER [-n EVENTS] [--threads T]
- *                      [--locations L] [--random N] [--random-events M]
- *                      [--seed S] [--limit G] [--shard K/N] [--count]
+ *                      [--locations L] [--heap-events H] [--random N]
+ *                      [--random-events M] [--seed S] [--limit G]
+ *                      [--shard K/N] [--count] [--all-races]
  *                      [--graph FILE]... FILE...
  *       Runs the GenMC checkers Kater exports for the kat/NAME-genmc.kat
- *       FILEs (in kater-oracle-runner) on every graph up to EVENTS events
- *       (with --shard, on the K-th of every N) and on N random ones up to
- *       M, or on the graphs of FILEs, and compares their verdicts with the
- *       reference semantics. --count only counts the graphs.
+ *       FILEs (in kater-oracle-runner) on every graph up to EVENTS events,
+ *       every one with a heap up to H (with --shard, on the K-th of every
+ *       N), and on N random ones up to M, or on the graphs of FILEs, and
+ *       compares their verdicts with the reference semantics. --count only
+ *       counts the graphs; --all-races compares the race of a failing
+ *       clause A = 0 too (vzhn/kater-fork#34).
  *
  *   kater-oracle extensible [-n EVENTS] [--threads T] [--locations L]
  *                           [--graph FILE]... [--refutable] FILE...
@@ -127,8 +130,9 @@ struct Options {
 		   "       kater-oracle transforms [-n EVENTS] [-t SECONDS] [--cases N]\n"
 		   "                               [--seed S] [--depth D] [--only NAME] [-v]\n"
 		   "       kater-oracle genmc --runner RUNNER [-n EVENTS] [--threads T]\n"
-		   "                          [--locations L] [--random N] [--random-events M]\n"
-		   "                          [--seed S] [--limit G] [--shard K/N] [--count]\n"
+		   "                          [--locations L] [--heap-events H] [--random N]\n"
+		   "                          [--random-events M] [--seed S] [--limit G]\n"
+		   "                          [--shard K/N] [--count] [--all-races]\n"
 		   "                          [--graph FILE]... FILE...\n"
 		   "       kater-oracle extensible [-n EVENTS] [--threads T] [--locations L]\n"
 		   "                               [--graph FILE]... [--refutable] [-v] FILE...\n";
@@ -181,12 +185,16 @@ auto parseOptions(int argc, char **argv, int first) -> Options
 			opts.genmc.random = value();
 		else if (arg == "--random-events")
 			opts.genmc.randomBounds.events = value();
+		else if (arg == "--heap-events")
+			opts.genmc.heapBounds.events = value();
 		else if (arg == "--limit")
 			opts.genmc.limit = value();
 		else if (arg == "--graph")
 			opts.genmc.graphs.push_back(text());
 		else if (arg == "--count")
 			opts.genmc.count = true;
+		else if (arg == "--all-races")
+			opts.genmc.allRaces = true;
 		else if (arg == "--shard") {
 			auto spec = text();
 			auto slash = spec.find('/');

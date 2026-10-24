@@ -266,6 +266,20 @@ auto audit(const SearchOptions &opts, bool verbose) -> bool
 			});
 	}
 
+	/* GenMCPrinter reads a single position of alloc, free and retire
+	 * (alloc_pos() and the like): no event has two */
+	for (auto id : {RB::alloc, RB::free, RB::retire}) {
+		auto r = Relation::createBuiltin(id);
+		auto inv = r;
+		inv.invert();
+		a.claim(a.name(TransLabel(r)) + " ; " + a.name(TransLabel(inv)) + " <= id",
+			[&](Graph &g, Semantics &sem) {
+				auto m = sem.eval(r);
+				return notIncluded(m.compose(m.transpose()),
+						   Matrix::identity(g.ctx(), g.size()));
+			});
+	}
+
 	/* The built-in assumptions */
 	for (const auto &assm : module->getAssumptions()) {
 		a.claim("assume " + toString(*assm->getConstraint(), theory),

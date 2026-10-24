@@ -189,6 +189,12 @@ auto eventSet(const std::vector<int> &events) -> std::string
 	return s;
 }
 
+/* Whether KEY is of an error check, whose answer names the errors with their races */
+auto isErrorCheck(const std::string &key) -> bool
+{
+	return key.starts_with("errors ") || key.starts_with("warnings ");
+}
+
 /* An answer "key: list" with its list normalized; thread starts dropped from views */
 auto normalize(const std::string &answer, const Execution &x) -> std::pair<std::string, std::string>
 {
@@ -198,6 +204,11 @@ auto normalize(const std::string &answer, const Execution &x) -> std::pair<std::
 		return {answer.substr(0, space), answer.substr(space + 1)};
 	}
 	auto key = answer.substr(0, colon);
+	if (isErrorCheck(key)) {
+		auto value = answer.substr(colon + 1);
+		value.erase(0, value.find_first_not_of(' '));
+		return {key, value};
+	}
 	auto isView = key.starts_with("view ") || key.starts_with("prefix ") ||
 		      key.starts_with("rprefix ");
 	std::istringstream ls(answer.substr(colon + 1));
@@ -214,6 +225,64 @@ auto normalize(const std::string &answer, const Execution &x) -> std::pair<std::
 		events.push_back(e);
 	}
 	return {key, eventSet(events)};
+}
+
+/*
+ * Whether GenMC's answer GOT to an error check (CODE RACE ..., or none) is
+ * what WANT expects (CODE:W1,W2 ..., or none): the same errors, in the
+ * same order, each with a race among the events that refute its clause
+ */
+auto errorsMatch(const std::string &want, const std::string &got) -> bool
+{
+	std::istringstream ws(want == "none" ? "" : want);
+	std::istringstream gs(got == "none" ? "" : got);
+	std::string w;
+	std::string code;
+	std::string race;
+	while (ws >> w) {
+		if (!(gs >> code >> race))
+			return false;
+		auto colon = w.find(':');
+		auto races = w.substr(colon + 1);
+		if (w.substr(0, colon) != code ||
+		    (races != "*" && !("," + races + ",").contains("," + race + ",")))
+			return false;
+	}
+	return !(gs >> code);
+}
+
+/* An answer to an error check as a reader takes it */
+auto errorsValue(const std::string &v, bool expected) -> std::string
+{
+	if (v == "none" || v.empty())
+		return expected ? "no error" : "none";
+	std::istringstream vs(v);
+	std::string item;
+	std::string out;
+	while (vs >> item) {
+		std::string race;
+		std::string code = item;
+		if (expected) {
+			auto colon = item.find(':');
+			code = item.substr(0, colon);
+			std::string set;
+			std::istringstream ls(item.substr(colon + 1));
+			std::string w;
+			while (std::getline(ls, w, ','))
+				set += (set.empty() ? "e" : ", e") + w;
+			race = item.substr(colon + 1) == "*" ? "any race"
+			       : set.empty()		     ? "no race"
+							     : "the race one of {" + set + "}";
+		} else {
+			vs >> race;
+			race = race == "none"
+				       ? "no race"
+				       : "the race " + (race == "?" || race == "init" ? race
+										      : "e" + race);
+		}
+		out += (out.empty() ? "" : "; ") + code + " with " + race;
+	}
+	return out;
 }
 
 /* The events that may be added last: the last of their thread, which no
@@ -327,6 +396,10 @@ public:
 			}
 		}
 
+		if (ref_->numClauses() > 0)
+			for (auto e : lastCandidates(x))
+				errors(x, e, queries, expected);
+
 		ask(x, f, queries, expected);
 	}
 
@@ -337,17 +410,28 @@ public:
 		if (malformed_ > 0)
 			std::cout << " (" << malformed_ << " violate the oracle's axioms)";
 		std::cout << "\n";
+		/* What a check's negative answers are */
+		auto negative = [](const std::string &kind) -> std::string {
+			if (kind == "stores" || kind == "placings" || kind == "revisits")
+				return "ruling some out";
+			if (kind == "errors")
+				return "with an error";
+			if (kind == "warnings")
+				return "with a warning";
+			return "false";
+		};
 		for (const auto &[kind, n] : checked_) {
 			auto it = failed_.find(kind);
 			std::cout << "  " << kind << ": " << n << " checked";
 			if (auto no = negative_.find(kind); no != negative_.end())
-				std::cout << " (" << no->second
-					  << (kind == "stores" || kind == "placings" ||
-							      kind == "revisits"
-						      ? " ruling some out)"
-						      : " false)");
+				std::cout << " (" << no->second << " " << negative(kind) << ")";
 			std::cout << ", " << (it == failed_.end() ? 0 : it->second)
 				  << " disagree\n";
+			/* Each clause, and how often it failed */
+			if (kind == "clause")
+				for (const auto &[i, c] : clauses_)
+					std::cout << "    " << ref_->clauseText(i) << ": "
+						  << c.first << " (" << c.second << " false)\n";
 		}
 		for (const auto &[kind, n] : failed_)
 			if (!checked_.contains(kind))
@@ -368,7 +452,7 @@ private:
 		}
 		std::map<std::string, std::string> actual;
 		for (const auto &a : *answers) {
-			if (a.starts_with("error")) {
+			if (a.starts_with("error ")) {
 				report("error", x, f, a);
 				return;
 			}
@@ -377,15 +461,26 @@ private:
 		for (const auto &[key, want] : expected) {
 			auto kind = key.substr(0, key.find(' '));
 			checked_[kind]++;
-			if (want == "0" || excluding_.contains(key))
+			if (want == "0" || excluding_.contains(key) ||
+			    (isErrorCheck(key) && want != "none" && !want.empty()))
 				negative_[kind]++;
+			if (kind == "clause") {
+				auto &c = clauses_[std::stoul(key.substr(key.rfind(' ') + 1))];
+				c.first++;
+				c.second += want == "0" ? 1 : 0;
+			}
 			auto it = actual.find(key);
 			if (it == actual.end())
 				report(kind, x, f, describe(key) + ": GenMC did not answer");
-			else if (it->second != want)
+			else if (isErrorCheck(key) ? !errorsMatch(want, it->second)
+						   : it->second != want)
 				report(kind, x, f,
-				       describe(key) + ": GenMC says " + value(it->second) +
-					       ", the reference semantics " + value(want));
+				       describe(key) + ": GenMC says " +
+					       (isErrorCheck(key) ? errorsValue(it->second, false)
+								  : value(it->second)) +
+					       ", the reference semantics " +
+					       (isErrorCheck(key) ? errorsValue(want, true)
+								  : value(want)));
 		}
 		for (const auto &[key, got] : actual)
 			if (!expected.contains(key))
@@ -421,7 +516,65 @@ private:
 			return "getCoherentPlacings(" + e(a) + "), " + e(a) + " added last";
 		if (kind == "revisits")
 			return "filterCoherentRevisits(" + e(a) + ", its revisitable reads)";
+		auto order = [&] {
+			return ", the events added as GenMC does with " + e(a) + " last";
+		};
+		unsigned i = 0;
+		if (kind == "errors" && (ks >> b))
+			return "checkErrors(" + e(b) + ")" + order();
+		if (kind == "warnings" && (ks >> b))
+			return "checkWarnings(" + e(b) + ")" + order();
+		if (kind == "clause" && (ks >> b >> i) && i < ref_->numClauses())
+			return "clause " + std::to_string(i) + " (" + ref_->clauseText(i) +
+			       ") at " + e(b) + order();
 		return key;
+	}
+
+	/* The error checks of the events GenMC checks, as it adds the events of
+	 * X with E last, up to the first error, which stops the execution */
+	void errors(const Execution &x, unsigned e, std::vector<std::string> &queries,
+		    std::map<std::string, std::string> &expected)
+	{
+		auto order = x.additionOrder(e);
+		/* GenMC rebuilds the state of a graph with a porf cycle in an order
+		 * of its own (reconstructState()) */
+		if (!order.causal)
+			return;
+		auto verdicts = ref_->checks(x, order.events);
+		queries.push_back("errors " + std::to_string(e));
+		/* CODE:W1,W2,...: clause I fails, refuted by events W1, W2, ...; any
+		 * race for a clause A = 0 but with --all-races */
+		auto failure = [&](unsigned i, const Reference::Verdict &v) {
+			std::string s = ref_->clauseCode(i) + ":";
+			if (ref_->clauseIsEmpty(i) && !opts_->allRaces)
+				return s + "*";
+			for (auto k = 0U; k < v.witnesses.size(); k++)
+				s += (k == 0 ? "" : ",") + std::to_string(v.witnesses[k]);
+			return s;
+		};
+		for (auto y : order.events) {
+			if (!x.events[y].isChecked())
+				continue;
+			auto key = std::to_string(e) + " " + std::to_string(y);
+			const auto &v = verdicts[y];
+			std::optional<unsigned> error;
+			std::string warnings;
+			for (auto i = 0U; i < v.size(); i++) {
+				expected["clause " + key + " " + std::to_string(i)] =
+					bit(v[i].holds);
+				if (v[i].holds)
+					continue;
+				if (!ref_->clauseIsError(i))
+					warnings +=
+						(warnings.empty() ? "" : " ") + failure(i, v[i]);
+				else if (!error)
+					error = i;
+			}
+			expected["errors " + key] = error ? failure(*error, v[*error]) : "none";
+			if (error)
+				return;
+			expected["warnings " + key] = warnings;
+		}
 	}
 
 	/* An answer as a reader takes it: true, false, or a set of events */
@@ -573,6 +726,8 @@ private:
 	/* This graph's checks that rule some choice out */
 	std::set<std::string> excluding_;
 	std::map<std::string, unsigned> failed_;
+	/* Each clause's verdicts, and its failures */
+	std::map<unsigned, std::pair<unsigned, unsigned>> clauses_;
 };
 
 } // namespace
@@ -621,10 +776,24 @@ auto checkGenMC(const std::string &file, const GenMCOptions &opts) -> bool
 	exhaustive.threadEvents = false;
 	exhaustive.methods = false;
 	auto enumerated = 0UL;
-	enumerate(exhaustive, opts.bounds, ref.isDepTracking(), [&](const Execution &x) {
+	auto visit = [&](const Execution &x) {
 		if (enumerated++ % opts.shards != opts.shard || opts.count)
 			return true;
 		return check(x);
+	};
+	enumerate(exhaustive, opts.bounds, ref.isDepTracking(), visit);
+	/* The graphs of the memory-error checks, up to a bound of their own:
+	 * every one but those of the model's own instructions, which the
+	 * model's alphabet has (TSO's and RA's have no plain accesses) */
+	auto heap = heapAlphabetOf(model, 1);
+	auto ownInstruction = [&](const Execution::Event &ev) {
+		return ev.kind == Kind::TB ||
+		       std::ranges::any_of(exhaustive.instructions, [&](const auto &i) {
+			       return i.kind == ev.kind && i.order == ev.order && !i.rmw;
+		       });
+	};
+	enumerate(heap, opts.heapBounds, ref.isDepTracking(), [&](const Execution &x) {
+		return std::ranges::all_of(x.events, ownInstruction) || visit(x);
 	});
 	if (opts.count) {
 		std::cout << file << ": " << enumerated << " graphs\n";
@@ -632,13 +801,21 @@ auto checkGenMC(const std::string &file, const GenMCOptions &opts) -> bool
 	}
 
 	/* Half the random graphs are built as GenMC builds them, coherent at
-	 * every step; the others are any the axioms allow */
+	 * every step; the others are any the axioms allow. Some have a heap */
 	std::mt19937 rng(opts.seed);
 	auto coherent = [&](const Execution &x) { return ref.coherent(x); };
-	for (auto i = 0U; i < opts.random && within(); i++)
-		check(i % 2 == 0 ? randomBuiltExecution(alphabet, opts.randomBounds, rng, coherent)
-				 : randomExecution(alphabet, opts.randomBounds, ref.isDepTracking(),
-						   rng));
+	auto withHeap = alphabet;
+	for (const auto &i : heapAlphabetOf(model, 2).instructions)
+		if (std::ranges::none_of(withHeap.instructions, [&](const auto &j) {
+			    return j.kind == i.kind && j.order == i.order && !j.rmw &&
+				   j.flavor == Flavor::Plain && j.hp == i.hp;
+		    }))
+			withHeap.instructions.push_back(i);
+	for (auto i = 0U; i < opts.random && within(); i++) {
+		const auto &a = i % 4 < 2 ? alphabet : withHeap;
+		check(i % 2 == 0 ? randomBuiltExecution(a, opts.randomBounds, rng, coherent)
+				 : randomExecution(a, opts.randomBounds, ref.isDepTracking(), rng));
+	}
 	return cmp.summary(file);
 }
 

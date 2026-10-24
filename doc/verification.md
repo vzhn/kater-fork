@@ -27,9 +27,11 @@ variants of user relations, and for the user's `disjoint` declarations.
 
 A graph has N events, numbered thread by thread in program order (any graph
 can be numbered so), so thread boundaries are the only unknown of `po`. Each
-event has a kind, an ordering, and a few label flags; reads and writes have a
-location. The base relations are `rf`, `mo`, the dependencies, `tc`, `tj` and
-`lin`; everything else is derived.
+event has a kind, an ordering, and a few label flags; reads, writes,
+allocations, frees, retires and protections have a location, and a
+protection a hazard pointer. The base relations are `rf`, `mo`, the
+dependencies, `tc`, `tj` and `lin`, and the order of GenMC's execution state
+(below); everything else is derived.
 
 The axioms are what every graph GenMC builds satisfies, taken from GenMC's
 `Execution/EventLabel.hpp` and `Execution/ExecutionGraph.hpp`, not from
@@ -45,9 +47,21 @@ Kater's Theory:
 | `rf`, `mo` and `fr` never go backwards in `po` | rf and coherence choices respect `hb ⊇ po` |
 | Dependencies go forward in `po`, out of dependable events (R, ALLOC, some OTHER) | `isDependable()` |
 | `tc`, `tj` cross threads, from TC to TB and TE to TJ; `lin` goes from METHOD-END to METHOD-BEGIN | label kinds |
+| R, W, ALLOC, FREE, HPRET and HPPROTECT have a location; one an ALLOC is of is a heap block, with one ALLOC, and FREE, HPRET and HPPROTECT are of heap blocks | `MemLabel::getAddr()`, `HpProtectLabel::getProtectedAddr()`; `free()` and the like look up the block's allocation |
+| A block's ALLOC precedes its other events in `po \| rf \| tc \| tj` | a thread reaches a block through the address its allocation returned |
+| GenMC's execution state holds the events in a strict total order: each after its `po` predecessors and its block's ALLOC, and, without a cycle of `po \| rf \| tc \| tj`, after the events it reads from, was created by or joins | `GenMCDriver` records each event as it adds it, and `reconstructState()` rebuilds the state in such an order on a restart |
 
 Initial writes are implicit: a read of the initial value has no `rf` edge and
 is `fr`-before every write to its location.
+
+GenMC's memory-error checks read what its driver keeps in an execution state
+(`ExecutionState`): the allocations, the frees and retires, the protections
+of the hazard pointers, and the last accesses of each location. An event
+GenMC checks sees the events before it there (`checkForRaces()`), so the
+positional builtins are relative to the order of the state, and to GenMC's
+hb: the view the model names `hb` (`getHbView()`), with which the state
+records each access; in a module without one, any strict order between
+`po` and `(po | rf | tc | tj | lin)+`.
 
 The builtins mean what GenMC computes:
 
@@ -63,12 +77,20 @@ The builtins mean what GenMC computes:
 | `detour` | GenMC's: a write and a `po`-later read of its location that reads from another write |
 | `any` | all pairs |
 | `ctrl`, `addr`, `data`, `pctrl`, `tc`, `tj`, `lin` | uninterpreted, within the axioms above |
+| `alloc` | from a block's ALLOC to its R, W, FREE and HPRET (`alloc_pos()`) |
+| `free`, `retire` | to an event from the last FREE or HPRET of its block before it in the state, if a FREE, or an HPRET (`free_pos()`, `retire_pos()`: after a retire, a free is no double free) |
+| `last_na_reads`, `last_at_reads`, `last_at_writes` | to an event from the NA reads, the atomic reads, the atomic writes of its location before it in the state, the hb-maximal ones (`pomax_*_pos()`: recording an access drops the ones in its hb view) |
+| `last_na_writes` | to an event from the last NA write of its location before it in the state |
+| `unprotected` | to a block's ALLOC, FREE and HPRET from its hb-maximal accesses before them in the state that no hazard pointer protected when they entered it (`unprotected_pos()`) |
+| `HEAP` | an access of a heap block |
+| `HPPROT` | an access of a heap block whose closest HPPROTECT of the block before it in `po` is through a hazard pointer that protects nothing later before it (`isHazptrProtected()`) |
+| `NOTHPPROT` | an access of a block retired before it in the state (`retire_pos()`), not `HPPROT` |
 
-`same-thread`, `si`, `alloc`, `free`, `retire`, `loc-overlap`, `last_*` and
-`unprotected` have no meaning in the oracle; constraints that use them are
-reported as unsupported. User relations and predicates are uninterpreted,
-subject to the module's `assume` and `disjoint` statements. The per-location
-variant `r-loc` of a user relation `r` is `r & loc`.
+`same-thread`, `si` and `loc-overlap` have no meaning in the oracle;
+constraints that use them are reported as unsupported. User relations and
+predicates are uninterpreted, subject to the module's `assume` and
+`disjoint` statements. The per-location variant `r-loc` of a user relation
+`r` is `r & loc`.
 
 Conventions:
 
@@ -106,7 +128,9 @@ Every fact the Theory states about the builtins: inclusions between relations,
 predicates and whole letters (`Theory::isIncludedIn`), domains and codomains,
 disjointness between predicates, the label pairs that do not compose, the relations treated
 as eco, the per-location variants, and the built-in assumptions
-(`fr;mo <= fr`, `po;po <= po`, `mo;mo <= mo`, `rf;fr <= mo`).
+(`fr;mo <= fr`, `po;po <= po`, `mo;mo <= mo`, `rf;fr <= mo`); and that no
+event has two `alloc`, `free` or `retire` predecessors, as the exported code
+reads one (`alloc_pos()` and the like).
 
     kater-oracle transforms [-n EVENTS] [--cases N] [--seed S] [--depth D] [--only PASS]
 
@@ -136,12 +160,13 @@ The left-hand automaton of each assertion through the stages of the inclusion
 check, for triage.
 
     kater-oracle genmc --runner RUNNER [-n EVENTS] [--threads T] [--locations L]
-                       [--random N] [--random-events M] [--seed S] [--shard K/N]
+                       [--heap-events H] [--random N] [--random-events M]
+                       [--seed S] [--shard K/N] [--all-races]
                        [--graph FILE]... FILE...
 
 Runs the GenMC checker Kater exports for each `kat/NAME-genmc.kat` FILE, inside
-GenMC, on every graph up to EVENTS events and on N random ones, and compares its
-answers with the reference semantics (see
+GenMC, on every graph up to EVENTS events, every one with a heap up to H, and
+on N random ones, and compares its answers with the reference semantics (see
 [The exported checkers](#the-exported-checkers)).
 
     kater-oracle extensible [-n EVENTS] [--threads T] [--locations L]
@@ -320,12 +345,14 @@ restarted, and the graph reported.
 A graph is an `Execution` (`tests/oracle/Execution.hpp`): events with a kind,
 an ordering, a location and the class of their GenMC label (LKMM's fences,
 locks, SRCU accesses, fully ordered and non-returning RMWs, failed
-compare-and-swaps), and the edges `rf`, `mo`, the dependencies, `tc`, `tj` and
-`lin`. The reference is the oracle's semantics as it stands: `Graph` has a
-concrete mode, in which every unknown is a constant, so every formula over the
-graph folds to one, and the code that gives `.kat` its meaning for the solver
-gives it on the single graph. (`Term` keeps a constant as a plain truth value
-and makes it a solver term only on demand, which made this six times faster.)
+compare-and-swaps), the hazard pointer of a protection, and the edges `rf`,
+`mo`, the dependencies, `tc`, `tj` and `lin`; a location an allocation is of
+is a heap block. The reference is the oracle's semantics as it stands: `Graph`
+has a concrete mode, in which every unknown is a constant, so every formula
+over the graph folds to one, and the code that gives `.kat` its meaning for
+the solver gives it on the single graph. (`Term` keeps a constant as a plain
+truth value and makes it a solver term only on demand, which made this six
+times faster.)
 
 ### From a graph to GenMC's
 
@@ -340,6 +367,18 @@ LKMM), a failed compare-and-swap a `CasRead` expecting a value no write writes.
 porf cycle, which only IMM and LKMM build, has every event added before any
 `rf` or `co`, and its views computed again until they settle.
 
+An allocation is a `MallocLabel` of a heap block, which the runner allocates
+in GenMC's `ExecutionState` (`onAlloc()`); a free is a `FreeLabel`, a retire
+an `HpRetireLabel`, a protection an `HpProtectLabel` through a hazard pointer
+of a static location that nothing else accesses. The state records each event
+once it is added, with the views it has then (`onNALoad()`, `onATStore()`,
+`onFree()`, `onProtect()`, ...), as `reconstructState()` rebuilds it on a
+restart. For the memory-error checks, the runner adds every event as
+`GenMCDriver` does: its views, a write's place in `co`, then, for a read, a
+write, a free or a retire, `checkErrors()` and `checkWarnings()`
+(`checkForRaces()`), before a read's `rf`, which comes next with its views
+again. An error stops the execution.
+
 The graphs are those GenMC builds: they satisfy the oracle's axioms, their
 RMWs are atomic (in `co`, an RMW's write comes right after the write its read
 reads), and they have no cycle of `po | rf | tc | tj | lin` (for IMM and LKMM,
@@ -347,7 +386,7 @@ of GenMC's prefix relation, `(ppo | rfe | tc | tj | lin)+`). For a graph with
 `lin`, that is the graph without it: Relinche adds `lin` to a graph GenMC
 built, whatever cycles it closes. Dependencies come from reads, and go to the
 events GenMC records them for (not thread starts, method calls, or the write
-of an RMW).
+of an RMW). A block's allocation precedes its events in porf.
 
 ### What is compared
 
@@ -362,6 +401,9 @@ of an RMW).
 | `placings` | `getCoherentPlacings(w)`, `w` added last, not in `co` | the places in `co` that leave `G` coherent and RMWs atomic |
 | `revisits` | `filterCoherentRevisits(w, reads)`, `w` added last (SC, TSO, RA, RC11) | the reads outside `w`'s prefix whose revisit by `w` leaves a coherent graph: the events added up to the read, and `w`'s prefix, with the read reading from `w` |
 | `relinche` | `isCoherentRelinche(G)`, on graphs with `lin` | `G` is coherent; where it is without `lin` |
+| `clause` | each `export error` and `export warning` clause (`checkErrorN`, `checkWarningN`, called by a checker of their own) at each event GenMC checks, the events added as `GenMCDriver` adds them, with each event that can be last, last, up to the first error | its `unless` clause, `A <= B`, holds at the event `e`: every `A`-predecessor of `e` is a `B`-predecessor, on the graph as GenMC has it then: the events before `e` in the execution state, and `e` without its `rf` |
+| `errors` | `checkErrors(e)` at the same events | the error of the first error clause that fails, with a race among the events that refute it |
+| `warnings` | `checkWarnings(e)`, with no warning reported yet | the warnings of the warning clauses that fail, in order, each with such a race |
 
 `G` is coherent when the view `export coherence` names, composed with
 `(rf | mo | fr)+`, is irreflexive. LKMM's user predicates mean what the GenMC
@@ -369,21 +411,43 @@ code `kat/lkmm-genmc.kat` gives them does, on the labels the runner makes;
 `prop-int`, which GenMC computes by hand (`prop_int_preds`), is
 `(prop \ id) & int`.
 
+An exported clause checks the pairs that end at the event just added, with
+the positional relations read from the state: that is all GenMC asks, and
+what the reference evaluates, its positional builtins being relative to the
+state (see [Execution graphs](#execution-graphs)). The checks run once for
+each event that can be added last, so each event is checked with the others
+in several orders: the order of the state decides the last NA write of a
+location, the last free of a block, and whether an access was protected.
+`A = B` (none of the models has one) holds at `e` in both directions, and an
+export without `unless` never does. The build has the checker's clauses as
+`ORACLE<MODEL>Clauses` (`tests/oracle/genmc/Clauses.cmake`), as they are
+protected members of their own names.
+
 The graphs are every one up to a number of events (thread starts aside),
 threads and locations, over instructions that tell apart what the model does:
 SC's `na` and `sc` accesses; TSO's, RA's and RC11's orderings; RMWs and fences;
 for IMM and LKMM, a dependency on the read before an event; for LKMM its twelve
-kinds of fence, locks and unlocks, SRCU, and its RMWs. And random graphs of up
+kinds of fence, locks and unlocks, SRCU, and its RMWs. Then, for the
+memory-error checks, every graph up to `--heap-events` events over
+allocations, frees, retires, protections through one hazard pointer, plain
+accesses and atomic ones of the orderings the model's hb tells apart (SC's
+`sc`; `rlx`, `acq` and `rel` for the others), but those of the model's own
+instructions: the graphs with a heap, and, for TSO and RA, whose instructions
+have no plain accesses, those with a plain access. And random graphs of up
 to `--random-events` events, with thread creation and joins, method calls and
 `lin`, each of a few instruction kinds or of one ordering: half of them built
 as GenMC builds a graph (events in a random interleaving, each read reading
 from a write, and each write going in `co`, where the graph so far stays
-coherent), half anything the axioms allow.
+coherent), half anything the axioms allow. Half of each have frees, retires
+and protections through two hazard pointers too, and plain accesses for TSO
+and RA: the locations they are of, and others at random, are heap blocks,
+allocated at the start of the first thread with an event of them (the graphs
+where porf reaches the block's other events).
 
 The ctests labeled `genmc`, one per model, are built when `GENMC_SOURCE_DIR`
 (a CMake variable, or the environment variable when configuring) names a GenMC
-source tree; the build makes its core library without LLVM. Each takes about a
-minute:
+source tree; the build makes its core library without LLVM. Each takes one or
+two minutes:
 
     cmake -DGENMC_SOURCE_DIR=PATH/TO/genmc BUILD-DIR
     ctest -L genmc
@@ -421,6 +485,36 @@ the cycle). Of the random graphs of IMM above, the checker from before item
 `oracle-genmc-issue-27` replays the smallest such graph,
 `tests/oracle/genmc/graphs/issue-27.graph`.
 
+The memory-error checks came later. They ran on every graph up to the bounds
+above, but IMM's (3 events), every graph of their own instructions up to 5
+events (TSO and RA: 4), and 100000 random graphs per model, half of them with
+a heap; each cell is how many times the check ran and, in parentheses, how
+often the clause failed, or GenMC found an error or a warning:
+
+| | SC | TSO | RA | RC11 | IMM | LKMM |
+|---|---|---|---|---|---|---|
+| every graph up to | 5 events: 1484510 | 4: 408207 | 4: 87326 | 4: 1278894 | 3: 66901 | 3: 367790 |
+| and of the memory-error checks | 5 events: 221273 | 4: 209950 | 4: 209950 | 5: 964818 | 5: 967572 | 5: 967572 |
+| random graphs | 100000 | 100000 | 100000 | 100000 | 100000 | 100000 |
+| clauses | 103.4M (3.7M) | 39.9M (0.9M) | 21.2M (0.5M) | 121.6M (3.9M) | 55.2M (2.0M) | 45.2M (0.9M) |
+| `checkErrors` | 12925529 (3191242) | 4991701 (354097) | 2650045 (355264) | 15201110 (2587297) | 6901743 (1408051) | 9043394 (194512) |
+| `checkWarnings` | 9734287 (436589) | 4637604 (527426) | 2294781 (166484) | 12613813 (1098685) | 5493692 (436521) | 8848882 (683522) |
+| disagreements | 0 | 0 | 0 | 0 | 0 | 0 |
+
+The checks of the previous table ran again on these graphs, and agreed too:
+the checker from before item 16 accepts 15 of these random graphs of IMM,
+#27's, and the one from after none. Every clause of every model fails on
+some graphs, in the ctests already: the memory-error clauses tens to
+hundreds of times, the races thousands. Left out is the race of a failing clause `A = 0`, which the exported
+checks do not set ([#34](https://github.com/vzhn/kater-fork/issues/34)):
+compared (`--all-races`), it disagrees in 1074 of the 31817 errors GenMC finds
+on RC11's graphs of the memory-error checks up to 4 events, where
+`checkErrors()` gives the race of a double free, of a use after free or of an
+access to a retired block as none, or as what an earlier failing clause left.
+`tests/oracle/genmc/graphs/issue-34.graph` has a warning leave its race to a
+double free; the ctest `oracle-genmc-issue-34` compares it with
+`--all-races`, and fails once the bug is fixed.
+
 Three differences are explained, and the comparison allows for them:
 
 - A GenMC `View` is a vector clock whose entries default to index 0, so it
@@ -442,16 +536,28 @@ Three differences are explained, and the comparison allows for them:
 
 Not covered:
 
-- `checkErrors` and `checkWarnings`: their `unless` clauses use `alloc`, `free`,
-  `retire`, `unprotected` and `last_*`, which the oracle has no meaning for.
 - Revisits under IMM and LKMM, whose revisited graph has holes, and the
   reads-from of the reads in it (`GenMCDriver::getRevisitView`), which is
   GenMC's driver more than the checker; and reads added before events a revisit
   kept, which GenMC's LKMM mode relocates.
-- Labels the instructions do not make: allocation and freeing, hazard
-  pointers, abstract locks, helped compare-and-swaps, barriers, condition
-  variables, thread kills; and GenMC's hand-written LKMM checks (RCU, plain
-  accesses).
+- The memory-error checks of graphs with a porf cycle (IMM, LKMM), whose state
+  GenMC rebuilds in an order of its own (`reconstructState()`).
+- A read GenMC records in its state as it adds it, with the views it has
+  before its `rf` (`handleLoad()`); the runner records it with its `rf`, as a
+  restart does. The last accesses of a location then differ only by accesses
+  `hb`-before another one kept, which the checks `... <= hb` cannot tell apart,
+  though one may be the race reported.
+- What GenMC's driver checks around the checker: invalid and uninitialized
+  accesses (`checkAccessValidity()`, `checkInitializedMem()`), the WW race it
+  reports from a write's placings in `co`, the warnings it reported in other
+  executions (the runner tells the checker it reported none), and LKMM's races
+  and frees, which it decides on complete executions (`checkLkmmRace()`,
+  `checkLkmmSrcu()`).
+- Hazard pointers written or freed, which ends their protection; blocks of
+  more than one location.
+- Labels the instructions do not make: abstract locks, helped
+  compare-and-swaps, barriers, condition variables, thread kills; and GenMC's
+  hand-written LKMM checks (RCU, plain accesses).
 
 ## Extensibility
 
@@ -731,7 +837,9 @@ After the fixes:
   which changed their acyclicity checks alone; a Kater built with assertions
   exports the same ones;
 - run inside GenMC, they answer as the reference semantics does on every
-  graph tried (see [Results](#results)).
+  graph tried, their memory-error checks included, but for the races of
+  [#34](https://github.com/vzhn/kater-fork/issues/34), still open (see
+  [Results](#results)).
 
 ## Open issues
 
@@ -755,6 +863,14 @@ After the fixes:
   15: the oracle refutes two, and finds no counterexample to the other two
   with up to 4 events (one has hypotheses no graph meets, since it makes
   `ctrl` reflexive, which Kater cannot know is impossible).
+- **The race of an error whose `unless` clause is `A = 0`**
+  ([#34](https://github.com/vzhn/kater-fork/issues/34)): the check
+  `GenMCPrinter` prints for it sets no counterexample, so `checkErrors()`
+  gives as the race of a double free or a use after free what an earlier
+  failing clause left, possibly of an earlier execution, or none.
+  `GenMCDriver::reportError()` dereferences it. Found by `kater-oracle genmc`;
+  `tests/oracle/genmc/graphs/issue-34.graph` is the reproducer, and the ctest
+  `oracle-genmc-issue-34` fails once this is fixed.
 - **The exporter's extensibility check decides nothing**
   ([#33](https://github.com/vzhn/kater-fork/issues/33)):
   `isPPOIntersectionInPPO` looks for `eco` steps in inverted labels, finds
@@ -764,8 +880,8 @@ After the fixes:
   `oracle-export-issue-33-*` fail once Kater rejects them. What the check
   should decide is open: a condition that implies extensibility, which
   `kater-oracle extensible` can test it against.
-- **Not checked by the oracle**: of the printed code, the error and warning
-  checks and the revisits of the dependency-tracking models (see
+- **Not checked by the oracle**: of the printed code, the revisits of the
+  dependency-tracking models (see
   [The exported checkers](#the-exported-checkers)).
 - The oracle trusts Z3, its own axioms, and Kater's parser, which it shares.
 

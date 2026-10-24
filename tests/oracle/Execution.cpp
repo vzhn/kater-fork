@@ -106,6 +106,14 @@ auto Execution::has(const Edges &edges, unsigned a, unsigned b) -> bool
 	return std::ranges::find(edges, std::make_pair(a, b)) != edges.end();
 }
 
+auto Execution::allocationOf(int l) const -> std::optional<unsigned>
+{
+	for (auto e = 0U; e < size(); e++)
+		if (events[e].kind == Kind::Alloc && events[e].loc == l)
+			return e;
+	return std::nullopt;
+}
+
 auto Execution::additionOrder(std::optional<unsigned> last) const -> Addition
 {
 	auto n = size();
@@ -156,7 +164,7 @@ void Execution::print(std::ostream &os, const std::string &indent) const
 	for (auto e = 0U; e < size(); e++) {
 		const auto &ev = events[e];
 		os << indent << eventName(e) << ": T" << ev.thread << " " << kindName(ev.kind);
-		if (ev.isAccess())
+		if (ev.hasLocation())
 			os << "(" << locationName(ev.loc) << ")";
 		os << " " << orderName(ev.order);
 		if (ev.excl)
@@ -165,6 +173,8 @@ void Execution::print(std::ostream &os, const std::string &indent) const
 			os << " " << flavorName(ev.flavor);
 		if (ev.flavor == Flavor::LkmmFence)
 			os << ":" << lkmmFenceName(ev.fence);
+		if (ev.kind == Kind::HpProtect)
+			os << " hp:" << ev.hp;
 		os << "\n";
 	}
 
@@ -225,7 +235,7 @@ auto Execution::parse(std::istream &is, std::string &error) -> std::optional<Exe
 		if (!(ls >> head) || head[0] == '#')
 			continue;
 
-		/* An event: eN: Tt KIND[(loc)] order [excl] [flavor[:fence]] */
+		/* An event: eN: Tt KIND[(loc)] order [excl] [flavor[:fence]] [hp:N] */
 		if (head.back() == ':' && parseEvent(head.substr(0, head.size() - 1)) >= 0) {
 			if (parseEvent(head.substr(0, head.size() - 1)) !=
 			    static_cast<int>(x.size()))
@@ -253,12 +263,23 @@ auto Execution::parse(std::istream &is, std::string &error) -> std::optional<Exe
 				return fail("unknown kind or ordering");
 			ev.kind = static_cast<Kind>(k);
 			ev.order = static_cast<Order>(o);
-			if (ev.isAccess() != (ev.loc >= 0))
-				return fail("reads and writes, and only they, have a location");
+			if (ev.hasLocation() != (ev.loc >= 0))
+				return fail(
+					"accesses, allocations, frees, retires and protections, "
+					"and only they, have a location");
 			std::string word;
 			while (ls >> word) {
 				if (word == "excl") {
 					ev.excl = true;
+					continue;
+				}
+				if (word.starts_with("hp:") && ev.kind == Kind::HpProtect) {
+					try {
+						ev.hp = static_cast<unsigned>(
+							std::stoul(word.substr(3)));
+					} catch (...) {
+						return fail("bad hazard pointer " + word);
+					}
 					continue;
 				}
 				auto colon = word.find(':');
