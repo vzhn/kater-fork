@@ -54,7 +54,9 @@ cd Release && ctest -L oracle
 
 Given a GenMC source tree, the build also runs the exported GenMC checkers on
 small graphs against that semantics (it builds GenMC's core library, without
-LLVM, in the build directory); those tests are labeled `genmc`:
+LLVM, in the build directory); those tests are labeled `genmc`. The checkers
+are printed for the layout of [vzhn/genmc-fork](https://github.com/vzhn/genmc-fork)
+(`genmc/genmc/Models`), and a tree without it runs none:
 
 ```shell
 cmake -DGENMC_SOURCE_DIR=path/to/genmc Release

@@ -58,7 +58,7 @@
 
 #include "genmc/ADT/DepView.hpp"
 #include "genmc/ADT/View.hpp"
-#include "genmc/Execution/Consistency/ConsistencyChecker.hpp"
+#include "genmc/Models/ConsistencyChecker.hpp"
 #include "genmc/Execution/DepExecutionGraph.hpp"
 #include "genmc/Execution/EventLabel.hpp"
 #include "genmc/Execution/ExecutionGraph.hpp"
@@ -150,15 +150,26 @@ auto errorName(VerificationError e) -> std::string
  */
 class Build {
 
+	/* Makes CHECKER compute the Relinche views too. The checkers read their
+	 * options through getConf(), which only ConsistencyChecker::create()
+	 * sets, for GenMC's own checkers; getConf() points to the checker's
+	 * own, non-const, options */
+	static void collectLinSpec(ConsistencyChecker &checker)
+	{
+		const_cast<ModelOptions *>(checker.getConf())->collectLinSpec = true;
+	}
+
 public:
 	Build(Factory factory, const Execution &x, std::optional<unsigned> last, Last how)
 		: x_(&x), last_(last), how_(how)
 	{
-		conf_.collectLinSpec = "kater-oracle"; /* compute the Relinche views too */
+		conf_.collectLinSpec = "kater-oracle";
 		checker_ = factory(&conf_);
+		collectLinSpec(*checker_);
 		conf_.isDepTrackingModel = checker_->isDepTracking();
 		if (how == Last::Checked) {
 			clauseChecker_ = factory(&conf_);
+			collectLinSpec(*clauseChecker_);
 			clauses_ = dynamic_cast<const ClauseChecker *>(&*clauseChecker_);
 		}
 		for (auto l = 0U; l < x.numLocations(); l++) {
@@ -190,7 +201,7 @@ public:
 					StorageType::ST_Volatile, AddressSpace::AS_User);
 		}
 		const ExecutionGraph::Config gc{
-			.execState = &state_, .consChecker = &*checker_, .emitNALabels = true};
+			.execState = &state_, .memModel = &*checker_, .emitNALabels = true};
 		if (checker_->isDepTracking())
 			g_ = std::make_unique<DepExecutionGraph>(gc);
 		else

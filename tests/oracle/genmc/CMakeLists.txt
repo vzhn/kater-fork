@@ -1,10 +1,16 @@
 # kater-oracle-runner: the GenMC checkers Kater exports, run on the graphs
-# `kater-oracle genmc` hands it (needs a GenMC source tree; its core library
-# is built here, without LLVM)
+# `kater-oracle genmc` hands it (needs a GenMC source tree of the layout
+# GenMCPrinter prints for, vzhn/genmc-fork's, with the models in
+# genmc/genmc/Models; its core library is built here, without LLVM)
 set(GENMC_SOURCE_DIR "$ENV{GENMC_SOURCE_DIR}" CACHE PATH
   "A GenMC source tree, to run the exported checkers in")
 if(NOT EXISTS "${GENMC_SOURCE_DIR}/genmc/genmc/Execution/ExecutionGraph.hpp")
   message(STATUS "GenMC not found (GENMC_SOURCE_DIR): the exported checkers will not be run")
+  return()
+endif()
+if(NOT EXISTS "${GENMC_SOURCE_DIR}/genmc/genmc/Models/ConsistencyChecker.hpp")
+  message(STATUS "GenMC at ${GENMC_SOURCE_DIR} has not the layout the exported checkers "
+    "include (genmc/genmc/Models): they will not be run")
   return()
 endif()
 message(STATUS "Running the exported checkers in GenMC from ${GENMC_SOURCE_DIR}")
