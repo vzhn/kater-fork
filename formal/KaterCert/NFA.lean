@@ -7,6 +7,9 @@ Kater's automata (`NFA`): states numbered from 0, labeled transitions, and
 starting and accepting states. An automaton denotes the pairs of events that
 a word it accepts relates, where a word denotes the composition of its
 letters, and the empty word the identity.
+
+This mirrors the C++ region `NFASemantics` (`tests/oracle/Semantics.cpp`):
+`scripts/check-mirrors.sh` reports when it changes.
 -/
 
 namespace KaterCert

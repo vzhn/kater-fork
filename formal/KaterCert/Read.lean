@@ -14,6 +14,9 @@ does not need (the letters' text) are ignored.
 
 What is read here is trusted to be what Kater wrote: the proof is about the
 `Certificate` this produces.
+
+This mirrors the C++ region `CertificateJSON` (`tests/oracle/Certificate.cpp`):
+`scripts/check-mirrors.sh` reports when it changes.
 -/
 
 namespace KaterCert.Read

@@ -49,6 +49,7 @@ Semantics::Semantics(Graph &g, const KatModule &module) : g_(&g), theory_(&modul
 			perLocBase_.emplace(theory_->getPerLoc(r).getID(), r);
 }
 
+/* formal: begin LetterSemantics, mirrored by formal/KaterCert/Label.lean */
 auto Semantics::eval(const Predicate &p, unsigned e) -> Term
 {
 	auto base = [&]() -> Term {
@@ -112,6 +113,7 @@ auto Semantics::eval(const TransLabel &lab) -> Matrix
 					   eval(lab.getPostChecks(), j));
 	return result;
 }
+/* formal: end LetterSemantics */
 
 /* Whether RE refers to a relation of RECS through its inverse */
 static auto refersInverted(const RegExp &re,
@@ -212,6 +214,7 @@ auto Semantics::eval(const RegExp &re) -> Matrix
 	throw Unsupported("unknown kind of expression");
 }
 
+/* formal: begin NFASemantics, mirrored by formal/KaterCert/NFA.lean */
 auto Semantics::eval(const NFA &nfa) -> Matrix
 {
 	auto n = g_->size();
@@ -255,6 +258,7 @@ auto Semantics::eval(const NFA &nfa) -> Matrix
 	}
 	return result;
 }
+/* formal: end NFASemantics */
 
 auto Semantics::holdsSubset(const SubsetConstraint &c) -> Term
 {

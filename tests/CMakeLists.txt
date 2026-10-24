@@ -15,6 +15,14 @@ add_test(
 )
 set_tests_properties(check-layers PROPERTIES LABELS "lint")
 
+# The C++ that formal/ mirrors in Lean has not changed since its last review
+add_test(
+    NAME check-mirrors
+    COMMAND ${SCRIPT_DIR}/check-mirrors.sh
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+)
+set_tests_properties(check-mirrors PROPERTIES LABELS "lint;formal")
+
 # Unit tests
 add_subdirectory(unit)
 

@@ -1,0 +1,13 @@
+# The C++ that formal/ mirrors in Lean, as of the last review of formal/
+# against it: the SHA-256 of each marked region without whitespace, its
+# file, its name, and the Lean that mirrors it. scripts/check-mirrors.sh
+# compares; after a review, scripts/check-mirrors.sh --update rewrites this.
+c38d3379ce14f03b7f3c821cf36cf8853438e7c9ebb2f3a60d0adc3f2025d457 src/Checker.hpp Certificate formal/KaterCert/Checker.lean
+9d50d1e01a21790bda7b998ce6b38070fd64450a4a5f6d4fd1e516cf868bb63b src/Predicate.hpp Predicate formal/KaterCert/Label.lean
+9a31acf9b4682e762c2087791b6b5486158bd3db137aa44dc8d8d4a431415972 src/Predicate.hpp PredicateSet formal/KaterCert/Label.lean
+e4fa364338c8588bd75d885dd143c9c8628f1500eed86d438cf352e941404aa5 src/Relation.hpp Relation formal/KaterCert/Label.lean
+b3b77f010f48d629f1c2aaef0655afc747a8e963c89c7d33660b7e7a17fb022e src/TransLabel.hpp TransLabel formal/KaterCert/Label.lean
+748ee05f082c80e4802278802c5369898706fb2d53e53444dee4a05de14c1d6d tests/oracle/Certificate.cpp CertificateJSON formal/KaterCert/Read.lean
+c78439bb2a01905e6e26b783f20d3869f97bc02b72bf29481209a7fa9b05a6fa tests/oracle/Certificate.cpp checkCertificate formal/KaterCert/Checker.lean
+90a63765bb3f67504b614ac3700743d8618e2e5f133ee3da02e7e7209ea52152 tests/oracle/Semantics.cpp LetterSemantics formal/KaterCert/Label.lean
+058d343fe0c6f52693c99e2b7f956a808dd35fff218ae407ca7031a01ab3cf5e tests/oracle/Semantics.cpp NFASemantics formal/KaterCert/NFA.lean

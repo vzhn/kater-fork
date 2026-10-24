@@ -60,6 +60,7 @@ public:
 	 * a record of what Kater claims, for checking it independently */
 	using Observer = std::function<void(const Constraint &, const InclusionResult &)>;
 
+	/* formal: begin Certificate, mirrored by formal/KaterCert/Checker.lean */
 	/*
 	 * What the proof of an inclusion rests on, for checking it without
 	 * searching: the automata the check compared, the simulation it used on
@@ -78,6 +79,7 @@ public:
 		/* (a, b): letter a is included in letter b */
 		std::vector<std::pair<TransLabel, TransLabel>> inclusions;
 	};
+	/* formal: end Certificate */
 	using CertificateSink = std::function<void(const SubsetConstraint &, const Certificate &)>;
 
 	Checker() = delete;

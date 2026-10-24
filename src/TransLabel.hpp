@@ -93,6 +93,7 @@ public:
 	/** Prints the label as [pre];rel;[post]; resolves names if THEORY is given */
 	auto dump(std::ostream &ostr, const Theory *theory = nullptr) const -> std::ostream &;
 
+	/* formal: begin TransLabel, mirrored by formal/KaterCert/Label.lean */
 	auto operator<=>(const TransLabel &other) const = default;
 
 	friend auto operator<<(std::ostream &s, const TransLabel &t) -> std::ostream &
@@ -106,5 +107,6 @@ private:
 	PredicateSet preChecks;
 	PredicateSet postChecks;
 };
+/* formal: end TransLabel */
 
 #endif /* KATER_TRANS_LABEL_HPP */
