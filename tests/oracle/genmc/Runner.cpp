@@ -433,19 +433,30 @@ auto contained(const Build &b, const Execution &x, const VectorClock &vc) -> std
 	return s;
 }
 
+/* Whether E can be added to X last: GenMC adds events at the end of their thread */
+auto isLastOfThread(const Execution &x, unsigned e) -> bool
+{
+	return e < x.size() && (e + 1 == x.size() || x.events[e + 1].thread != x.events[e].thread);
+}
+
 void answer(Factory factory, const Execution &x, const std::string &query, std::ostream &out)
 {
 	std::istringstream qs(query);
 	std::string what;
 	qs >> what;
 	unsigned e = 0;
+	if (what != "consistent" && what != "relinche" && what != "views" && what != "prefix" &&
+	    what != "rprefix" && (!(qs >> e) || !isLastOfThread(x, e))) {
+		out << "error " << query << ": not an event that can be added last\n";
+		return;
+	}
 	if (what == "consistent") {
 		Build b(factory, x, std::nullopt, Last::Complete);
 		out << "consistent " << b.checker().isConsistent(b.graph()) << "\n";
 	} else if (what == "relinche") {
 		Build b(factory, x, std::nullopt, Last::Complete);
 		out << "relinche " << b.checker().isCoherentRelinche(b.graph()) << "\n";
-	} else if (what == "incremental" && (qs >> e) && e < x.size()) {
+	} else if (what == "incremental") {
 		Build b(factory, x, e, Last::AsGenMC);
 		out << "incremental " << e << " " << b.checker().isConsistent(b.label(e)) << "\n";
 	} else if (what == "views") {
@@ -469,13 +480,13 @@ void answer(Factory factory, const Execution &x, const std::string &query, std::
 			out << "rprefix " << f << ":"
 			    << contained(b, x, *b.checker().calculateRevisitPrefixView(b.label(f)))
 			    << "\n";
-	} else if (what == "stores" && (qs >> e) && e < x.size()) {
+	} else if (what == "stores") {
 		Build b(factory, x, e, Last::Fresh);
 		auto *rLab = genmc::dyn_cast<ReadLabel>(b.label(e));
 		out << "stores " << e << ":"
 		    << (rLab != nullptr ? eventList(b, b.checker().getCoherentStores(rLab)) : " ?")
 		    << "\n";
-	} else if (what == "revisits" && (qs >> e) && e < x.size()) {
+	} else if (what == "revisits") {
 		/* calcRevisits() runs right after the write is in co */
 		Build b(factory, x, e, Last::Complete);
 		std::vector<ReadLabel *> reads;
@@ -490,7 +501,7 @@ void answer(Factory factory, const Execution &x, const std::string &query, std::
 		const std::vector<EventLabel *> kept(reads.begin(), reads.end());
 		out << "revisits " << e << ":" << (wLab != nullptr ? eventList(b, kept) : " ?")
 		    << "\n";
-	} else if (what == "placings" && (qs >> e) && e < x.size()) {
+	} else if (what == "placings") {
 		Build b(factory, x, e, Last::Fresh);
 		auto *wLab = genmc::dyn_cast<WriteLabel>(b.label(e));
 		out << "placings " << e << ":"

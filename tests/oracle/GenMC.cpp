@@ -501,7 +501,12 @@ public:
 		auto f = ref_->facts(x);
 		if (!f.wellFormed)
 			malformed_++;
-		if (!isValid(x, f))
+		/* lin comes from Relinche, onto a graph GenMC built: that graph has
+		 * to be one, whatever cycles lin closes */
+		auto withoutLin = x;
+		withoutLin.lin.clear();
+		auto built = x.lin.empty() ? f : ref_->facts(withoutLin);
+		if (!f.wellFormed || !isValid(withoutLin, built))
 			return;
 		valid_++;
 		excluding_.clear();
@@ -513,9 +518,7 @@ public:
 		/* GenMC has lin only in Relinche's check of complete graphs: their
 		 * coherence, if it holds without lin, and their consistency */
 		if (!x.lin.empty()) {
-			auto y = x;
-			y.lin.clear();
-			if (ref_->coherent(y)) {
+			if (built.coherent) {
 				queries.emplace_back("relinche");
 				expected["relinche"] = bit(f.coherent);
 			}
