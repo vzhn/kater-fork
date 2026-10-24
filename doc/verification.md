@@ -350,8 +350,9 @@ compare-and-swaps), the hazard pointer of a protection, and the edges `rf`,
 is a heap block. The reference is the oracle's semantics as it stands: `Graph`
 has a concrete mode, in which every unknown is a constant, so every formula
 over the graph folds to one, and the code that gives `.kat` its meaning for
-the solver gives it on the single graph. (`Term` keeps a constant as a plain truth value
-and makes it a solver term only on demand, which made this six times faster.)
+the solver gives it on the single graph. (`Term` keeps a constant as a plain
+truth value and makes it a solver term only on demand, which made this six
+times faster.)
 
 ### From a graph to GenMC's
 
@@ -487,6 +488,37 @@ through it (see [Open issues](#open-issues)).
 `oracle-genmc-issue-27` replays it and fails once the bug is fixed. Another
 20000 random graphs per model, with `lin` free to close cycles in all of
 them, found five more for IMM and none for the other models.
+
+The memory-error checks came later. They ran on every graph up to the bounds
+above, but IMM's (3 events), every graph of their own instructions up to 5
+events (TSO and RA: 4), and 100000 random graphs per model, half of them with
+a heap; each cell is how many times the check ran and, in parentheses, how
+often the clause failed, or GenMC found an error or a warning:
+
+| | SC | TSO | RA | RC11 | IMM | LKMM |
+|---|---|---|---|---|---|---|
+| every graph up to | 5 events: 1484510 | 4: 408207 | 4: 87326 | 4: 1278894 | 3: 66901 | 3: 367790 |
+| and of the memory-error checks | 5 events: 221273 | 4: 209950 | 4: 209950 | 5: 964818 | 5: 967572 | 5: 967572 |
+| random graphs | 100000 | 100000 | 100000 | 100000 | 100000 | 100000 |
+| clauses | 103.4M (3.7M) | 39.9M (0.9M) | 21.2M (0.5M) | 121.6M (3.9M) | 55.2M (2.0M) | 45.2M (0.9M) |
+| `checkErrors` | 12925529 (3191242) | 4991701 (354097) | 2650045 (355264) | 15201110 (2587297) | 6901743 (1408051) | 9043394 (194512) |
+| `checkWarnings` | 9734287 (436589) | 4637604 (527426) | 2294781 (166484) | 12613813 (1098685) | 5493692 (436521) | 8848882 (683522) |
+| disagreements | 0 | 0 | 0 | 0 | 15 | 0 |
+
+The checks of the previous table ran again on these graphs. The 15
+disagreements are #27's, all of them in `isConsistent(G)`, on random graphs of
+IMM with `lin`; the clauses, `checkErrors` and `checkWarnings` agree
+everywhere. Every clause of every model fails on some graphs, in the ctests
+already: the memory-error clauses tens to hundreds of times, the races
+thousands. Left out is the race of a failing clause `A = 0`, which the exported
+checks do not set ([#34](https://github.com/vzhn/kater-fork/issues/34)):
+compared (`--all-races`), it disagrees in 1074 of the 31817 errors GenMC finds
+on RC11's graphs of the memory-error checks up to 4 events, where
+`checkErrors()` gives the race of a double free, of a use after free or of an
+access to a retired block as none, or as what an earlier failing clause left.
+`tests/oracle/genmc/graphs/issue-34.graph` has a warning leave its race to a
+double free; the ctest `oracle-genmc-issue-34` compares it with
+`--all-races`, and fails once the bug is fixed.
 
 Three differences are explained, and the comparison allows for them:
 
