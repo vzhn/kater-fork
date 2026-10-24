@@ -35,6 +35,18 @@ namespace oracle {
  */
 auto writeEvidence(const std::string &file, const std::filesystem::path &dir, bool verbose) -> bool;
 
+/*
+ * Has Kater export FILE, and writes to DIR the evidence of every claim the
+ * export rests on: of each subset or equality constraint the Checker proves
+ * on the way (the export requirements, the closure checks of incremental
+ * views), with the temporary assumptions it is proved under, to
+ * DIR/<stem>.c<k>.json, in the format of the assertions'; and of each
+ * extensibility check that passes (Checker::setExtensibilityEvidenceSink),
+ * to DIR/<stem>.x<k>.json. Returns whether the export succeeded.
+ */
+auto writeExportEvidence(const std::string &file, const std::filesystem::path &dir, bool verbose)
+	-> bool;
+
 } // namespace oracle
 
 #endif /* KATER_ORACLE_EVIDENCE_HPP */

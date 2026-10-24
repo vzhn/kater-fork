@@ -1047,6 +1047,7 @@ auto Checker::checkAssertions() -> bool
  * cycle.
  */
 
+/* formal: begin exitsToCheck, mirrored by formal/KaterCert/Extensible.lean */
 /* Whether the predicates of FIRST and SECOND fit in one PredicateSet */
 static auto fitTogether(const PredicateSet &first, const PredicateSet &second) -> bool
 {
@@ -1226,22 +1227,20 @@ static auto acceptsPredicatesOnly(const NFA &nfa) -> bool
 	}
 	return false;
 }
+/* formal: end exitsToCheck */
 
+/* formal: begin decideExtensibility, mirrored by formal/KaterCert/Extensible.lean */
 /* The expression of the builtin relation REL */
 static auto letterRE(Relation::BuiltinID rel) -> std::unique_ptr<RegExp>
 {
 	return CharRE::create(TransLabel(Relation::createBuiltin(rel)));
 }
 
-auto Checker::decideExitWords(NFA &words, bool backToEvent, const Constraint &cst) const
-	-> InclusionResult
+auto Checker::decideExitWords(NFA &words, bool backToEvent, const Constraint &cst,
+			      ExtensibilityEvidence *ev) const -> InclusionResult
 {
 	using RB = Relation::BuiltinID;
 	const auto &theory = getTheory();
-
-	normalize(words, theory);
-	removeSimilarTransitions(words);
-	auto lhs = words.to_DFA().first;
 
 	/* The event has a pporf step out of it; or, for a word that ends at the
 	 * event again, the cycle is a po path to another event of the event's
@@ -1255,13 +1254,39 @@ auto Checker::decideExitWords(NFA &words, bool backToEvent, const Constraint &cs
 					 PlusRE::createOpt(AltRE::createOpt(letterRE(RB::rf),
 									    letterRE(RB::mo),
 									    letterRE(RB::fr)))));
+
+	/* The evidence, as checkInclusion records it, with the words for the
+	 * left-hand side */
+	std::optional<Evidence> inc;
+	if (ev != nullptr)
+		inc.emplace(Evidence{.lhs = nullptr, .rhs = rhsRE->clone()});
+	auto record = [&](Evidence::Stage stage, NFA &nfa) {
+		if (!inc)
+			return;
+		inc->steps.push_back({.stage = stage, .nfa = copy(nfa)});
+		nfa.resetOrigins();
+	};
+
+	record(Evidence::Stage::Words, words);
+	normalize(words, theory);
+	removeSimilarTransitions(words);
+	auto lhs = words.to_DFA().first;
+	record(Evidence::Stage::LeftFinal, lhs);
+
 	auto rhs = rhsRE->toNFA();
+	rhs.resetOrigins();
 	normalize(rhs, theory);
 	std::optional<Chain> chain;
-	if (certificateSink)
+	if (certificateSink || inc) {
 		chain.emplace(Chain{.start = copy(rhs), .passes = {}});
+		rhs.resetOrigins();
+	}
 	saturateRHS(rhs, lhs, chain);
-	return decideInclusion(lhs, rhs, cst, std::move(chain));
+	auto result =
+		decideInclusion(lhs, rhs, cst, std::move(chain), inc ? &inc->certificate : nullptr);
+	if (inc && result.result)
+		ev->words.push_back({.backToEvent = backToEvent, .evidence = std::move(*inc)});
+	return result;
 }
 
 auto Checker::decideExtensibility(const RegExp &re, bool single, const Constraint &cst) const
@@ -1285,10 +1310,28 @@ auto Checker::decideExtensibility(const RegExp &re, bool single, const Constrain
 	if (acceptsPredicatesOnly(nfa))
 		return {.result = false, .cex = {}};
 
+	/* The evidence of every step, if someone wants it */
+	std::optional<ExtensibilityEvidence> ev;
+	if (extensibilityEvidenceSink) {
+		ev.emplace(ExtensibilityEvidence{
+			.re = re.clone(),
+			.single = single,
+			.cycles = copy(nfa),
+			.ppo = getModule().getPPODeclaration()->getRE()->clone(),
+			.pporf = getModule().createPPORF()});
+		nfa.resetOrigins();
+	}
+	auto *evp = ev ? &*ev : nullptr;
+	auto done = [&](InclusionResult result) {
+		if (ev && result.result)
+			extensibilityEvidenceSink(cst, *ev);
+		return result;
+	};
+
 	auto exits = exitsToCheck(nfa, theory);
 	if (!single) {
 		auto words = toEndOfWord(nfa, exits);
-		return decideExitWords(words, false, cst);
+		return done(decideExitWords(words, false, cst, evp));
 	}
 
 	/* A cycle of one word that leaves the event where the word begins goes
@@ -1298,11 +1341,11 @@ auto Checker::decideExtensibility(const RegExp &re, bool single, const Constrain
 	for (const auto &exit : exits)
 		(exit.wraps ? atStart : inWord).push_back(exit);
 	auto words = toEndOfWord(nfa, inWord);
-	auto result = decideExitWords(words, false, cst);
+	auto result = decideExitWords(words, false, cst, evp);
 	if (!result.result)
 		return result;
 	auto cycles = toEndOfWord(nfa, atStart);
-	return decideExitWords(cycles, true, cst);
+	return done(decideExitWords(cycles, true, cst, evp));
 }
 
 auto Checker::isPPOIntersectionInPPO(const AcyclicConstraint *acyc) const -> InclusionResult
@@ -1319,3 +1362,4 @@ auto Checker::isCoherenceExtensible(const CoherenceConstraint *coh) const -> Inc
 		SeqRE::createOpt(getModule().getCOHDeclaration()->getRE()->clone(), std::move(eco));
 	return decideExtensibility(*re, true, *coh);
 }
+/* formal: end decideExtensibility */
