@@ -2,7 +2,7 @@
 # against it: the SHA-256 of each marked region without whitespace, its
 # file, its name, and the Lean that mirrors it. scripts/check-mirrors.sh
 # compares; after a review, scripts/check-mirrors.sh --update rewrites this.
-1b736e03d81180880f4830ffb47022f7b4a5dde4471fd24a5f07b4ae123bf96a src/Checker.hpp Chain formal/KaterCert/Chain.lean
+1078587dbd1ce898e295818a2b964db4c760b8f1acf6e713929e3a1ebc29866b src/Checker.hpp Chain formal/KaterCert/Chain.lean
 d2f19ae6f31147d39b3e90ac76fc70639cb7b70147b655585a8c6f5a76d51b3a src/Checker.hpp Certificate formal/KaterCert/Checker.lean
 9d50d1e01a21790bda7b998ce6b38070fd64450a4a5f6d4fd1e516cf868bb63b src/Predicate.hpp Predicate formal/KaterCert/Label.lean
 9a31acf9b4682e762c2087791b6b5486158bd3db137aa44dc8d8d4a431415972 src/Predicate.hpp PredicateSet formal/KaterCert/Label.lean

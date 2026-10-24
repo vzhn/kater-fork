@@ -70,7 +70,7 @@ public:
 	 * right automaton. A saturation comes with the evidence that its
 	 * hypothesis justifies what it added. The other passes are trusted:
 	 * "normalize" and "prune" denote no more than they are given, and
-	 * "rotate" keeps what has cycles
+	 * "rotate" adds no cycle
 	 */
 	struct Pass {
 		std::string name;

@@ -349,7 +349,7 @@ evidence, and the passes in between (`normalize` after each assumption,
 `prune` at the end, which removes transitions and normalizes again, and
 `rotate` for `rot`) without. A saturation that records evidence, under its
 hypothesis, denotes no more than the automaton before it; the other passes
-are trusted to do the same, but for `rotate`, which keeps cycles instead.
+are trusted to do the same, but for `rotate`, which adds no cycle instead.
 
 **Hypotheses.** A saturation uses one hypothesis:
 
@@ -518,8 +518,10 @@ assumption, `prune`, `rotate`); the hypotheses, that is, that each
 assumption says what Kater saturates with (the automaton of its left-hand
 side, and how Kater reads its shape); and the letter inclusions. `kater-oracle
 certify` checks the last three on every graph up to N events, the hypotheses
-under the module's assumptions; that is how the oracle found #13 and #19,
-assumptions read as something they do not say. It checks the contract of a
+under the module's assumptions. An assumption read as something it does not
+say, as in #13 (`r & id <= 0` used as `r <= 0`), shows there; a saturation
+that adds what its hypothesis does not give, as in #19 (`total r` making
+r-steps optional), has no evidence that checks. It checks the contract of a
 pass without evidence only when the pass's automata have at most 24 states
 per event of the bound: `NFASemantics` nests its formulas once per round,
 and on automata with cycles of a few dozen states Z3 takes gigabytes of

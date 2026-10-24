@@ -75,8 +75,8 @@ def SaturationsHold (ch : Chain) (Mi : Interp E) : Prop :=
   ∀ p ∈ ch.passes, ∀ ev, p.evidence = some ev → ev.Holds Mi ∧ ev.InclusionsHold Mi
 
 /-- The contracts of the passes without evidence: each one's result denotes
-no more than what it was given. (`rotate` keeps the cycles instead: for a
-`rot` constraint, this does not hold.) -/
+no more than what it was given. (`rotate` adds no cycle instead: for a `rot`
+constraint, this does not hold.) -/
 def TrustedHold (ch : Chain) (Mi : Interp E) : Prop :=
   ∀ before p, (before, p) ∈ ch.links → p.evidence = none →
     Rel.Sub (p.result.denote (Label.denote Mi)) (before.denote (Label.denote Mi))
