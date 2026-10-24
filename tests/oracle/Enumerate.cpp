@@ -41,6 +41,53 @@ auto isAtomic(const Execution &x) -> bool
 	return true;
 }
 
+auto isHeapWellFormed(const Execution &x) -> bool
+{
+	auto n = x.size();
+	auto freed = [](const Execution::Event &ev) {
+		return ev.kind == Kind::Free || ev.kind == Kind::HpRetire ||
+		       ev.kind == Kind::HpProtect;
+	};
+	for (const auto &ev : x.events)
+		if (freed(ev) && !x.allocationOf(ev.loc))
+			return false;
+
+	std::vector<std::vector<unsigned>> succs(n);
+	for (auto e = 1U; e < n; e++)
+		if (x.events[e].thread == x.events[e - 1].thread)
+			succs[e - 1].push_back(e);
+	for (auto r = 0U; r < n; r++)
+		if (x.rf[r] >= 0)
+			succs[x.rf[r]].push_back(r);
+	for (const auto *edges : {&x.tc, &x.tj})
+		for (const auto &[a, b] : *edges)
+			succs[a].push_back(b);
+
+	for (auto a = 0U; a < n; a++) {
+		const auto &alloc = x.events[a];
+		if (alloc.kind != Kind::Alloc)
+			continue;
+		std::vector<bool> reached(n, false);
+		std::vector<unsigned> todo{a};
+		while (!todo.empty()) {
+			auto e = todo.back();
+			todo.pop_back();
+			for (auto s : succs[e])
+				if (!reached[s]) {
+					reached[s] = true;
+					todo.push_back(s);
+				}
+		}
+		for (auto e = 0U; e < n; e++) {
+			const auto &ev = x.events[e];
+			if (e != a && ev.hasLocation() && ev.loc == alloc.loc &&
+			    (!reached[e] || ev.kind == Kind::Alloc))
+				return false;
+		}
+	}
+	return true;
+}
+
 auto hasPorfCycle(const Execution &x) -> bool
 {
 	auto n = x.size();
@@ -81,7 +128,7 @@ void canonicalizeLocations(Execution &x)
 	std::vector<int> rename(x.numLocations(), -1);
 	auto next = 0;
 	for (auto &ev : x.events) {
-		if (!ev.isAccess())
+		if (!ev.hasLocation())
 			continue;
 		if (rename[ev.loc] < 0)
 			rename[ev.loc] = next++;
@@ -186,7 +233,8 @@ auto eventsOf(const Alphabet::Instruction &i, unsigned thread, int loc) -> std::
 		       .loc = i.kind == Kind::F ? -1 : loc,
 		       .excl = i.rmw,
 		       .flavor = i.flavor,
-		       .fence = i.fence};
+		       .fence = i.fence,
+		       .hp = i.hp};
 	if (!i.rmw)
 		return {ev};
 	auto w = ev;
@@ -341,7 +389,7 @@ private:
 
 	void finish()
 	{
-		if (!cycles_ && hasPorfCycle(x_))
+		if ((!cycles_ && hasPorfCycle(x_)) || !isHeapWellFormed(x_))
 			return;
 		if (!(*visit_)(x_))
 			stop_ = true;
@@ -419,17 +467,21 @@ auto randomShape(const Alphabet &a, const Bounds &b, std::mt19937 &rng) -> Execu
 
 	/* The instructions of each thread, of a few kinds: graphs of one
 	 * ordering, of a few fences, ... (the cycles a model rules out need
-	 * several events of the same kind) */
+	 * several events of the same kind). Allocations are placed below */
 	std::vector<const Alphabet::Instruction *> kinds;
+	const Alphabet::Instruction *alloc = nullptr;
+	for (const auto &i : a.instructions)
+		if (i.kind == Kind::Alloc)
+			alloc = &i;
 	if (coin(2)) {
 		auto order = a.instructions[pick(a.instructions.size())].order;
 		for (const auto &i : a.instructions)
-			if (i.order == order)
+			if (i.order == order && i.kind != Kind::Alloc)
 				kinds.push_back(&i);
 	}
 	while (kinds.empty())
 		for (const auto &i : a.instructions)
-			if (coin(4))
+			if (i.kind != Kind::Alloc && coin(4))
 				kinds.push_back(&i);
 	/* Small graphs are the exhaustive ones' business: from half the bound up */
 	auto threads = 1 + pick(b.threads);
@@ -506,6 +558,31 @@ auto randomShape(const Alphabet &a, const Bounds &b, std::mt19937 &rng) -> Execu
 				continue;
 			code[t].push_back({.thread = t, .kind = Kind::TE, .order = Order::REL});
 			tagOf[t].push_back(-1);
+		}
+	}
+
+	/* Heap blocks: the locations frees, retires and protections are of,
+	 * and others at random, allocated at the start of the first thread
+	 * with an event of them (porf has to reach the others) */
+	if (alloc != nullptr) {
+		for (auto l = 0; std::cmp_less(l, b.locations); l++) {
+			auto first = -1;
+			auto needed = false;
+			for (auto t = 0U; t < threads; t++) {
+				for (const auto &ev : code[t]) {
+					if (!ev.hasLocation() || ev.loc != l)
+						continue;
+					if (first < 0)
+						first = static_cast<int>(t);
+					needed |= ev.kind == Kind::Free ||
+						  ev.kind == Kind::HpRetire ||
+						  ev.kind == Kind::HpProtect;
+				}
+			}
+			if (first < 0 || !(needed || coin(2)))
+				continue;
+			auto t = static_cast<unsigned>(first);
+			insertAt(t, 0, eventsOf(*alloc, t, l).front(), -1);
 		}
 	}
 
@@ -588,7 +665,7 @@ auto randomAttempt(const Alphabet &a, const Bounds &b, bool cycles, std::mt19937
 				sources.push_back(static_cast<int>(w));
 		x.rf[r] = sources[pick(rng, sources.size())];
 	}
-	if (!randomMo(x, rng) || (!cycles && hasPorfCycle(x)))
+	if (!randomMo(x, rng) || (!cycles && hasPorfCycle(x)) || !isHeapWellFormed(x))
 		return {};
 	canonicalizeLocations(x);
 	return x;
@@ -672,6 +749,8 @@ auto builtAttempt(const Alphabet &a, const Bounds &b, std::mt19937 &rng,
 			order.insert(order.begin() + ok[pick(rng, ok.size())], e);
 		}
 	}
+	if (!isHeapWellFormed(x))
+		return {};
 	canonicalizeLocations(x);
 	return x;
 }

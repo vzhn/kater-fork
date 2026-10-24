@@ -35,12 +35,17 @@ namespace oracle {
  */
 struct Alphabet {
 	struct Instruction {
-		Kind kind; /* R, W or F; an RMW is an R with `rmw` */
+		/* R, W or F, an RMW being an R with `rmw`; or Alloc, Free,
+		 * HpRetire, HpProtect */
+		Kind kind;
 		Order order;
 		bool rmw = false;
 		Flavor flavor = Flavor::Plain;
 		unsigned fence = 0;
+		unsigned hp = 0;
 	};
+	/* Random graphs give a location an allocation (of an Alloc
+	 * instruction) before its first event, rather than placing one */
 	std::vector<Instruction> instructions;
 
 	/* The dependency relations an event may have on an earlier read of its thread */
@@ -83,6 +88,11 @@ auto randomBuiltExecution(const Alphabet &alphabet, const Bounds &bounds, std::m
 
 /* Whether X's RMWs are atomic: each RMW's write is right after its read's write in co */
 auto isAtomic(const Execution &x) -> bool;
+
+/* Whether X's heap is as GenMC's: a block has one allocation, which precedes
+ * the events of the block in po | rf | tc | tj, and frees, retires and
+ * protections are of blocks */
+auto isHeapWellFormed(const Execution &x) -> bool;
 
 /* Whether po | rf | tc | tj | lin has a cycle in X */
 auto hasPorfCycle(const Execution &x) -> bool;

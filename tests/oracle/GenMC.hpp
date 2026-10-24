@@ -30,8 +30,10 @@ struct GenMCOptions {
 	/* kater-oracle-runner, which runs the checkers Kater exported */
 	std::string runner;
 
-	/* Every graph within these bounds ... */
+	/* Every graph within these bounds, and every one with a heap (for the
+	 * memory-error checks) within the second ... */
 	Bounds bounds{.events = 4, .threads = 3, .locations = 2};
+	Bounds heapBounds{.events = 4, .threads = 3, .locations = 2};
 
 	/* ... and this many random ones within those */
 	unsigned random = 0;
@@ -47,6 +49,10 @@ struct GenMCOptions {
 	/* Disagreements shown in full, for each kind of check */
 	unsigned shown = 3;
 
+	/* Compare the race of a failing clause A = 0, which the exported checks
+	 * leave as an earlier clause set it (vzhn/kater-fork#34) */
+	bool allRaces = false;
+
 	/* Only count the graphs */
 	bool count = false;
 
@@ -61,9 +67,11 @@ struct GenMCOptions {
  * Runs the GenMC consistency checker Kater exports for the model in FILE
  * (a kat/NAME-genmc.kat) on small graphs, and compares its verdicts with
  * the model's meaning in the reference semantics: isConsistent() on whole
- * graphs and incrementally, the views and prefixes every event saves, and
- * the rf and co choices coherence leaves for a new read or write. Prints
- * every disagreement with its graph; returns whether there were none.
+ * graphs and incrementally, the views and prefixes every event saves, the
+ * rf and co choices coherence leaves for a new read or write, and the
+ * memory-error checks (checkErrors(), checkWarnings(), clause by clause)
+ * of every event GenMC checks. Prints every disagreement with its graph;
+ * returns whether there were none.
  */
 auto checkGenMC(const std::string &file, const GenMCOptions &opts) -> bool;
 
