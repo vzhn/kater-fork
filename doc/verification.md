@@ -310,19 +310,25 @@ checks them, and compares the verdicts:
     Release/kater-oracle certify -n 1 --json /tmp/certificates tests/correct/*/*.kat
     cd formal && lake exe kater-cert-check /tmp/certificates
 
-On `tests/correct`, it accepts the 54 certificates, and gives each of the 637
-copies the verdict `checkCertificate` gives it, reason included, in about
-three seconds. 57 copies are still valid proofs: most replace the simulation
-with the identity (36) or drop a right state from a pair (11), neither of
-which those proofs need, and 7 make the right automaton accept nothing where
-the left one accepts nothing either.
+On `tests/correct`, it accepts the 63 certificates, and gives each of the 737
+copies that differ in the certificate the verdict `checkCertificate` gives
+it, reason included, in about four seconds with the chains (next section).
+72 copies are still valid proofs: most replace the simulation with the
+identity (45) or drop a right state from a pair (13), neither of which those
+proofs need; 9 make the right automaton accept nothing where the left one
+accepts nothing either; 3 make every left state accept where every pair
+already has an accepting right state; and 2 drop an inclusion the proof does
+not use.
 
 What a verdict of the final check now rests on: the letter inclusions, which
 stay hypotheses (the oracle checks them up to N events); the C++ that writes
 the certificates and the Lean that reads them, since the theorem is about the
 automata in the file; and Lean's kernel and compiler. What the automata mean
 for the expressions rests on the contracts above, but for the saturations of
-the right-hand side (next section).
+the right-hand side (next section). For an assertion, the checker of whole
+proofs trusts none of these: it checks the expressions' automata and every
+pass, and takes the letter inclusions from its own theory (see
+[Whole proofs](#whole-proofs)).
 
 The Lean has to stay in step with the C++ it mirrors. Comparing the verdicts
 catches a checker or a format that drifts, but not a model that does: a field
@@ -431,7 +437,9 @@ letter of the path needs the next letter of w to be a bare relation r with
 `[K];r <= b` for the path's letter b and a subset K of what is known, after
 which nothing is known. Each step of the path records its K, and an
 inclusion it needs is equality or one of the evidence's letter inclusions,
-which, as the final check's, stay hypotheses. So `[[w]] <= [[path]]`.
+which, as the final check's, stay hypotheses of the chain's check (the
+checker of whole proofs takes them from its theory). So
+`[[w]] <= [[path]]`.
 
 **What each saturation records.**
 
@@ -499,19 +507,20 @@ states, a letter inclusion dropped, a last automaton that is not the right
 one. To keep the files small, only the inclusion is dropped from the chains
 of the compilation schemes, whose automata have thousands of states.
 
-**Results.** On `tests/correct`, the 59 certificates come with chains, all
-of which check: 274 saturations with evidence (133 `saturateBuiltin`, 123
+**Results.** On `tests/correct`, the 63 certificates come with chains, all
+of which check: 290 saturations with evidence (141 `saturateBuiltin`, 131
 `saturateTransitive` with 2899 `after` states, 9 `saturateSubword` with 8788
 copies on paths of 3 to 5 steps, 6 `saturateID` with 97 copies, and 3
 `saturateEmpty`). The checker in Lean agrees with `checkCertificateAndChain`
-on all 1014 files, 955 of them copies, in about four seconds; every copy that
-differs in the chain is rejected, for the reason it was made. The 67
-certificates of the exports of `kat/*-genmc.kat` come with chains through 202
-saturations, all of which check, and the checker agrees on their 1212 files.
-Up to 4 events (12 seconds), the oracle refutes none of the 519 letter
-inclusions the suite's certificates and evidence rest on, none of the 174
-hypotheses its saturations use, under the files' assumptions, and none of
-the 117 passes without evidence small enough to check (223 are not).
+on all 1076 files, 1013 of them copies, in about four seconds; every one of
+the 276 copies that differ in the chain is rejected, for the reason it was
+made. The 67 certificates of the exports of `kat/*-genmc.kat` come with
+chains through 202 saturations, all of which check, and the checker agrees
+on their 1212 files. Up to 4 events (13 seconds), the oracle refutes none of
+the 519 letter inclusions the suite's certificates and evidence rest on,
+none of the 178 hypotheses its saturations use, under the files'
+assumptions, and none of the 137 passes without evidence small enough to
+check (223 are not).
 
 So no saturation of these proofs is trusted any longer. `kater-oracle
 transforms --evidence-only` checks the evidence of each saturation on the
@@ -1317,8 +1326,9 @@ After the fixes:
   which Kater proved 1476 and never timed out (the oracle checked all but the
   64 that assume `total` of a compound expression, which Kater ignores);
 - every assertion of `tests/correct` has no counterexample with up to 5
-  events, and every proof of it has a valid certificate (54, resting on 498
-  letter inclusions that hold);
+  events; every proof of it has a valid certificate and chain (63, resting
+  on 519 letter inclusions and 178 hypotheses that hold up to 4 events), and
+  the evidence of its whole proof checks (see [Whole proofs](#whole-proofs));
 - the export of every `kat/*-genmc.kat` model passes: 222 claims and
   rewrites with up to 5 events, and 488 letter inclusions of the claims'
   certificates, before #33 was fixed (7 of the claims the extensibility
