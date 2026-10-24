@@ -52,3 +52,51 @@ TEST(Theory, DomainsOfAnInverseAreTheRelationsTheOtherWay)
 	EXPECT_EQ(theory.getDomain(s), PredicateSet{reads});
 	EXPECT_EQ(theory.getCodomain(s), PredicateSet{writes});
 }
+
+/* A sub-predicate of a member of a disjoint set is disjoint from the other
+ * members, whichever of the two the theory learns first (#46) */
+TEST(Theory, SubPredicatesOfDisjointOnesAreDisjoint)
+{
+	/* A <= B <= C, and C # D */
+	auto predA = Predicate::createUser();
+	auto predB = Predicate::createUser();
+	auto predC = Predicate::createUser();
+	auto predD = Predicate::createUser();
+	auto registerSubsets = [&](Theory &theory) -> void {
+		theory.registerSubsetPair(predA.getID(), predB.getID());
+		theory.registerSubsetPair(predB.getID(), predC.getID());
+	};
+
+	Theory subsetsFirst;
+	registerSubsets(subsetsFirst);
+	subsetsFirst.registerDisjointPreds({predC.getID(), predD.getID()});
+
+	Theory disjointFirst;
+	disjointFirst.registerDisjointPreds({predC.getID(), predD.getID()});
+	registerSubsets(disjointFirst);
+
+	for (const auto *theory : {&subsetsFirst, &disjointFirst}) {
+		for (const auto &p : {predA, predB, predC})
+			EXPECT_FALSE(theory->composes(PredicateSet{p}, PredicateSet{predD}));
+		EXPECT_TRUE(theory->composes(PredicateSet{predA}, PredicateSet{predB}));
+	}
+	EXPECT_EQ(subsetsFirst.disjointPredicateSets(), disjointFirst.disjointPredicateSets());
+}
+
+/* A super-predicate of a member of a disjoint set need not be disjoint from
+ * the other members: registerSubsetPair used to make it so (#46) */
+TEST(Theory, SuperPredicatesOfDisjointOnesNeedNotBe)
+{
+	/* A <= B, and A # C */
+	Theory theory;
+	auto predA = Predicate::createUser();
+	auto predB = Predicate::createUser();
+	auto predC = Predicate::createUser();
+	theory.registerDisjointPreds({predA.getID(), predC.getID()});
+	theory.registerSubsetPair(predA.getID(), predB.getID());
+
+	EXPECT_FALSE(theory.composes(PredicateSet{predA}, PredicateSet{predC}));
+	EXPECT_TRUE(theory.composes(PredicateSet{predB}, PredicateSet{predC}));
+	auto onlyAC = VSet<VSet<Predicate::ID>>{VSet<Predicate::ID>{predA.getID(), predC.getID()}};
+	EXPECT_EQ(theory.disjointPredicateSets(), onlyAC);
+}
