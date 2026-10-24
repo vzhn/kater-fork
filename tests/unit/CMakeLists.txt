@@ -19,6 +19,7 @@ add_executable(unit_tests
   test_NFAUtils.cpp
   test_RegExp.cpp
   test_Saturation.cpp
+  test_Theory.cpp
 )
 target_link_libraries(unit_tests PRIVATE kater_lib GTest::gtest_main)
 

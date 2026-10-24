@@ -632,12 +632,12 @@ own assumptions hold, whatever its own relations and predicates mean. The
 proof has no `sorry` and uses only Lean's standard axioms; the build checks
 this.
 
-**Results.** On `tests/correct`, Kater proves 55 assertions through 59
-inclusion checks, and the checker accepts the evidence of every one: 101
-automata of left-hand sides, the starts of 59 chains, 274 saturations by
-their evidence and an assumption (133 `saturateBuiltin`, 123
+**Results.** On `tests/correct`, Kater proves 59 assertions through 63
+inclusion checks, and the checker accepts the evidence of every one: 105
+automata of left-hand sides, the starts of 63 chains, 290 saturations by
+their evidence and an assumption (141 `saturateBuiltin`, 131
 `saturateTransitive`, 9 `saturateSubword`, 6 `saturateID`, 3
-`saturateEmpty`), 275 `normalize` and 59 `prune` passes, 6 rotations and 59
+`saturateEmpty`), 291 `normalize` and 63 `prune` passes, 6 rotations and 63
 certificates, in about 90 seconds and 140 MB (the ctest
 `formal-evidence-check`, labeled `oracle` and `formal`). The three
 assertions about `let rec` (`recursion.kat`, `rec-rewrite.kat`) are among
@@ -659,8 +659,8 @@ that reads it; and Lean's kernel and compiler. The automata, the passes, the
 theory's facts and the letter inclusions are not trusted any more. The Lean
 mirrors the C++ it reads Kater's choices from (the stages and passes, the
 shapes of assumptions, the builtins, the theory's inclusions), and the
-regions are marked as above. Writing it found two bugs in the theory, both
-open (see [Open issues](#open-issues)).
+regions are marked as above. Writing it found three bugs in the theory,
+now fixed (items 19–21 of [Findings](#findings)).
 
 ## The exported checkers
 
@@ -1252,11 +1252,53 @@ Kater used to prove; the oracle refutes each (`ctest -L oracle`).
     (#38, #39), which the oracle confirms. Found by handing the check's
     certificate to the export check, which found its left automaton empty.
 
-Items 1–4, 7, 8, 11 and 13 made Kater prove false claims, 12 and 14 could
-have, 15 made it run forever, 16 made an exported checker accept graphs its
-model forbids, and 18 let Kater export models GenMC cannot explore; the
-others crashed it, read memory it should not, or produced code GenMC
-rejects.
+19. **An inverted relation's domain was the relation's** ("Theory: the
+    domain of r^-1 is the codomain of r"; #45). The theory takes an
+    assumption `r <= [A];r;[B]` in as the domain `A` and the codomain `B`
+    of `r`, and `registerDomain` and `registerCodomain` ignored the
+    inversion: `assume r^-1 <= [R];r^-1;[W]` made `r` itself go from reads
+    to writes, where it goes from writes to reads. Kater proved
+    `r <= [R];r`, which 2 events refute, and none of `r <= [W];r;[R]`,
+    `rf;r = 0`, `r;rf = 0` and the assumption itself. They now register the
+    domain of `r^-1` as the codomain of `r`, the way `getDomain` reads it.
+    No file of `tests/correct` or `kat/` had such an assumption;
+    `tests/correct/basic/dom_codom_inverse.kat` has the four true claims,
+    and the checker of whole proofs, whose theory had read the assumption
+    right, accepts their proofs. Found while writing that theory.
+
+20. **A super-predicate of a disjoint predicate was disjoint too**
+    ("Theory: close disjoint sets under sub-predicates only"; #46). For a
+    sub-predicate `a` of `b`, `registerSubsetPair` made `(S \ {a}) ∪ {b}`
+    disjoint for each disjoint set `S` with `a`, though `b` may meet the
+    others outside `a`; and it added to the disjoint sets while it iterated
+    over them. It never fired: Kater registers its sub-predicates before any
+    disjoint set, and a module cannot declare one. It now does what
+    `registerDisjointPreds` does for the sets registered after a
+    sub-predicate, `(S \ {b}) ∪ {a}` for each `S` with `b`, so the sets come
+    out the same in either order. Found while writing Lean's theory, which
+    has only the sound rule; unit tests have both orders.
+
+21. **Incompatible predicates were matched by id** ("Theory: an invalid
+    combination is of plain predicates"; #46). `composes` took the checks
+    `~A`, `B` and `C` for the combination an assumption `[A;B;C] = 0`
+    declares invalid, though they may hold together. Writing Lean's theory
+    found it, and it seemed dormant, as item 2 had removed the only source
+    of negated predicates (item 11). The extensibility check of item 18
+    brought one back: a step out of an event GenMC may add counts only if
+    its checks compose with `NEXCL`, `~TB` and `~TC`. With the true
+    assumptions `[W;NEXCL;TB;TC] = 0` and `[R;NEXCL;TB;TC] = 0`, the check
+    skipped the steps out of writes and reads, and Kater exported the
+    model of `tests/oracle/extensible/mp-genmc.kat`, which is not
+    extensible (`mp-incompat-genmc.kat` there; the ctests
+    `oracle-extensible-refuted-mp-incompat` and `oracle-export-issue-46`).
+    A combination is now invalid by its plain predicates alone; a unit test
+    has negated ones.
+
+Items 1–4, 7, 8, 11, 13 and 19 made Kater prove false claims, 12, 14 and 20
+could have, 15 made it run forever, 16 made an exported checker accept
+graphs its model forbids, and 18 and 21 let Kater export models GenMC
+cannot explore; the others crashed it, read memory it should not, or
+produced code GenMC rejects.
 Under the sanitizers the whole suite, the unit tests, 4000 fuzzed files and the
 export of every `kat/*-genmc.kat` model now run without a report, and the
 exported checkers are the same as without them.
@@ -1348,19 +1390,6 @@ After the fixes:
   exception `kater-oracle` did not catch. `certify` now catches it, and
   checks a pass of a chain without evidence only when its automata have at
   most 24 states per event of the bound.
-- **An inverted relation's domain assumption**
-  ([#45](https://github.com/vzhn/kater-fork/issues/45)):
-  `assume r^-1 <= [A];r^-1;[B]` gives `r` the domain `A` and the codomain
-  `B`, where it should be the reverse, so Kater proves `r <= [R];r` from
-  `r^-1 <= [R];r^-1;[W]` (the oracle refutes it with 2 events). No file of
-  `tests/correct` or `kat/` has such an assumption; the checker of whole
-  proofs reads it as Lean's theory does, so it would reject such a proof.
-- **Two closure rules of the theory**
-  ([#46](https://github.com/vzhn/kater-fork/issues/46)):
-  `registerSubsetPair` makes a superset of a disjoint predicate disjoint
-  too, and `composes` checks the invalid combinations of predicates by id,
-  complements included. Neither fires on any input yet; Lean's theory has
-  neither rule.
 - **Not checked by the oracle**: of the printed code, the revisits of the
   dependency-tracking models (see
   [The exported checkers](#the-exported-checkers)).

@@ -184,11 +184,13 @@ auto Theory::composes(const PredicateSet &preds1, const PredicateSet &preds2) co
 	if (std::ranges::any_of(disjointPreds_, hasPairFun))
 		return false;
 
-	/* Whether the combination has been declared invalid */
+	/* Whether the combination has been declared invalid. That is of plain
+	 * predicates: [A;B;C] = 0 says nothing of ~A, B and C together */
+	auto isPlain = [](const Predicate &p) -> bool { return !p.isComplement(); };
 	VSet<Predicate::ID> combo;
-	for (const auto &p1 : preds1)
+	for (const auto &p1 : preds1.preds() | std::views::filter(isPlain))
 		combo.insert(p1.getID());
-	for (const auto &p2 : preds2)
+	for (const auto &p2 : preds2.preds() | std::views::filter(isPlain))
 		combo.insert(p2.getID());
 	return isValid(combo);
 }

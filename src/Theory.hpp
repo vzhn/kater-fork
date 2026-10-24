@@ -26,6 +26,7 @@
 
 #include <cassert>
 #include <ranges>
+#include <vector>
 
 /*
  * Represents the structural knowledge about a model's relations and
@@ -80,16 +81,20 @@ public:
 		predicates_[p.getID()] = std::move(info);
 	}
 
+	/* The domain of r^-1 is the codomain of r, as getDomain reads it */
 	void registerDomain(Relation r, PredicateSet dom)
 	{
 		assert(relations_.contains(r.getID()));
-		relations_[r.getID()].dom.insert(dom);
+		auto &info = relations_[r.getID()];
+		(r.isInverse() ? info.codom : info.dom).insert(dom);
 	}
 
+	/* The codomain of r^-1 is the domain of r, as getCodomain reads it */
 	void registerCodomain(Relation r, PredicateSet codom)
 	{
 		assert(relations_.contains(r.getID()));
-		relations_[r.getID()].codom.insert(codom);
+		auto &info = relations_[r.getID()];
+		(r.isInverse() ? info.dom : info.codom).insert(codom);
 	}
 
 	void registerDisjointPreds(VSet<Predicate::ID> preds)
@@ -122,15 +127,21 @@ public:
 	void registerSubsetPair(Predicate::ID a, Predicate::ID b)
 	{
 		subsetPreds_[a].insert(b);
-		/* ∀ disjoint(S) st a ∈ S: disjoint((S \ {a}) ∪ b) */
+		/* ∀ disjoint(S) st b ∈ S: disjoint((S \ {b}) ∪ a), as
+		 * registerDisjointPreds does for the sets registered later.
+		 * Not (S \ {a}) ∪ b: b may meet the others outside a */
+		std::vector<VSet<Predicate::ID>> disjNew;
 		for (const auto &disjSet : disjointPreds_) {
-			if (disjSet.contains(a)) {
-				auto disjNew = disjSet;
-				disjNew.erase(a);
-				disjNew.insert(b);
-				registerDisjointPreds(std::move(disjNew));
+			if (disjSet.contains(b)) {
+				auto subset = disjSet;
+				subset.erase(b);
+				subset.insert(a);
+				disjNew.push_back(std::move(subset));
 			}
 		}
+		/* Registering them adds to disjointPreds_ */
+		for (auto &subset : disjNew)
+			registerDisjointPreds(std::move(subset));
 	}
 
 	auto isSubPredOf(const Predicate::ID &a, const Predicate::ID &b) const -> bool
