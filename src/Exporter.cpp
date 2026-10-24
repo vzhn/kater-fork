@@ -21,6 +21,7 @@
 #include "AdjList.hpp"
 #include "Checker.hpp"
 #include "Constraint.hpp"
+#include "Counterexample.hpp"
 #include "GenMCPrinter.hpp"
 #include "Logger.hpp"
 #include "RegExp.hpp"
@@ -248,14 +249,36 @@ auto Exporter::checkExportRequirements() -> bool
 		status = true; /* treat as a soft error */
 	}
 
-	/* Check extensibility */
-	for (auto *ac : acycsView) {
-		if (auto [ok, cex] = getChecker().isPPOIntersectionInPPO(ac); !ok) {
-			LOG(VerbosityLevel::Error)
-				<< "acyclic constraint /\\ ar is not included in ppo: "
-				<< WithTheory(*ac, getTheory()) << cexNote(cex, getTheory());
-			status = false;
+	/* Check extensibility: GenMC can add an event to a consistent graph
+	 * without breaking a constraint (doc/verification.md). Of an export
+	 * the model says is not extensible, only warn */
+	for (auto &stmt : module.exports()) {
+		const auto *cst = stmt->getConstraint();
+		const auto *acyc = dynamic_cast<const AcyclicConstraint *>(cst);
+		const auto *coh = dynamic_cast<const CoherenceConstraint *>(cst);
+		if (acyc == nullptr && coh == nullptr) {
+			if (stmt->isNonExtensible())
+				LOG_AT(VerbosityLevel::Warning, stmt->getDbgInfo())
+					<< "nonextensible means nothing for "
+					<< WithTheory(*cst, getTheory());
+			continue;
 		}
+		auto [ok, cex] = acyc != nullptr ? getChecker().isPPOIntersectionInPPO(acyc)
+						 : getChecker().isCoherenceExtensible(coh);
+		if (ok) {
+			if (stmt->isNonExtensible())
+				LOG_AT(VerbosityLevel::Warning, stmt->getDbgInfo())
+					<< "declared nonextensible, but Kater shows it extensible: "
+					<< WithTheory(*cst, getTheory());
+			continue;
+		}
+		LOG_AT(stmt->isNonExtensible() ? VerbosityLevel::Warning : VerbosityLevel::Error,
+		       stmt->getDbgInfo())
+			<< "not extensible: a cycle of " << WithTheory(*cst, getTheory())
+			<< " may leave an event GenMC adds by a step that is not pporf" << note
+			<< "the counterexample reads the cycle from the event"
+			<< cexNote(cex, getTheory());
+		status &= stmt->isNonExtensible();
 	}
 
 	/* Check correctness of "unless" clauses in acyclicity constraints */

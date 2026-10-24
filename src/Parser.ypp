@@ -71,6 +71,7 @@
   ID_REL    "id"
   INCLUDE   "include"
   LET	    "let"
+  NONEXTENSIBLE "nonextensible"
   PREDICATE "predicate"
   REC       "rec"
   RECOVERY  "recovery"
@@ -119,6 +120,7 @@
 %nterm <std::unique_ptr<Constraint>> unless_clause;
 %nterm <std::unique_ptr<Constraint>> unless_opt;
 %nterm <std::optional<std::string>> as_extra_opt;
+%nterm <bool> nonextensible_opt;
 
 %precedence "=" "<="
 %left  "|"
@@ -152,7 +154,7 @@ decl:     "include" QSTRING                { drv.parse($2.substr(1, $2.size()-2)
 	| "view" "rec" { drv.setRecContext(true); } def_list print_ID { drv.registerRecViewDerived(std::move($4), std::move($5), @$); }
 	| "assume" assume_constraint	   { drv.registerAssume(AssumeStatement::create(std::move($2), false, ParsingDriver::toDbgInfo(@$))); }
 	| "assert" assert_constraint	   { drv.registerAssert(AssertStatement::create(std::move($2), ParsingDriver::toDbgInfo(@$))); }
-	| "export" as_extra_opt export_constraint unless_opt print_ID { drv.registerExport(ExportStatement::create(std::move($3), std::move($4), std::move($5), std::move($2), ParsingDriver::toDbgInfo(@$)), @$); }
+	| "export" as_extra_opt nonextensible_opt export_constraint unless_opt print_ID { drv.registerExport(ExportStatement::create(std::move($4), std::move($5), std::move($6), std::move($2), $3, ParsingDriver::toDbgInfo(@$)), @$); }
 	;
 
 def:      ID "=" rel { $$ = std::make_pair(std::move($1), std::move($3)); }
@@ -177,6 +179,10 @@ assume_constraint:
 
 as_extra_opt: %empty { $$ = std::nullopt; }
 	| "extra" ID { $$ = std::move($2); }
+	;
+
+nonextensible_opt: %empty { $$ = false; }
+	| "nonextensible" { $$ = true; }
 	;
 
 export_constraint:

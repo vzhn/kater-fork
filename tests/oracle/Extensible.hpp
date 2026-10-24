@@ -37,6 +37,10 @@ struct ExtensibleOptions {
 	 * answer, and none an error */
 	bool refutable = false;
 
+	/* Decide by what Kater's extensibility check proves too: an event that
+	 * nothing po-after it accesses the location of can be added maximally */
+	bool maximal = false;
+
 	/* Counterexamples shown in full */
 	unsigned shown = 3;
 
@@ -56,6 +60,12 @@ struct ExtensibleOptions {
  * then G is, for some choice of where e reads from (a read) or of its
  * place in mo (a write). Consistent means every acyclicity and inclusion
  * export holds, and the view of `export coherence` is irreflexive with eco.
+ *
+ * Also counts, among these events, those that nothing po-after them
+ * accesses the location of and that are not consistent added maximally (a
+ * read reading the last write in mo, a write last in mo), which Kater's
+ * extensibility check claims there are none of. With MAXIMAL, these
+ * decide the verdict too.
  *
  * Prints each counterexample (shown in full up to a number), and returns
  * whether there was none (with REFUTABLE, whether there was one).

@@ -46,6 +46,7 @@
 #include <memory>
 #include <optional>
 #include <ranges>
+#include <set>
 #include <string>
 #include <utility>
 #include <vector>
@@ -932,71 +933,295 @@ auto Checker::checkAssertions() -> bool
 	return status;
 }
 
-auto Checker::isPPOIntersectionInPPO(const AcyclicConstraint *acyc) const -> InclusionResult
+/*************************************************************
+ *              Extensibility
+ ************************************************************/
+
+/*
+ * The extensibility check (see Checker.hpp). An event e GenMC may add has
+ * nothing after it in pporf; added maximally (a read reading the last write
+ * in mo, a write last in mo), it has no eco step out of it either. A cycle
+ * through e, in the graph with e, then leaves e by a step that is not eco,
+ * and does not begin a pporf path: unless the cycle can do without e (it
+ * enters and leaves e within po, which is transitive), it is new, and makes
+ * the graph inconsistent. The check finds the visits of e by the cycles of
+ * a constraint that leave it so, and decides that each, read from e, is in
+ * pporf ; any*: then e would have a pporf successor, and there is no such
+ * cycle.
+ */
+
+/* Whether the predicates of FIRST and SECOND fit in one PredicateSet */
+static auto fitTogether(const PredicateSet &first, const PredicateSet &second) -> bool
 {
-	auto &theory = getModule().getTheory();
-	auto nfa = acyc->getRE()->toNFA();
+	auto size = first.size();
+	for (const auto &p : second)
+		size += first.contains(p) ? 0 : 1;
+	return size <= PredicateSet::inlineCapacity;
+}
 
-	auto poNFA = getModule().getRegisteredRE("po")->toNFA();
-	normalize(poNFA, theory);
-	removeSimilarTransitions(poNFA);
-	auto polocNFA = getModule().getRegisteredRE("po-loc")->toNFA();
-	normalize(polocNFA, theory);
-	removeSimilarTransitions(polocNFA);
+namespace {
 
-	nfa.star();
-	normalize(nfa, theory);
-	removeSimilarTransitions(nfa);
+/* A step a cycle can leave the event it visits by: what it checks of the
+ * event first, the step, and whether the step begins the next word */
+struct Exit {
+	PredicateSet preds;
+	TransLabel label;
+	const NFA::State *dest;
+	bool wraps;
+};
 
-	nfa.clearAllStarting();
-	nfa.clearAllAccepting();
-	VSet<NFA::State *> toSplit;
-	for (auto &sUP : nfa.states()) {
-		for (auto &t : sUP->ins()) {
-			if (t.label.isRelation() && theory.isEco(t.label)) {
-				toSplit.insert(&*sUP);
+} // namespace
+
+/*
+ * Adds to EXITS the first relations of the words read from STATE, after
+ * PREDS and what they check on the way, as exits that WRAP or not; returns
+ * what the ways from STATE to an accepting state check
+ */
+static auto exitsFrom(const NFA::State *state, const PredicateSet &preds, bool wrap,
+		      const Theory &theory, std::vector<Exit> &exits) -> std::vector<PredicateSet>
+{
+	std::vector<PredicateSet> ends;
+	std::set<std::pair<const NFA::State *, PredicateSet>> seen;
+	std::vector<std::pair<const NFA::State *, PredicateSet>> work{{state, preds}};
+	while (!work.empty()) {
+		auto [at, checked] = work.back();
+		work.pop_back();
+		if (!seen.emplace(at, checked).second)
+			continue;
+		if (at->isAccepting())
+			ends.push_back(checked);
+		for (const auto &t : at->outs()) {
+			if (t.label.isRelation()) {
+				exits.push_back({.preds = checked,
+						 .label = t.label,
+						 .dest = t.dest,
+						 .wraps = wrap});
+				continue;
 			}
+			if (!theory.composes(checked, t.label.getPreChecks()))
+				continue;
+			/* Predicates beyond what a label holds only narrow the cycles
+			 * down: keep the path without them */
+			auto more = checked;
+			if (fitTogether(more, t.label.getPreChecks()))
+				more.insert(t.label.getPreChecks());
+			work.emplace_back(t.dest, more);
 		}
 	}
-	for (auto *s : toSplit) {
-		auto *d = nfa.splitState(s, [&](auto &t) { return theory.isEco(t.label); });
-		for (auto &t : s->ins())
-			nfa.makeAccepting(t.dest);
-	}
-	for (auto &sUP :
-	     nfa.states() | std::views::filter([&](auto &sUP) {
-		     return sUP->hasAllOutPredicates() && // !sUP->isAccepting() &&
-			    std::none_of(sUP->out_begin(), sUP->out_end(),
-					 [&](auto &t) { return t.dest->isAccepting(); });
-	     })) {
-		nfa.makeStarting(&*sUP);
-	}
-	for (auto &sUP : nfa.states())
-		nfa.removeTransitionsIf(&*sUP, [&](auto &t) {
-			return t.label.isRelation() && theory.isEco(t.label);
-		});
+	return ends;
+}
 
+/* The steps a cycle can leave the event at STATE by: the first relations it
+ * can read from there, and, if a word can end there, the first of the next */
+static auto exitsOf(const NFA &nfa, const NFA::State *state, const Theory &theory)
+	-> std::vector<Exit>
+{
+	std::vector<Exit> exits;
+	for (const auto &end : exitsFrom(state, {}, false, theory, exits))
+		for (const auto *start : nfa.starting())
+			exitsFrom(start, end, true, theory, exits);
+	return exits;
+}
+
+/*
+ * Whether a cycle that enters an event by ENTRY, from state SRC, and leaves
+ * it by EXIT, in the same word, can do without the event: both steps are
+ * within po (within po-loc), whose composition then is too, and the
+ * automaton reads a step that includes it from SRC to where EXIT leads
+ */
+static auto canSkip(const NFA::State *src, const TransLabel &entry, const Exit &exit,
+		    const Theory &theory) -> bool
+{
+	using RB = Relation::BuiltinID;
+	auto within = [&](const TransLabel &label, RB rel) -> bool {
+		return label.isRelation() && !label.hasPreChecks() && !label.hasPostChecks() &&
+		       theory.isIncludedIn(*label.getRelation(), Relation::createBuiltin(rel));
+	};
+	if (exit.wraps || !within(entry, RB::po) || !within(exit.label, RB::po))
+		return false;
+	auto both = TransLabel(Relation::createBuiltin(
+		within(entry, RB::po_loc) && within(exit.label, RB::po_loc) ? RB::po_loc : RB::po));
+	return std::ranges::any_of(src->outs(), [&](const auto &t) -> bool {
+		return t.dest == exit.dest && theory.isIncludedIn(both, t.label);
+	});
+}
+
+/*
+ * The steps out of an event GenMC may add that a cycle of NFA's words can
+ * leave it by and that the check asks about: not eco, which the event added
+ * maximally has none of, and not skippable after every step into the event
+ */
+static auto exitsToCheck(const NFA &nfa, const Theory &theory) -> std::vector<Exit>
+{
+	using PB = Predicate::BuiltinID;
+	/* Not part of an RMW, not a thread start, and not a thread create,
+	 * which GenMC adds together with the start of its thread */
+	auto addable = PredicateSet{Predicate::createBuiltin(PB::NEXCL),
+				    Predicate::createBuiltin(PB::TB).complement(),
+				    Predicate::createBuiltin(PB::TC).complement()};
+
+	/* The relation steps into each state, by ID, with the states they come
+	 * from */
+	std::vector<std::vector<std::pair<const NFA::State *, TransLabel>>> entries(
+		nfa.getNumStates());
+	for (const auto &s : nfa.states())
+		for (const auto &t : s->outs())
+			if (t.label.isRelation())
+				entries.at(t.dest->getId()).emplace_back(&*s, t.label);
+
+	std::vector<Exit> result;
+	for (const auto &s : nfa.states()) {
+		const auto &ins = entries.at(s->getId());
+		if (ins.empty())
+			continue;
+		for (auto exit : exitsOf(nfa, &*s, theory)) {
+			if (theory.isEco(exit.label) || !theory.composes(exit.preds, addable) ||
+			    std::ranges::all_of(ins, [&](const auto &entry) -> bool {
+				    return canSkip(entry.first, entry.second, exit, theory);
+			    }))
+				continue;
+			if (fitTogether(exit.preds, addable))
+				exit.preds.insert(addable);
+			result.push_back(exit);
+		}
+	}
+	return result;
+}
+
+/*
+ * The words from the event of each of EXITS to the end of the word it leaves
+ * the event in: a prefix of the cycle, with its pporf step out of the event,
+ * if it has one
+ */
+static auto toEndOfWord(const NFA &nfa, const std::vector<Exit> &exits) -> NFA
+{
+	auto rest = copy(nfa);
+	std::vector<NFA::State *> copies;
+	for (const auto &s : rest.states())
+		copies.push_back(&*s);
+	rest.clearAllStarting();
+	auto *start = rest.createStarting();
+	for (const auto &exit : exits) {
+		auto *checked =
+			rest.addTransitionToFresh(start, TransLabel(std::nullopt, exit.preds));
+		NFA::addTransition(checked, {exit.label, copies.at(exit.dest->getId())});
+	}
+	removeDeadStates(rest);
+	return rest;
+}
+
+/* Whether NFA accepts a word of predicates alone: its relation relates an
+ * event to itself */
+static auto acceptsPredicatesOnly(const NFA &nfa) -> bool
+{
+	std::vector<const NFA::State *> work(nfa.start_begin(), nfa.start_end());
+	std::set<const NFA::State *> seen;
+	while (!work.empty()) {
+		const auto *s = work.back();
+		work.pop_back();
+		if (s->isAccepting())
+			return true;
+		if (!seen.insert(s).second)
+			continue;
+		for (const auto &t : s->outs())
+			if (t.label.isPredicate())
+				work.push_back(t.dest);
+	}
+	return false;
+}
+
+/* The expression of the builtin relation REL */
+static auto letterRE(Relation::BuiltinID rel) -> std::unique_ptr<RegExp>
+{
+	return CharRE::create(TransLabel(Relation::createBuiltin(rel)));
+}
+
+auto Checker::decideExitWords(NFA &words, bool backToEvent, const Constraint &cst) const
+	-> InclusionResult
+{
+	using RB = Relation::BuiltinID;
+	const auto &theory = getTheory();
+
+	normalize(words, theory);
+	removeSimilarTransitions(words);
+	auto lhs = words.to_DFA().first;
+
+	/* The event has a pporf step out of it; or, for a word that ends at the
+	 * event again, the cycle is a po path to another event of the event's
+	 * location, and eco back to it */
+	auto rhsRE =
+		SeqRE::createOpt(getModule().createPPORF(), StarRE::createOpt(letterRE(RB::any)));
+	if (backToEvent)
+		rhsRE = AltRE::createOpt(
+			std::move(rhsRE),
+			SeqRE::createOpt(PlusRE::createOpt(letterRE(RB::po)),
+					 PlusRE::createOpt(AltRE::createOpt(letterRE(RB::rf),
+									    letterRE(RB::mo),
+									    letterRE(RB::fr)))));
+	auto rhs = rhsRE->toNFA();
+	normalize(rhs, theory);
+	for (const auto &assm : getModule().getAssumptions()) {
+		expandAssumption(rhs, &*assm, getModule());
+		normalize(rhs, theory);
+	}
+	pruneNFA(rhs, lhs, theory);
+	removeDeadStates(rhs);
+	normalize(rhs, theory);
+	return decideInclusion(lhs, rhs, cst);
+}
+
+auto Checker::decideExtensibility(const RegExp &re, bool single, const Constraint &cst) const
+	-> InclusionResult
+{
+	const auto &theory = getTheory();
+
+	/* GenMC adds lin to complete graphs only, for Relinche */
+	auto nfa = re.toNFA();
+	normalize(nfa, theory);
+	for (auto &s : nfa.states())
+		nfa.removeTransitionsIf(&*s, [&](const auto &t) -> bool {
+			return t.label.isRelation() &&
+			       theory.isIncludedIn(
+				       *t.label.getRelation(),
+				       Relation::createBuiltin(Relation::BuiltinID::lin));
+		});
+	removeDeadStates(nfa);
 	normalize(nfa, theory);
 	removeSimilarTransitions(nfa);
+	if (acceptsPredicatesOnly(nfa))
+		return {.result = false, .cex = {}};
 
-	auto lhs = nfa.to_DFA().first;
-
-	auto nfa2 = AltRE::createOpt(
-			    SeqRE::createOpt(
-				    StarRE::createOpt(CharRE::create(TransLabel(
-					    Relation::createBuiltin(Relation::BuiltinID::any)))),
-				    getModule().createPPORF(),
-				    StarRE::createOpt(CharRE::create(TransLabel(
-					    Relation::createBuiltin(Relation::BuiltinID::any))))),
-			    RegExp::createId())
-			    ->toNFA();
-	normalize(nfa2, theory);
-	for (const auto &assm : getModule().getAssumptions()) {
-		expandAssumption(nfa2, &*assm, getModule());
-		normalize(nfa2, theory);
+	auto exits = exitsToCheck(nfa, theory);
+	if (!single) {
+		auto words = toEndOfWord(nfa, exits);
+		return decideExitWords(words, false, cst);
 	}
-	pruneNFA(nfa2, lhs, theory);
-	removeDeadStates(nfa2);
-	normalize(nfa2, theory);
-	return decideInclusion(lhs, nfa2, *acyc);
+
+	/* A cycle of one word that leaves the event where the word begins goes
+	 * back to the event at the end of the word */
+	std::vector<Exit> inWord;
+	std::vector<Exit> atStart;
+	for (const auto &exit : exits)
+		(exit.wraps ? atStart : inWord).push_back(exit);
+	auto words = toEndOfWord(nfa, inWord);
+	auto result = decideExitWords(words, false, cst);
+	if (!result.result)
+		return result;
+	auto cycles = toEndOfWord(nfa, atStart);
+	return decideExitWords(cycles, true, cst);
+}
+
+auto Checker::isPPOIntersectionInPPO(const AcyclicConstraint *acyc) const -> InclusionResult
+{
+	return decideExtensibility(*acyc->getRE(), false, *acyc);
+}
+
+auto Checker::isCoherenceExtensible(const CoherenceConstraint *coh) const -> InclusionResult
+{
+	using RB = Relation::BuiltinID;
+	auto eco = PlusRE::createOpt(
+		AltRE::createOpt(letterRE(RB::rf), letterRE(RB::mo), letterRE(RB::fr)));
+	auto re =
+		SeqRE::createOpt(getModule().getCOHDeclaration()->getRE()->clone(), std::move(eco));
+	return decideExtensibility(*re, true, *coh);
 }

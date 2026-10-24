@@ -10,9 +10,9 @@
 // cannot be added: b -fr-> x := 1 -[W];po;[W]-> y := 1 -rfe-> a -[R];po;[R]-> b
 // is a cycle, and x := 1 has no other place in mo. The model is not
 // extensible (mp.graph, kater-oracle extensible), like the formulation of
-// POWER in MP-EXT of Kokologiannakis's thesis (section 5.4.1). Kater checks
-// extensibility with isPPOIntersectionInPPO, which decides nothing
-// (vzhn/kater-fork#33).
+// POWER in MP-EXT of Kokologiannakis's thesis (section 5.4.1). Kater used to
+// export it, as isPPOIntersectionInPPO decided nothing (vzhn/kater-fork#33);
+// it rejects it now, at the [W];po;[W] step out of x := 1.
 
 let ppo = data | addr | ctrl
 

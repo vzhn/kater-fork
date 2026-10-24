@@ -93,6 +93,7 @@ genmc			return yy::parser::make_GENMC   (loc);
 id			return yy::parser::make_ID_REL	(loc);
 include			return yy::parser::make_INCLUDE	(loc);
 let			return yy::parser::make_LET	(loc);
+nonextensible		return yy::parser::make_NONEXTENSIBLE(loc);
 predicate		return yy::parser::make_PREDICATE(loc);
 rec			return yy::parser::make_REC     (loc);
 recovery		return yy::parser::make_RECOVERY(loc);

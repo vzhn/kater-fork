@@ -111,6 +111,41 @@ auto attachments(const Execution &graph, unsigned event) -> std::vector<Attachme
 	return result;
 }
 
+/* Whether an event po-after EVENT in GRAPH accesses EVENT's location */
+auto hasLaterAccess(const Execution &graph, unsigned event) -> bool
+{
+	const auto &label = graph.events[event];
+	if (!label.isAccess())
+		return false;
+	for (auto later = event + 1;
+	     later < graph.size() && graph.events[later].thread == label.thread; later++)
+		if (graph.events[later].isAccess() && graph.events[later].loc == label.loc)
+			return true;
+	return false;
+}
+
+/* The way GenMC adds EVENT maximally: a read reads from the last write in mo
+ * (from init if there is none), a write is last in mo */
+auto maximalAttachment(const Execution &graph, unsigned event) -> Attachment
+{
+	auto way = graph;
+	const auto &label = graph.events[event];
+	if (label.kind == Kind::R) {
+		const auto &order = graph.mo[label.loc];
+		way.rf[event] = order.empty() ? -1 : static_cast<int>(order.back());
+		return {.graph = std::move(way),
+			.how = order.empty() ? "reading from init"
+					     : "reading from " + name(order.back())};
+	}
+	if (label.kind == Kind::W) {
+		auto &order = way.mo[label.loc];
+		std::erase(order, event);
+		order.push_back(event);
+		return {.graph = std::move(way), .how = "last in mo"};
+	}
+	return {.graph = std::move(way), .how = "as it is"};
+}
+
 /* Whether GRAPH and OTHER attach EVENT the same way */
 auto sameAttachment(const Execution &graph, const Execution &other, unsigned event) -> bool
 {
@@ -158,38 +193,61 @@ public:
 					<< "\n";
 			return;
 		}
-		for (const auto &[event, ways] : candidates) {
-			if (hasPrefixSuccessor(prefix, event))
-				continue;
-			auto rest = withoutEvent(graph, event);
-			if (!isConsistent(rest, ref_->facts(rest)))
-				continue;
-			checked_++;
-			auto hole = hasPoSuccessor(graph, event);
-			if (hole)
-				holes_++;
-			/* GRAPH is one of the ways, whose facts are known */
-			if (std::ranges::any_of(ways, [&](const auto &way) -> bool {
-				    return isConsistent(way.graph,
-							sameAttachment(way.graph, graph, event)
-								? facts
-								: ref_->facts(way.graph));
-			    }))
-				continue;
-			report(graph, event, hole, ways);
-		}
+		for (const auto &[event, ways] : candidates)
+			if (!hasPrefixSuccessor(prefix, event))
+				checkEvent(graph, facts, event, ways);
 	}
 
-	/* Prints the counts; returns whether no event failed to be added */
+	/* Prints the counts; returns whether no event failed to be added (with
+	 * MAXIMAL, nor one with no later access to its location to be added
+	 * maximally) */
 	[[nodiscard]] auto summary(const std::string &file) const -> bool
 	{
 		std::cout << file << ": " << graphs_ << " graphs; " << checked_
 			  << " events GenMC may add to a consistent graph (" << holes_
-			  << " into a hole), " << failed_ << " cannot be added consistently\n";
-		return failed_ == 0;
+			  << " into a hole), " << failed_ << " cannot be added consistently; "
+			  << maximalChecked_ << " have no later access to their location, "
+			  << maximalFailed_
+			  << " of them cannot be added maximally and consistently\n";
+		return failed_ == 0 && (!opts_->maximal || maximalFailed_ == 0);
 	}
 
 private:
+	/* Checks EVENT of GRAPH, which GenMC may add last: if the rest is
+	 * consistent, one of WAYS of adding it is, and, when nothing after it
+	 * accesses its location, the maximal one */
+	void checkEvent(const Execution &graph, const Reference::Facts &facts, unsigned event,
+			const std::vector<Attachment> &ways)
+	{
+		auto rest = withoutEvent(graph, event);
+		if (!isConsistent(rest, ref_->facts(rest)))
+			return;
+		checked_++;
+		auto hole = hasPoSuccessor(graph, event);
+		if (hole)
+			holes_++;
+		/* GRAPH is one of the ways, whose facts are known */
+		auto consistent = [&](const Attachment &way) -> bool {
+			return isConsistent(way.graph, sameAttachment(way.graph, graph, event)
+							       ? facts
+							       : ref_->facts(way.graph));
+		};
+		if (!hasLaterAccess(graph, event)) {
+			maximalChecked_++;
+			auto way = maximalAttachment(graph, event);
+			if (!consistent(way)) {
+				maximalFailed_++;
+				if (opts_->maximal)
+					report(graph, event, hole, {way}, maximalFailed_);
+			}
+		}
+		if (std::ranges::none_of(ways, consistent)) {
+			failed_++;
+			if (!opts_->maximal)
+				report(graph, event, hole, ways, failed_);
+		}
+	}
+
 	[[nodiscard]] auto isValid(const Execution &graph, const Reference::Facts &facts) const
 		-> bool
 	{
@@ -214,7 +272,7 @@ private:
 	}
 
 	/* What is wrong with GRAPH, which is not consistent */
-	auto whyInconsistent(const Execution &graph) -> const char *
+	[[nodiscard]] auto whyInconsistent(const Execution &graph) const -> const char *
 	{
 		auto facts = ref_->facts(graph);
 		if (!isValid(graph, facts))
@@ -225,16 +283,20 @@ private:
 	}
 
 	void report(const Execution &graph, unsigned event, bool hole,
-		    const std::vector<Attachment> &ways)
+		    const std::vector<Attachment> &ways, unsigned count) const
 	{
-		if (++failed_ > opts_->shown)
+		if (count > opts_->shown)
 			return;
-		std::cout << "NOT EXTENSIBLE: " << name(event)
-			  << (hole ? ", which has po-successors," : "")
-			  << " cannot be added consistently to the rest of this graph, which is "
-			     "consistent:\n";
+		std::cout << (opts_->maximal ? "NOT MAXIMALLY EXTENSIBLE: " : "NOT EXTENSIBLE: ")
+			  << name(event) << (hole ? ", which has po-successors," : "")
+			  << " cannot be added "
+			  << (opts_->maximal ? "maximally and consistently" : "consistently")
+			  << " to the rest of this graph, which is consistent:\n";
 		graph.print(std::cout, "    ");
-		std::cout << "  each way " << name(event) << " can be added:\n";
+		std::cout << "  "
+			  << (opts_->maximal ? std::string("added maximally")
+					     : "each way " + name(event) + " can be added")
+			  << ":\n";
 		for (const auto &way : ways)
 			std::cout << "    " << way.how << ": " << whyInconsistent(way.graph)
 				  << "\n";
@@ -247,6 +309,8 @@ private:
 	unsigned checked_ = 0;
 	unsigned holes_ = 0;
 	unsigned failed_ = 0;
+	unsigned maximalChecked_ = 0;
+	unsigned maximalFailed_ = 0;
 };
 
 } // namespace

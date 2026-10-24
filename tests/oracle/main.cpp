@@ -68,12 +68,15 @@
  *       clause A = 0 too (vzhn/kater-fork#34).
  *
  *   kater-oracle extensible [-n EVENTS] [--threads T] [--locations L]
- *                           [--graph FILE]... [--refutable] FILE...
+ *                           [--graph FILE]... [--maximal] [--refutable] FILE...
  *       Checks that the models of the kat/NAME-genmc.kat FILEs are
  *       extensible, as GenMC's exploration needs: on every graph up to
  *       EVENTS events, or on the graphs of FILEs, an event GenMC may add
  *       last (nothing follows it in ppo | rfe | tc | tj | lin, nothing reads
  *       from it) can be added to the rest, if consistent, consistently.
+ *       With --maximal, what Kater's check proves: such an event that
+ *       nothing po-after it accesses the location of can be added
+ *       maximally (reading the last write in mo, or last in mo).
  *       With --refutable, the models are expected not to be.
  */
 
@@ -135,7 +138,8 @@ struct Options {
 		   "                          [--shard K/N] [--count] [--all-races]\n"
 		   "                          [--graph FILE]... FILE...\n"
 		   "       kater-oracle extensible [-n EVENTS] [--threads T] [--locations L]\n"
-		   "                               [--graph FILE]... [--refutable] [-v] FILE...\n";
+		   "                               [--graph FILE]... [--maximal] [--refutable]\n"
+		   "                               [-v] FILE...\n";
 	exit(2); // NOLINT(concurrency-mt-unsafe): single-threaded
 }
 
@@ -165,6 +169,8 @@ auto parseOptions(int argc, char **argv, int first) -> Options
 			opts.verbose = opts.genmc.verbose = opts.extensible.verbose = true;
 		else if (arg == "--refutable")
 			opts.refutable = true;
+		else if (arg == "--maximal")
+			opts.extensible.maximal = true;
 		else if (arg == "--cases")
 			opts.transforms.cases = value();
 		else if (arg == "--seed")
