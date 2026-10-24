@@ -22,6 +22,8 @@
 #include <z3++.h>
 
 #include <cassert>
+#include <cstdint>
+#include <optional>
 #include <vector>
 
 namespace oracle {
@@ -31,20 +33,30 @@ namespace oracle {
  *
  * Over a fixed number of events most of a relation is constant (po never
  * goes backwards, rf never starts at a read, ...). Folding the constants
- * away keeps the formulae handed to the solver small.
+ * away keeps the formulae handed to the solver small. A constant is kept
+ * as a plain truth value, and made a solver term only when asked for one:
+ * over a concrete graph (Execution) every formula is a constant.
  */
 class Term {
 
 public:
-	Term(z3::expr e) : e_(std::move(e)), c_(classify(e_)) {}
+	Term(z3::expr e) : ctx_(&e.ctx()), e_(std::move(e)), c_(classify(*e_)) {}
 
-	static auto constant(z3::context &ctx, bool value) -> Term { return {ctx.bool_val(value)}; }
+	static auto constant(z3::context &ctx, bool value) -> Term
+	{
+		return {ctx, value ? Const::True : Const::False};
+	}
 
 	[[nodiscard]] auto isTrue() const -> bool { return c_ == Const::True; }
 	[[nodiscard]] auto isFalse() const -> bool { return c_ == Const::False; }
 
-	[[nodiscard]] auto expr() const -> const z3::expr & { return e_; }
-	[[nodiscard]] auto ctx() const -> z3::context & { return e_.ctx(); }
+	[[nodiscard]] auto expr() const -> const z3::expr &
+	{
+		if (!e_)
+			e_ = ctx_->bool_val(isTrue());
+		return *e_;
+	}
+	[[nodiscard]] auto ctx() const -> z3::context & { return *ctx_; }
 
 	friend auto operator&&(const Term &a, const Term &b) -> Term
 	{
@@ -75,7 +87,9 @@ public:
 	friend auto implies(const Term &a, const Term &b) -> Term { return !a || b; }
 
 private:
-	enum class Const { Unknown, True, False };
+	enum class Const : std::uint8_t { Unknown, True, False };
+
+	Term(z3::context &ctx, Const c) : ctx_(&ctx), c_(c) {}
 
 	static auto classify(const z3::expr &e) -> Const
 	{
@@ -86,7 +100,8 @@ private:
 		return Const::Unknown;
 	}
 
-	z3::expr e_;
+	z3::context *ctx_;
+	mutable std::optional<z3::expr> e_; /* made on demand for a constant */
 	Const c_;
 };
 

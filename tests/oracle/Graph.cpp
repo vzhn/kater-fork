@@ -20,20 +20,13 @@
 
 #include "Theory.hpp"
 
-#include <array>
+#include <algorithm>
 #include <string>
 
 namespace oracle {
 
 using PB = Predicate::BuiltinID;
 using RB = Relation::BuiltinID;
-
-static constexpr std::array<const char *, numKinds> kindNames = {
-	"R",	 "W",	 "F",	  "TC",	       "TB",	       "TJ",	     "TE",   "TK",
-	"ALLOC", "FREE", "HPRET", "HPPROTECT", "METHOD-BEGIN", "METHOD-END", "OTHER"};
-
-static constexpr std::array<const char *, numOrders> orderNames = {"na",  "rlx",     "acq",
-								   "rel", "acq_rel", "sc"};
 
 /*
  * The orderings each kind of label can carry. Reads and writes are left
@@ -78,6 +71,17 @@ Graph::Graph(z3::context &ctx, unsigned n)
 	buildAxioms();
 }
 
+Graph::Graph(z3::context &ctx, const Execution &x, UserPredicates userPredicates)
+	: ctx_(&ctx), n_(x.size()), concrete_(true),
+	  concreteUserPredicates_(std::move(userPredicates)), rf_(ctx, n_), mo_(ctx, n_),
+	  ctrl_(ctx, n_), addr_(ctx, n_), data_(ctx, n_), pctrl_(ctx, n_), tc_(ctx, n_),
+	  tj_(ctx, n_), lin_(ctx, n_), sameThread_(ctx, n_), sameLoc_(ctx, n_), axioms_(ctx)
+{
+	buildStructure(x);
+	buildDerived();
+	buildAxioms();
+}
+
 auto Graph::freshBool(const std::string &name) -> z3::expr
 {
 	return ctx().bool_const(name.c_str());
@@ -98,6 +102,11 @@ auto Graph::freshMatrix(const std::string &name,
 
 void Graph::addAxiom(const Term &t)
 {
+	/* Over a concrete graph only the comparisons of locations are left */
+	if (concrete_ && !t.isTrue() && !t.isFalse()) {
+		addAxiom(Term(t.expr().simplify()));
+		return;
+	}
 	if (!t.isTrue())
 		axioms_.push_back(t.expr());
 }
@@ -115,12 +124,14 @@ void Graph::buildStructure()
 
 		std::vector<Term> kinds;
 		for (auto k = 0U; k < numKinds; k++)
-			kinds.emplace_back(freshBool(ev("kind", e) + "_" + kindNames[k]));
+			kinds.emplace_back(
+				freshBool(ev("kind", e) + "_" + kindName(static_cast<Kind>(k))));
 		kind_.push_back(std::move(kinds));
 
 		std::vector<Term> orders;
 		for (auto o = 0U; o < numOrders; o++)
-			orders.emplace_back(freshBool(ev("order", e) + "_" + orderNames[o]));
+			orders.emplace_back(
+				freshBool(ev("order", e) + "_" + orderName(static_cast<Order>(o))));
 		order_.push_back(std::move(orders));
 
 		excl_.emplace_back(freshBool(ev("excl", e)));
@@ -167,6 +178,54 @@ void Graph::buildStructure()
 	tc_ = freshMatrix("tc", distinct);
 	tj_ = freshMatrix("tj", distinct);
 	lin_ = freshMatrix("lin", distinct);
+}
+
+void Graph::buildStructure(const Execution &x)
+{
+	auto &c = ctx();
+	auto val = [&](bool b) { return Term::constant(c, b); };
+
+	for (auto e = 0U; e < n_; e++) {
+		const auto &ev = x.events[e];
+		newThread_.push_back(val(e == 0 || ev.thread != x.events[e - 1].thread));
+
+		std::vector<Term> kinds;
+		for (auto k = 0U; k < numKinds; k++)
+			kinds.push_back(val(static_cast<Kind>(k) == ev.kind));
+		kind_.push_back(std::move(kinds));
+
+		std::vector<Term> orders;
+		for (auto o = 0U; o < numOrders; o++)
+			orders.push_back(val(static_cast<Order>(o) == ev.order));
+		order_.push_back(std::move(orders));
+
+		excl_.push_back(val(ev.excl));
+		loc_.push_back(c.int_val(std::max(ev.loc, 0)));
+		/* GenMC's label flags: an Execution has none of them */
+		for (auto *flags : {&heap_, &durable_, &recovery_, &abstractLock_, &hpProtected_,
+				    &notHpProtected_, &dependableOther_})
+			flags->push_back(val(false));
+	}
+
+	for (auto i = 0U; i < n_; i++) {
+		for (auto j = 0U; j < n_; j++) {
+			const auto &a = x.events[i];
+			const auto &b = x.events[j];
+			sameThread_.set(i, j, val(a.thread == b.thread));
+			sameLoc_.set(
+				i, j,
+				val(i == j || (a.isAccess() && b.isAccess() && a.loc == b.loc)));
+			rf_.set(i, j, val(i != j && x.rf[j] == static_cast<int>(i)));
+			mo_.set(i, j, val(x.moBefore(i, j)));
+			ctrl_.set(i, j, val(Execution::has(x.ctrl, i, j)));
+			addr_.set(i, j, val(Execution::has(x.addr, i, j)));
+			data_.set(i, j, val(Execution::has(x.data, i, j)));
+			pctrl_.set(i, j, val(Execution::has(x.pctrl, i, j)));
+			tc_.set(i, j, val(Execution::has(x.tc, i, j)));
+			tj_.set(i, j, val(Execution::has(x.tj, i, j)));
+			lin_.set(i, j, val(Execution::has(x.lin, i, j)));
+		}
+	}
 }
 
 void Graph::buildDerived()
@@ -494,13 +553,16 @@ auto Graph::userPredicate(const Predicate &p, unsigned e) -> Term
 {
 	auto it = userPredicates_.find(p.getID());
 	if (it == userPredicates_.end()) {
-		std::vector<Term> values;
-		for (auto i = 0U; i < n_; i++)
-			values.emplace_back(freshBool("upred" + std::to_string(-p.getID()) + "_" +
-						      std::to_string(i)));
 		auto base = p;
 		if (base.isComplement())
 			base.complement();
+		std::vector<Term> values;
+		for (auto i = 0U; i < n_; i++)
+			values.emplace_back(
+				concrete_ && concreteUserPredicates_
+					? Term::constant(ctx(), concreteUserPredicates_(base, i))
+					: freshBool("upred" + std::to_string(-p.getID()) + "_" +
+						    std::to_string(i)));
 		it = userPredicates_.emplace(p.getID(), std::make_pair(base, std::move(values)))
 			     .first;
 	}
@@ -519,6 +581,14 @@ auto Graph::userRelation(const Relation &r) -> const Matrix &
 		it = userRelations_.emplace(r.getID(), std::make_pair(base, std::move(m))).first;
 	}
 	return it->second.second;
+}
+
+void Graph::fixUserRelation(const Relation &r, Matrix m)
+{
+	auto base = r;
+	if (base.isInverse())
+		base.invert();
+	userRelations_.insert_or_assign(base.getID(), std::make_pair(base, std::move(m)));
 }
 
 auto Graph::threadOf(const z3::model &m, unsigned e) const -> unsigned
@@ -543,12 +613,12 @@ void Graph::print(std::ostream &os, const z3::model &m, const Theory &theory) co
 		os << "    e" << e << ": T" << threadOf(m, e) << " ";
 		for (auto k = 0U; k < numKinds; k++)
 			if (holds(kind_[e][k]))
-				os << kindNames[k];
+				os << kindName(static_cast<Kind>(k));
 		if (holds(isLocated(e)))
 			os << "(" << locName(e) << ")";
 		for (auto o = 0U; o < numOrders; o++)
 			if (holds(order_[e][o]))
-				os << " " << orderNames[o];
+				os << " " << orderName(static_cast<Order>(o));
 		if (holds(excl_[e]))
 			os << " excl";
 		if (holds(heap_[e]))

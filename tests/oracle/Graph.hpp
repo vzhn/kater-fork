@@ -19,6 +19,7 @@
 #ifndef KATER_ORACLE_GRAPH_HPP
 #define KATER_ORACLE_GRAPH_HPP
 
+#include "Execution.hpp"
 #include "Matrix.hpp"
 
 #include "Predicate.hpp"
@@ -26,7 +27,6 @@
 
 #include <z3++.h>
 
-#include <cstdint>
 #include <functional>
 #include <map>
 #include <optional>
@@ -37,30 +37,6 @@
 class Theory;
 
 namespace oracle {
-
-/* The kinds of GenMC event labels the model tells apart */
-enum class Kind : std::uint8_t {
-	R,
-	W,
-	F,
-	TC, /* ThreadCreate */
-	TB, /* ThreadStart */
-	TJ, /* ThreadJoin */
-	TE, /* ThreadFinish */
-	TK, /* ThreadKill */
-	Alloc,
-	Free,
-	HpRetire,
-	HpProtect,
-	MethodBegin,
-	MethodEnd,
-	Other, /* every other label: optionals, loop and spin markers, outputs, ... */
-};
-inline constexpr unsigned numKinds = 15;
-
-/* GenMC's memory orderings (consume is never generated) */
-enum class Order : std::uint8_t { NA, RLX, ACQ, REL, ACQ_REL, SC };
-inline constexpr unsigned numOrders = 6;
 
 /*
  * A symbolic execution graph of a fixed number of events: every attribute
@@ -74,11 +50,18 @@ inline constexpr unsigned numOrders = 6;
  * boundaries are the only unknown of po. Initial writes are implicit: a
  * read without an incoming rf edge reads the initial value, and is then
  * fr-before every write to its location.
+ *
+ * A graph can also be concrete (an Execution): its unknowns are then
+ * constants, and so is every formula built over it, the axioms included.
  */
 class Graph {
 
 public:
+	/* The meaning of a user predicate at an event of a concrete graph */
+	using UserPredicates = std::function<bool(const Predicate &, unsigned)>;
+
 	Graph(z3::context &ctx, unsigned n);
+	Graph(z3::context &ctx, const Execution &x, UserPredicates userPredicates = {});
 
 	[[nodiscard]] auto size() const -> unsigned { return n_; }
 	[[nodiscard]] auto ctx() const -> z3::context & { return *ctx_; }
@@ -105,12 +88,19 @@ public:
 	/* The relation "same location", as a matrix */
 	[[nodiscard]] auto sameLocRelation() const -> const Matrix & { return sameLoc_; }
 
-	/* Uninterpreted symbols, created on first use */
+	/* Uninterpreted symbols, created on first use. In a concrete graph, user
+	 * predicates mean what its UserPredicates say, and a user relation is
+	 * what fixUserRelation() set */
 	auto userPredicate(const Predicate &p, unsigned e) -> Term;
 	auto userRelation(const Relation &r) -> const Matrix &;
 
-	/* What every graph GenMC builds satisfies */
+	/* Gives user relation R the meaning M */
+	void fixUserRelation(const Relation &r, Matrix m);
+
+	/* What every graph GenMC builds satisfies; for a concrete graph, the
+	 * axioms it violates (all of them false) */
 	[[nodiscard]] auto axioms() const -> const z3::expr_vector & { return axioms_; }
+	[[nodiscard]] auto isConcrete() const -> bool { return concrete_; }
 
 	/* The unknowns a counterexample can usually do without (label flags,
 	 * dependencies, ...): turning them off makes it easier to read */
@@ -126,6 +116,7 @@ private:
 
 	void addAxiom(const Term &t);
 	void buildStructure();
+	void buildStructure(const Execution &x);
 	void buildDerived();
 	void buildAxioms();
 
@@ -133,6 +124,8 @@ private:
 
 	z3::context *ctx_;
 	unsigned n_;
+	bool concrete_ = false;
+	UserPredicates concreteUserPredicates_;
 
 	/* Unknowns */
 	std::vector<Term> newThread_; /* event e starts a new thread */

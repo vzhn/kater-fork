@@ -20,36 +20,39 @@
 
 namespace oracle {
 
+/* The disjunction (OR) or conjunction of TERMS: ABSORBING decides it, and
+ * terms that are the other constant drop out */
+static auto foldAll(z3::context &ctx, const std::vector<Term> &terms, bool absorbing) -> Term
+{
+	const Term *single = nullptr;
+	auto unknowns = 0U;
+	for (const auto &t : terms) {
+		if (absorbing ? t.isTrue() : t.isFalse())
+			return t;
+		if (!t.isTrue() && !t.isFalse()) {
+			unknowns++;
+			single = &t;
+		}
+	}
+	if (unknowns == 0)
+		return Term::constant(ctx, !absorbing);
+	if (unknowns == 1)
+		return *single;
+	z3::expr_vector unknown(ctx);
+	for (const auto &t : terms)
+		if (!t.isTrue() && !t.isFalse())
+			unknown.push_back(t.expr());
+	return {absorbing ? z3::mk_or(unknown) : z3::mk_and(unknown)};
+}
+
 auto anyOf(z3::context &ctx, const std::vector<Term> &terms) -> Term
 {
-	z3::expr_vector unknown(ctx);
-	for (const auto &t : terms) {
-		if (t.isTrue())
-			return t;
-		if (!t.isFalse())
-			unknown.push_back(t.expr());
-	}
-	if (unknown.empty())
-		return Term::constant(ctx, false);
-	if (unknown.size() == 1)
-		return {unknown[0]};
-	return {z3::mk_or(unknown)};
+	return foldAll(ctx, terms, true);
 }
 
 auto allOf(z3::context &ctx, const std::vector<Term> &terms) -> Term
 {
-	z3::expr_vector unknown(ctx);
-	for (const auto &t : terms) {
-		if (t.isFalse())
-			return t;
-		if (!t.isTrue())
-			unknown.push_back(t.expr());
-	}
-	if (unknown.empty())
-		return Term::constant(ctx, true);
-	if (unknown.size() == 1)
-		return {unknown[0]};
-	return {z3::mk_and(unknown)};
+	return foldAll(ctx, terms, false);
 }
 
 auto Matrix::identity(z3::context &ctx, unsigned n) -> Matrix

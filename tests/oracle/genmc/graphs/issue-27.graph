@@ -1,0 +1,17 @@
+# vzhn/kater-fork#27: three method calls that lin orders in a circle; psc
+# relates the SC write e8 to itself (e8 po e9 hb e7 po e8), yet the full
+# isConsistent of IMM accepts the graph, as its search from the SC write e5
+# finishes the pairs of the hb loop first. With T1 and T2 swapped it rejects it.
+e0: T0 METHOD-BEGIN na
+e1: T0 METHOD-END na
+e2: T1 TB acq
+e3: T1 METHOD-BEGIN na
+e4: T1 METHOD-END na
+e5: T1 W(x) sc
+e6: T2 TB acq
+e7: T2 METHOD-BEGIN na
+e8: T2 W(y) sc
+e9: T2 METHOD-END na
+mo(x): e5
+mo(y): e8
+lin: e1->e3 e4->e7 e9->e0

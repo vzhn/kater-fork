@@ -8,7 +8,10 @@ endif()
 add_executable(kater-oracle
   Audit.cpp
   Certificate.cpp
+  Enumerate.cpp
+  Execution.cpp
   Export.cpp
+  GenMC.cpp
   Graph.cpp
   Matrix.cpp
   Search.cpp
@@ -76,3 +79,7 @@ if(LAKE)
   set_tests_properties(formal-certificates-clean formal-certificates-write
     formal-certificates-check PROPERTIES LABELS "oracle;formal" TIMEOUT 1800)
 endif()
+
+# The exported checkers, run inside GenMC, against the reference semantics
+# (needs GenMC)
+add_subdirectory(genmc)
