@@ -43,15 +43,27 @@ Environment variables affecting the testing scripts:
   KATERFLAGS="--flag --another"  # extra flags passed to every kater invocation
 ```
 
-With Z3 installed, the build also has `kater-oracle`, which checks Kater's
-verdicts, its builtin theory, its automaton passes and its exports against a
-reference semantics of execution graphs. Its tests are labeled `oracle`:
+With Z3 installed, a build configured with `-DBUILD_TESTS=ON` also has
+`kater-oracle`, which checks Kater's verdicts, its builtin theory, its
+automaton passes and its exports against a reference semantics of execution
+graphs. Its tests are labeled `oracle`:
 
 ```shell
 cd Release && ctest -L oracle
 ```
 
-See [verification.md](verification.md) for what it checks and what it found.
+`formal/` is a Lean 4 project that proves sound a checker of the
+certificates Kater emits for its inclusion checks. With Lean installed
+(through [elan](https://github.com/leanprover/elan)), `lake build` in
+`formal/` checks the proof, and the tests labeled `formal` run the checker on
+the certificates of the suite:
+
+```shell
+cd Release && ctest -L formal
+```
+
+See [verification.md](verification.md) for what these check and what they
+found.
 
 Other helpers under `scripts/`:
 

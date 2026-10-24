@@ -23,6 +23,7 @@
 
 #include "Checker.hpp"
 
+#include <filesystem>
 #include <optional>
 #include <string>
 
@@ -37,7 +38,8 @@ namespace oracle {
  *  - some pair covers each starting state;
  *  - each pair whose left state accepts has an accepting right state;
  *  - each step out of a pair lands on a pair the simulation subsumes.
- * Returns why CERT is not a proof, if it is not.
+ * Returns why CERT is not a proof, if it is not. formal/ has the same check
+ * in Lean, with a proof that it is sound.
  */
 auto checkCertificate(const Checker::Certificate &cert) -> std::optional<std::string>;
 
@@ -45,8 +47,14 @@ auto checkCertificate(const Checker::Certificate &cert) -> std::optional<std::st
  * Has Kater prove the assertions of FILE with certificates, checks each
  * certificate, and checks each letter inclusion they rest on against the
  * semantics, up to the search bound. Returns whether all of it holds.
+ *
+ * With JSONDIR, also writes the k-th certificate of FILE to
+ * JSONDIR/<stem>.<k>.json, and copies of it that differ in one place to
+ * JSONDIR/<stem>.<k>.<how>.json, each with checkCertificate's verdict: the
+ * input of the checker in formal/.
  */
-auto certifyFile(const std::string &file, const SearchOptions &opts, bool verbose) -> bool;
+auto certifyFile(const std::string &file, const SearchOptions &opts, bool verbose,
+		 const std::optional<std::filesystem::path> &jsonDir = std::nullopt) -> bool;
 
 } // namespace oracle
 
