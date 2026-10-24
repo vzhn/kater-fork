@@ -1,0 +1,5 @@
+// compactEdges used to loop forever on the cycles of predicates of these,
+// removing steps and adding them back (#28)
+assert (id | [EXCL] | [R])+ <= id | [EXCL] | [R]
+assert (id | [EXCL] | [R] | rf)+ <= id | [EXCL] | [R] | rf
+assert (id | [EXCL] | [R] | rf)+ <= (id | [EXCL] | [R] | rf)+

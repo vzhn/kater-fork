@@ -1,0 +1,2 @@
+// Found by the fuzzer; compactEdges used to loop forever on it (#28)
+assert ((([F])+ | ([EXCL] | [R])) | ((rfe ; detour) ; (fre ; po-loc^-1))) = ( ( ( ( ( id ) + | ( [EXCL] | [R] ) ) | ( ( rfe ; detour ) ; ( fre ; po-loc^-1 ) ) ) ) + ) +

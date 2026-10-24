@@ -1,0 +1,5 @@
+// total r makes r a strict total order, which is irreflexive: the saturation
+// of total used to make an r-step optional, as if r were reflexive (#19)
+relation r
+assume total r
+assert id <= r

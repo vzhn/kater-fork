@@ -1,0 +1,4 @@
+// mo is a strict total order on writes: total mo does not make it reflexive
+// on them (#19)
+assume total mo
+assert [W] <= mo

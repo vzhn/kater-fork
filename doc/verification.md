@@ -79,7 +79,11 @@ Conventions:
   consequence of the rotation claim; the oracle cannot see paths).
 - `rot` without `& id` has no meaning: Kater rejects it unless the left-hand
   side relates events only to themselves (a predicate), whose pairs are all
-  cycles. `total r` has none either (see [Open issues](#open-issues)).
+  cycles.
+- `total r` means that r is a strict total order on all events, as
+  Proposition 3.12 of the Kater paper has it; Kater uses only its
+  transitivity. `total` of anything but a relation is unsupported, as in
+  Kater.
 - `let rec` is a least fixpoint, computed by Kleene iteration; the inverse of
   a recursive relation is the inverse of that fixpoint.
 - An automaton denotes the pairs (a, b) such that an accepting path reads a,
@@ -161,7 +165,7 @@ contract, on every graph satisfying the hypotheses H:
 | `normalize`, `simplify`, `compactEdges`, `breakToParts`, `removeConsecutivePredicates`, `addTransitivePredicateEdges`, `removeDeadStates`, `removeSimilarTransitions`, `removeRedundantSelfLoops`, `saturateDomains`, `to_DFA` | preserve the denoted relation |
 | `saturateInitFinalPreds`, `saturateLoc` (left-hand side of `& id`) | keep every cycle: `[[T(N)]] & id ⊇ [[N]] & id` |
 | `saturateRotate` (right-hand side of `rot`) | add no cycle |
-| `saturateEmpty`, `saturateID`, `saturateTransitive`, `saturateBuiltin`, `saturateTotal`, `saturateSubword` (right-hand side) | under H, `[[T(N)]] ⊆ [[N]]` |
+| `saturateEmpty`, `saturateID`, `saturateTransitive`, `saturateBuiltin`, `saturateSubword` (right-hand side) | under H, `[[T(N)]] ⊆ [[N]]` |
 | `pruneNFA` (right-hand side) | removes transitions: `[[T(N)]] ⊆ [[N]]` |
 | `Theory::isIncludedIn`, `composes` | true of every graph (the audit) |
 | letter-wise matching | a matched word's relation is within the matching word's |
@@ -361,8 +365,38 @@ Kater used to prove; the oracle refutes each (`ctest -L oracle`).
     inclusion check from using it. Found by checking the letter inclusions the
     certificates record.
 
-Items 1–4, 7, 8 and 11 made Kater prove false claims, and 12 could have; the
-others crashed it, read memory it should not, or produced code GenMC rejects.
+13. **`total r` made r reflexive** ("Assumptions: total r gives r's
+    transitivity, not a preorder"; #19). `saturateTotal` made every r-step of
+    the right-hand side optional as well as repeatable, as if r were a
+    preorder, so Kater proved `id <= r` from `assume total r`, `[W] <= mo` from
+    `assume total mo`, and the cycle query `((x;y) & id) <= rot (x;r;y)`, the
+    kind the saturation was meant for. Under a strict total order, its
+    contract failed on 2 of 300 random expressions. `total r` is now
+    saturated as `r;r <= r` is, and the oracle gives it its meaning.
+
+14. **`addTransitivePredicateEdges` lost paths through three predicates**
+    ("addTransitivePredicateEdges: compute the shortcuts before adding any";
+    #20). It added a state's shortcuts as soon as it visited the state, so a
+    state visited later took them for second steps of its own and removed
+    them: through `0 -[]-> 2 -[ACQ&F]-> 16 -[]-> 18`, with `4 -[]-> 2`, the
+    word `[ACQ&F]` from 0 was lost. It did not show through `normalize`. The
+    contract tests now run both predicate passes on automata straight from
+    `toNFA`, where they found 5 violations in 1200 expressions before the fix
+    and none since; a unit test has the automaton above.
+
+15. **Normalization never ended on a cycle of predicates** ("compactEdges:
+    stop when a round changes nothing"; #22, #28). `joinPredicateEdges`
+    reported a change whenever it removed a step, even one it added back, so
+    through a cycle of predicates between states that do not accept,
+    `compactEdges` looped forever. Assumptions that make a relation reflexive
+    or within `id`, such as `assume data = [EXCL]`, make such cycles, and so
+    does `(id | [EXCL] | [R])+`. The four files that took Kater over 30
+    seconds were this, not a large automaton; they now take about 10 ms, as
+    does `(id | [EXCL] | [R])+ <= id | [EXCL] | [R]`.
+
+Items 1–4, 7, 8, 11 and 13 made Kater prove false claims, 12 and 14 could
+have, and 15 made it run forever; the others crashed it, read memory it should
+not, or produced code GenMC rejects.
 Under the sanitizers the whole suite, the unit tests, 4000 fuzzed files and the
 export of every `kat/*-genmc.kat` model now run without a report, and the
 exported checkers are the same as without them.
@@ -373,9 +407,12 @@ After the fixes:
   inclusions between whole letters, up to 3);
 - the transformation contracts hold on random expressions: over 1000 at
   depth 3 and 1600 at depth 4 for every pass, up to 4 events (the predicate
-  passes in the context `normalize` calls them in);
+  passes on automata straight from `toNFA`: 2200 at depth 3 and 1000 at
+  depth 4);
 - the fuzzer finds no unsound proof in 25500 files, of which Kater proved
-  8521, across all profiles;
+  8521, across all profiles; after items 13–15, none in 4500 more, of
+  which Kater proved 1476 and never timed out (the oracle checked all but the
+  64 that assume `total` of a compound expression, which Kater ignores);
 - every assertion of `tests/correct` has no counterexample with up to 5
   events, and every proof of it has a valid certificate (54, resting on 498
   letter inclusions that hold);
@@ -387,10 +424,6 @@ After the fixes:
 
 ## Open issues
 
-- **`assume total r`** has no documented meaning. Kater saturates it as if
-  `r` were reflexive and transitive: it proves `id <= r` and `r;r <= r` from
-  it. That is unsound if `total` means a strict total order, as `mo` is. The
-  oracle reports the constraint as unsupported.
 - **Incompleteness.** `tests/wrong/equivalence/eq-ra1-ra2-no-universe.kat`
   has no counterexample with up to 5 events: it is probably true, but outside
   what Kater can prove. The four files of `tests/wrong/compilation` have none
@@ -398,29 +431,19 @@ After the fixes:
   (`po?;[R] <= [F];po;[R]` even rules out reads), and the two compilations of
   C11 to POWER either need larger graphs or are true once the right-hand
   sides exclude the uninteresting counterexamples they do.
-- **`addTransitivePredicateEdges` depends on the order of states.** It
-  merges two consecutive predicates into a shortcut, adding the shortcut as
-  soon as it visits the first state and removing the second step at the end.
-  Through three consecutive predicates (`0 -[]-> 2 -[ACQ&F]-> 16 -[]-> 18`) a
-  shortcut can be added to a state and later removed with that state's steps,
-  so the path is lost; the contract test found this on automata straight from
-  `toNFA`. In the context `normalize` calls it in (after `simplify`,
-  `saturateDomains` and `breakToParts`), no violation showed in 1600
-  expressions of depth 4, and `normalize` itself none in 1600 more, so it
-  does not seem reachable; the contract tests now run the pass in that
-  context. Computing the closure of predicate paths first, then replacing,
-  would remove the dependence.
 - **Inverses of recursive relations.** `x^-1` for a `let rec x` flips the
   definitions in place, and Kater's automaton construction does not recognize
   the flipped self-reference `x^-1` as the recursion: it treats it as an
   unknown relation. That is sound (what holds for every relation in its place
   holds for `x^-1`) but incomplete: Kater cannot prove that the inverse of
   `let rec x = po | x;rf` is within `(po^-1 | rf^-1)+`.
-- **Performance.** Four of 10000 random files took Kater over 30 seconds. All
-  four assume a relation equal to a predicate or within `id`
-  (`assume data = [EXCL]`, `assume po-loc = [DEP]`, ...): `saturateID` adds a
-  copy of the assumption's automaton at every state of the right-hand side,
-  and the result grows past what the inclusion check handles.
+- **Normal forms that keep predicate steps.** When a cycle of predicates
+  stops `compactEdges` at a fixpoint (item 15), the predicate steps into
+  states that do not accept stay in the normal form. That is sound; whether
+  it costs completeness is untested. Kater rejects all four files of item
+  15: the oracle refutes two, and finds no counterexample to the other two
+  with up to 4 events (one has hypotheses no graph meets, since it makes
+  `ctrl` reflexive, which Kater cannot know is impossible).
 - **Not checked by the oracle**: `isPPOIntersectionInPPO`, which the exporter
   uses to prune acyclicity checks (it is not a constraint the observer sees);
   and the printed code of `GenMCPrinter`, beyond type-checking it.
