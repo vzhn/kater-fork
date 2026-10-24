@@ -71,15 +71,14 @@
  *   kater-oracle genmc --runner RUNNER [-n EVENTS] [--threads T]
  *                      [--locations L] [--heap-events H] [--random N]
  *                      [--random-events M] [--seed S] [--limit G]
- *                      [--shard K/N] [--count] [--all-races]
+ *                      [--shard K/N] [--count]
  *                      [--graph FILE]... FILE...
  *       Runs the GenMC checkers Kater exports for the kat/NAME-genmc.kat
  *       FILEs (in kater-oracle-runner) on every graph up to EVENTS events,
  *       every one with a heap up to H (with --shard, on the K-th of every
  *       N), and on N random ones up to M, or on the graphs of FILEs, and
  *       compares their verdicts with the reference semantics. --count only
- *       counts the graphs; --all-races compares the race of a failing
- *       clause A = 0 too (vzhn/kater-fork#34).
+ *       counts the graphs.
  *
  *   kater-oracle extensible [-n EVENTS] [--threads T] [--locations L]
  *                           [--graph FILE]... [--maximal] [--refutable] FILE...
@@ -154,7 +153,7 @@ struct Options {
 		   "       kater-oracle genmc --runner RUNNER [-n EVENTS] [--threads T]\n"
 		   "                          [--locations L] [--heap-events H] [--random N]\n"
 		   "                          [--random-events M] [--seed S] [--limit G]\n"
-		   "                          [--shard K/N] [--count] [--all-races]\n"
+		   "                          [--shard K/N] [--count]\n"
 		   "                          [--graph FILE]... FILE...\n"
 		   "       kater-oracle extensible [-n EVENTS] [--threads T] [--locations L]\n"
 		   "                               [--graph FILE]... [--maximal] [--refutable]\n"
@@ -222,8 +221,6 @@ auto parseOptions(int argc, char **argv, int first) -> Options
 			opts.genmc.graphs.push_back(text());
 		else if (arg == "--count")
 			opts.genmc.count = true;
-		else if (arg == "--all-races")
-			opts.genmc.allRaces = true;
 		else if (arg == "--shard") {
 			auto spec = text();
 			auto slash = spec.find('/');

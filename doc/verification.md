@@ -173,8 +173,7 @@ check, for triage.
 
     kater-oracle genmc --runner RUNNER [-n EVENTS] [--threads T] [--locations L]
                        [--heap-events H] [--random N] [--random-events M]
-                       [--seed S] [--shard K/N] [--all-races]
-                       [--graph FILE]... FILE...
+                       [--seed S] [--shard K/N] [--graph FILE]... FILE...
 
 Runs the GenMC checker Kater exports for each `kat/NAME-genmc.kat` FILE, inside
 GenMC, on every graph up to EVENTS events, every one with a heap up to H, and
@@ -312,19 +311,25 @@ checks them, and compares the verdicts:
     Release/kater-oracle certify -n 1 --json /tmp/certificates tests/correct/*/*.kat
     cd formal && lake exe kater-cert-check /tmp/certificates
 
-On `tests/correct`, it accepts the 54 certificates, and gives each of the 637
-copies the verdict `checkCertificate` gives it, reason included, in about
-three seconds. 57 copies are still valid proofs: most replace the simulation
-with the identity (36) or drop a right state from a pair (11), neither of
-which those proofs need, and 7 make the right automaton accept nothing where
-the left one accepts nothing either.
+On `tests/correct`, it accepts the 63 certificates, and gives each of the 737
+copies that differ in the certificate the verdict `checkCertificate` gives
+it, reason included, in about four seconds with the chains (next section).
+72 copies are still valid proofs: most replace the simulation with the
+identity (45) or drop a right state from a pair (13), neither of which those
+proofs need; 9 make the right automaton accept nothing where the left one
+accepts nothing either; 3 make every left state accept where every pair
+already has an accepting right state; and 2 drop an inclusion the proof does
+not use.
 
 What a verdict of the final check now rests on: the letter inclusions, which
 stay hypotheses (the oracle checks them up to N events); the C++ that writes
 the certificates and the Lean that reads them, since the theorem is about the
 automata in the file; and Lean's kernel and compiler. What the automata mean
 for the expressions rests on the contracts above, but for the saturations of
-the right-hand side (next section).
+the right-hand side (next section). For an assertion, the checker of whole
+proofs trusts none of these: it checks the expressions' automata and every
+pass, and takes the letter inclusions from its own theory (see
+[Whole proofs](#whole-proofs)).
 
 The Lean has to stay in step with the C++ it mirrors. Comparing the verdicts
 catches a checker or a format that drifts, but not a model that does: a field
@@ -433,7 +438,9 @@ letter of the path needs the next letter of w to be a bare relation r with
 `[K];r <= b` for the path's letter b and a subset K of what is known, after
 which nothing is known. Each step of the path records its K, and an
 inclusion it needs is equality or one of the evidence's letter inclusions,
-which, as the final check's, stay hypotheses. So `[[w]] <= [[path]]`.
+which, as the final check's, stay hypotheses of the chain's check (the
+checker of whole proofs takes them from its theory). So
+`[[w]] <= [[path]]`.
 
 **What each saturation records.**
 
@@ -501,19 +508,20 @@ states, a letter inclusion dropped, a last automaton that is not the right
 one. To keep the files small, only the inclusion is dropped from the chains
 of the compilation schemes, whose automata have thousands of states.
 
-**Results.** On `tests/correct`, the 59 certificates come with chains, all
-of which check: 274 saturations with evidence (133 `saturateBuiltin`, 123
+**Results.** On `tests/correct`, the 63 certificates come with chains, all
+of which check: 290 saturations with evidence (141 `saturateBuiltin`, 131
 `saturateTransitive` with 2899 `after` states, 9 `saturateSubword` with 8788
 copies on paths of 3 to 5 steps, 6 `saturateID` with 97 copies, and 3
 `saturateEmpty`). The checker in Lean agrees with `checkCertificateAndChain`
-on all 1014 files, 955 of them copies, in about four seconds; every copy that
-differs in the chain is rejected, for the reason it was made. The 67
-certificates of the exports of `kat/*-genmc.kat` come with chains through 202
-saturations, all of which check, and the checker agrees on their 1212 files.
-Up to 4 events (12 seconds), the oracle refutes none of the 519 letter
-inclusions the suite's certificates and evidence rest on, none of the 174
-hypotheses its saturations use, under the files' assumptions, and none of
-the 117 passes without evidence small enough to check (223 are not).
+on all 1076 files, 1013 of them copies, in about four seconds; every one of
+the 276 copies that differ in the chain is rejected, for the reason it was
+made. The 67 certificates of the exports of `kat/*-genmc.kat` come with
+chains through 202 saturations, all of which check, and the checker agrees
+on their 1212 files. Up to 4 events (13 seconds), the oracle refutes none of
+the 519 letter inclusions the suite's certificates and evidence rest on,
+none of the 178 hypotheses its saturations use, under the files'
+assumptions, and none of the 137 passes without evidence small enough to
+check (223 are not).
 
 So no saturation of these proofs is trusted any longer. `kater-oracle
 transforms --evidence-only` checks the evidence of each saturation on the
@@ -874,15 +882,28 @@ The checks of the previous table ran again on these graphs, and agreed too:
 the checker from before item 16 accepts 15 of these random graphs of IMM,
 #27's, and the one from after none. Every clause of every model fails on
 some graphs, in the ctests already: the memory-error clauses tens to
-hundreds of times, the races thousands. Left out is the race of a failing clause `A = 0`, which the exported
-checks do not set ([#34](https://github.com/vzhn/kater-fork/issues/34)):
-compared (`--all-races`), it disagrees in 1074 of the 31817 errors GenMC finds
-on RC11's graphs of the memory-error checks up to 4 events, where
-`checkErrors()` gives the race of a double free, of a use after free or of an
-access to a retired block as none, or as what an earlier failing clause left.
-`tests/oracle/genmc/graphs/issue-34.graph` has a warning leave its race to a
-double free; the ctest `oracle-genmc-issue-34` compares it with
-`--all-races`, and fails once the bug is fixed.
+hundreds of times, the races thousands. These runs left out the race of a
+failing clause `A = 0`, which the exported checks did not set (item 22,
+[#34](https://github.com/vzhn/kater-fork/issues/34)): compared, it disagreed
+in 1074 of the 31817 errors GenMC finds on RC11's graphs of the memory-error
+checks up to 4 events, where `checkErrors()` gave the race of a double free,
+of a use after free or of an access to a retired block as none, or as what an
+earlier failing clause left. Since the fix the comparison leaves no race out.
+Run again on the graphs of the memory-error checks and on 100000 random
+graphs per model, as above (the graphs of the models' own instructions have
+no frees or retires), it finds no disagreement in any check; each cell is
+how many times `checkErrors()` ran and, in parentheses, how often it found an
+error, or how often the clauses `A = 0` failed:
+
+| | SC | TSO | RA | RC11 | IMM | LKMM |
+|---|---|---|---|---|---|---|
+| `checkErrors` | 1868506 (384480) | 1975476 (354009) | 2012754 (355038) | 6673908 (1389773) | 6653879 (1388829) | 7883004 (194511) |
+| clauses `A = 0` | 33222 | 9693 | 10628 | 61302 | 61173 | 36712 |
+| disagreements | 0 | 0 | 0 | 0 | 0 | 0 |
+
+The ctest `oracle-genmc-issue-34` replays
+`tests/oracle/genmc/graphs/issue-34.graph`, where a warning left its race to
+a double free.
 
 Three differences are explained, and the comparison allows for them:
 
@@ -1462,11 +1483,29 @@ Kater used to prove; the oracle refutes each (`ctest -L oracle`).
     A combination is now invalid by its plain predicates alone; a unit test
     has negated ones.
 
+22. **A failing clause `A = 0` left the race of an earlier one**
+    ("GenMCPrinter: the check of a clause A = 0 sets its counterexample";
+    #34). The check `GenMCPrinter` prints for an `unless` clause `A = 0`
+    returned false as soon as `A` related an event to the one checked, but
+    set no counterexample, unlike the check of `A <= VIEW`. So
+    `checkErrors()` gave as the race of a double free, or of an access to
+    freed or retired memory (`free; [FREE|HPRET] = 0`, `free ; [R | W] = 0`,
+    `retire ; [NOTHPPROT] = 0`), the one the last failing clause had left:
+    none in a fresh checker, or a label of an earlier execution, which GenMC
+    may have freed since, and which `GenMCDriver::reportError()`
+    dereferences to print it. The check now sets the counterexample to the
+    event it reaches; the exported checkers change in these checks alone.
+    Found by `kater-oracle genmc` once it compared these races (see
+    [Results](#results)); the ctest `oracle-genmc-issue-34` replays
+    `tests/oracle/genmc/graphs/issue-34.graph`, where a WW race left its race
+    to a double free.
+
 Items 1–4, 7, 8, 11, 13 and 19 made Kater prove false claims, 12, 14 and 20
 could have, 15 made it run forever, 16 made an exported checker accept
-graphs its model forbids, and 18 and 21 let Kater export models GenMC
-cannot explore; the others crashed it, read memory it should not, or
-produced code GenMC rejects.
+graphs its model forbids, 18 and 21 let Kater export models GenMC cannot
+explore, and 22 made exported checkers hand GenMC a stale label to report;
+the others crashed it, read memory it should not, or produced code GenMC
+rejects.
 Under the sanitizers the whole suite, the unit tests, 4000 fuzzed files and the
 export of every `kat/*-genmc.kat` model now run without a report, and the
 exported checkers are the same as without them.
@@ -1485,8 +1524,9 @@ After the fixes:
   which Kater proved 1476 and never timed out (the oracle checked all but the
   64 that assume `total` of a compound expression, which Kater ignores);
 - every assertion of `tests/correct` has no counterexample with up to 5
-  events, and every proof of it has a valid certificate (54, resting on 498
-  letter inclusions that hold);
+  events; every proof of it has a valid certificate and chain (63, resting
+  on 519 letter inclusions and 178 hypotheses that hold up to 4 events), and
+  the evidence of its whole proof checks (see [Whole proofs](#whole-proofs));
 - the export of every `kat/*-genmc.kat` model passes: 222 claims and
   rewrites with up to 5 events, and 488 letter inclusions of the claims'
   certificates, before #33 was fixed (7 of the claims the extensibility
@@ -1496,12 +1536,11 @@ After the fixes:
   so for the events Kater's extensibility check is about (see
   [Extensibility](#extensibility));
 - the exported checkers of all six models type-check against GenMC
-  (0.19.0-vzhn.10), and the fixes left them byte-identical but for item 16,
-  which changed their acyclicity checks alone; a Kater built with assertions
-  exports the same ones;
+  (0.19.0-vzhn.10), and the fixes left them byte-identical but for items 16
+  and 22, which changed their acyclicity checks and the checks of their
+  clauses `A = 0` alone; a Kater built with assertions exports the same ones;
 - run inside GenMC, they answer as the reference semantics does on every
-  graph tried, their memory-error checks included, but for the races of
-  [#34](https://github.com/vzhn/kater-fork/issues/34), still open (see
+  graph tried, their memory-error checks and races included (see
   [Results](#results)).
 
 ## Open issues
@@ -1526,14 +1565,6 @@ After the fixes:
   15: the oracle refutes two, and finds no counterexample to the other two
   with up to 4 events (one has hypotheses no graph meets, since it makes
   `ctrl` reflexive, which Kater cannot know is impossible).
-- **The race of an error whose `unless` clause is `A = 0`**
-  ([#34](https://github.com/vzhn/kater-fork/issues/34)): the check
-  `GenMCPrinter` prints for it sets no counterexample, so `checkErrors()`
-  gives as the race of a double free or a use after free what an earlier
-  failing clause left, possibly of an earlier execution, or none.
-  `GenMCDriver::reportError()` dereferences it. Found by `kater-oracle genmc`;
-  `tests/oracle/genmc/graphs/issue-34.graph` is the reproducer, and the ctest
-  `oracle-genmc-issue-34` fails once this is fixed.
 - **IMM and LKMM are not extensible**
   ([#38](https://github.com/vzhn/kater-fork/issues/38),
   [#39](https://github.com/vzhn/kater-fork/issues/39)): GenMC can leave a
@@ -1560,6 +1591,11 @@ After the fixes:
   exception `kater-oracle` did not catch. `certify` now catches it, and
   checks a pass of a chain without evidence only when its automata have at
   most 24 states per event of the bound.
+- **The check of `0 <= VIEW` does not return**
+  ([#51](https://github.com/vzhn/kater-fork/issues/51)): for an inclusion
+  `A <= VIEW` whose left-hand automaton accepts nothing, such as
+  `export 0 <= hb`, the `visit` function `printSubset` prints ends without a
+  `return`. None of the models has such a clause.
 - **Not checked by the oracle**: of the printed code, the revisits of the
   dependency-tracking models (see
   [The exported checkers](#the-exported-checkers)).

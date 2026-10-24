@@ -49,10 +49,6 @@ struct GenMCOptions {
 	/* Disagreements shown in full, for each kind of check */
 	unsigned shown = 3;
 
-	/* Compare the race of a failing clause A = 0, which the exported checks
-	 * leave as an earlier clause set it (vzhn/kater-fork#34) */
-	bool allRaces = false;
-
 	/* Only count the graphs */
 	bool count = false;
 
