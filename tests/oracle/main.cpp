@@ -35,10 +35,13 @@
  *       the claims the Checker proves on the way, and that each definition
  *       the exporter rewrites keeps its meaning.
  *
- *   kater-oracle certify [-n EVENTS] [-t SECONDS] FILE...
+ *   kater-oracle certify [-n EVENTS] [-t SECONDS] [--json DIR] FILE...
  *       Has Kater prove FILE's assertions with certificates, checks each
  *       certificate without searching, and checks the letter inclusions
- *       they rest on against the semantics.
+ *       they rest on against the semantics. With --json, also writes each
+ *       certificate, and copies of it that differ in one place, to DIR as
+ *       JSON, with checkCertificate's verdict: the input of the checker in
+ *       formal/.
  *
  *   kater-oracle explain FILE
  *       Prints the automaton of the left-hand side of each assertion of
@@ -64,8 +67,10 @@
 #include "Utils.hpp"
 
 #include <cstdlib>
+#include <filesystem>
 #include <iostream>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -81,6 +86,7 @@ struct Options {
 	TransformOptions transforms;
 	bool verbose = false;
 	bool refutable = false;
+	std::optional<std::filesystem::path> jsonDir;
 	std::vector<std::string> files;
 };
 
@@ -88,6 +94,8 @@ struct Options {
 {
 	std::cerr
 		<< "usage: kater-oracle check [-n EVENTS] [-t SECONDS] [--refutable] [-v] FILE...\n"
+		   "       kater-oracle certify [-n EVENTS] [-t SECONDS] [--json DIR]\n"
+		   "                            [-v] FILE...\n"
 		   "       kater-oracle explain FILE...\n"
 		   "       kater-oracle audit [-n EVENTS] [-t SECONDS] [-v]\n"
 		   "       kater-oracle transforms [-n EVENTS] [-t SECONDS] [--cases N]\n"
@@ -123,6 +131,9 @@ auto parseOptions(int argc, char **argv, int first) -> Options
 			opts.transforms.depth = value();
 		else if (arg == "--only" && i + 1 < argc)
 			opts.transforms.only = argv
+				[++i]; // NOLINT(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+		else if (arg == "--json" && i + 1 < argc)
+			opts.jsonDir = argv
 				[++i]; // NOLINT(cppcoreguidelines-pro-bounds-pointer-arithmetic)
 		else if (!arg.empty() && arg[0] == '-')
 			usage();
@@ -248,9 +259,11 @@ auto main(int argc, char **argv) -> int
 		return ok ? 0 : 1;
 	}
 	if (cmd == "certify") {
+		if (opts.jsonDir)
+			std::filesystem::create_directories(*opts.jsonDir);
 		auto ok = true;
 		for (const auto &f : opts.files)
-			ok &= certifyFile(f, opts.search, opts.verbose);
+			ok &= certifyFile(f, opts.search, opts.verbose, opts.jsonDir);
 		return ok ? 0 : 1;
 	}
 	if (cmd == "explain") {

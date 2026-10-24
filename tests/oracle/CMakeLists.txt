@@ -45,3 +45,34 @@ set_tests_properties(oracle-export PROPERTIES LABELS "oracle" TIMEOUT 900)
 # letter inclusions they rest on hold
 add_test(NAME oracle-certify COMMAND kater-oracle certify -n 3 ${ORACLE_CORRECT})
 set_tests_properties(oracle-certify PROPERTIES LABELS "oracle" TIMEOUT 900)
+
+# The certificates of the whole suite, checked by the Lean checker in formal/
+# (whose build proves it sound), along with copies that differ in one place:
+# it must give each file the verdict checkCertificate gave it
+find_program(LAKE lake HINTS $ENV{ELAN_HOME}/bin $ENV{HOME}/.elan/bin)
+if(LAKE)
+  # elan's lake finds its toolchains through ELAN_HOME, which ctest's
+  # environment may lack: give it the elan home lake was found in
+  get_filename_component(LAKE_HOME ${LAKE} DIRECTORY)
+  get_filename_component(LAKE_HOME ${LAKE_HOME} DIRECTORY)
+  if(EXISTS ${LAKE_HOME}/toolchains)
+    set(LAKE_ENVIRONMENT ELAN_HOME=${LAKE_HOME})
+  endif()
+  file(GLOB ORACLE_CORRECT_ALL ${PROJECT_SOURCE_DIR}/tests/correct/*/*.kat)
+  set(CERTIFICATES_JSON ${CMAKE_CURRENT_BINARY_DIR}/certificates)
+  add_test(NAME formal-certificates-clean
+    COMMAND ${CMAKE_COMMAND} -E rm -rf ${CERTIFICATES_JSON})
+  add_test(NAME formal-certificates-write
+    COMMAND kater-oracle certify -n 1 --json ${CERTIFICATES_JSON} ${ORACLE_CORRECT_ALL})
+  add_test(NAME formal-certificates-check
+    COMMAND ${LAKE} exe kater-cert-check ${CERTIFICATES_JSON}
+    WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}/formal)
+  set_tests_properties(formal-certificates-clean PROPERTIES
+    FIXTURES_SETUP certificates-clean)
+  set_tests_properties(formal-certificates-write PROPERTIES
+    FIXTURES_REQUIRED certificates-clean FIXTURES_SETUP certificates-json)
+  set_tests_properties(formal-certificates-check PROPERTIES
+    FIXTURES_REQUIRED certificates-json ENVIRONMENT "${LAKE_ENVIRONMENT}")
+  set_tests_properties(formal-certificates-clean formal-certificates-write
+    formal-certificates-check PROPERTIES LABELS "oracle;formal" TIMEOUT 1800)
+endif()

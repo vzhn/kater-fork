@@ -7,10 +7,12 @@ forbids. This document describes how Kater is checked against an independent
 semantics, the contracts its decision procedure has to meet, and what the
 checking has found so far.
 
-Everything here is *bounded* testing: a claim is refuted by a graph of at most
-N events, or not refuted up to N. It finds bugs; it does not prove their
-absence. The contracts below are the lemmas a proof has to establish (see
-[Next steps](#next-steps)).
+Almost everything here is *bounded* testing: a claim is refuted by a graph of
+at most N events, or not refuted up to N. It finds bugs; it does not prove
+their absence. The contracts below are the lemmas a proof has to establish
+(see [Next steps](#next-steps)). The exception is the last step of a proof of
+inclusion, whose certificates a checker proved sound in Lean checks (see
+[The checker in Lean](#the-checker-in-lean)).
 
 ## The reference semantics
 
@@ -113,12 +115,13 @@ every claim the Checker proves on the way (recorded with
 `Checker::setObserver`), and that every definition the exporter rewrites keeps
 its meaning.
 
-    kater-oracle certify [-n EVENTS] FILE...
+    kater-oracle certify [-n EVENTS] [--json DIR] FILE...
 
 Has Kater prove FILE's assertions with certificates
 (`Checker::setCertificateSink`), checks each certificate without searching
 (below), and checks every letter inclusion the certificates rest on against
-the semantics.
+the semantics. With `--json`, also writes the certificates to DIR for the
+checker in Lean (below).
 
     kater-oracle explain FILE...
 
@@ -138,7 +141,8 @@ as `.kat` files.
 The ctests labeled `oracle` (built when Z3 is found) run the audit, the
 transformation contracts, the correct suite against counterexamples and with
 certificates, the soundness regressions with `--refutable`, and the export
-check of every `kat/*-genmc.kat` model:
+check of every `kat/*-genmc.kat` model; when `lake` is found too, the ones
+labeled `formal` check the suite's certificates with the checker in Lean:
 
     ctest -L oracle
 
@@ -188,6 +192,69 @@ every step, so (3) makes the word accepted by the right automaton letter by
 letter. Together with the letter inclusions, which the oracle checks, the
 certificate proves the inclusion between the two automata. What it leaves to
 trust is how those automata came from the expressions: the contracts above.
+
+### The checker in Lean
+
+`formal/` is a Lean 4 project, depending on nothing but Lean's core library,
+that proves a checker of these certificates sound. It models what a
+certificate is about, as the oracle reads it:
+
+- relations on a type of events, and a meaning for the base relations and
+  predicates by id: an execution graph, in the sense of §2.3 of the Kater
+  paper, with the builtins uninterpreted;
+- a letter (`TransLabel`) as `[pre];r;[post]`, or `[pre]`, which is within
+  the identity, where predicates may be complemented and relations inverted;
+- a word as the composition of its letters (the identity if it is empty),
+  and an automaton as the pairs of events that a word it accepts from a
+  starting state relates.
+
+`Certificate.check` (`formal/KaterCert/Checker.lean`) is `checkCertificate`
+in Lean: the same conditions, in the same order, with the same messages.
+`lake build` proves it sound (`formal/KaterCert/Soundness.lean`):
+
+```lean
+theorem check_sound (c : Certificate) (h : c.check = none)
+    (I : Label → Rel E) (hinc : ∀ a b, (a, b) ∈ c.inclusions → Rel.Sub (I a) (I b)) :
+    Rel.Sub (c.lhs.denote I) (c.rhs.denote I)
+```
+
+If the checker accepts a certificate, and each of its letter inclusions holds
+when letters mean `I`, then so does the inclusion between its automata;
+`check_sound_interp` states it for letters read as above, over any meaning of
+the base relations and predicates. The proof is the induction above, on the
+four conditions over any automata (`formal/KaterCert/Conditions.lean`). It
+has no `sorry` and uses only Lean's standard axioms (`propext`,
+`Classical.choice`, `Quot.sound`): the build checks this and fails otherwise.
+
+The proof needs less than the checkers check. That a simulator accepts every
+word of a state it simulates follows from (1) for that pair alone, by
+induction over the word, and a state needs no simulation to accept its own
+words; so neither reflexivity nor transitivity is used. To the proof, a
+negated predicate is a letter like any other. Both checkers keep these
+conditions, so that they agree.
+
+`kater-oracle certify --json DIR` writes each certificate to DIR with
+`checkCertificate`'s verdict, along with copies that each differ from it in
+one place (a pair dropped or shrunk, an entry of the simulation flipped, an
+inclusion dropped, the right automaton accepting nothing, ...), each with
+`checkCertificate`'s verdict on the copy. `kater-cert-check` reads the files,
+checks them, and compares the verdicts:
+
+    Release/kater-oracle certify -n 1 --json /tmp/certificates tests/correct/*/*.kat
+    cd formal && lake exe kater-cert-check /tmp/certificates
+
+On `tests/correct`, it accepts the 54 certificates, and gives each of the 637
+copies the verdict `checkCertificate` gives it, reason included, in about
+three seconds. 57 copies are still valid proofs: most replace the simulation
+with the identity (36) or drop a right state from a pair (11), neither of
+which those proofs need, and 7 make the right automaton accept nothing where
+the left one accepts nothing either.
+
+What a verdict of the final check now rests on: the letter inclusions, which
+stay hypotheses (the oracle checks them up to N events); the C++ that writes
+the certificates and the Lean that reads them, since the theorem is about the
+automata in the file; and Lean's kernel and compiler. What the automata mean
+for the expressions rests on the contracts above.
 
 ## Findings
 
@@ -346,9 +413,9 @@ After the fixes:
 
 ## Next steps
 
-1. **Certificates.** Kater emits certificates of its final step, and
-   `kater-oracle certify` checks them (see [Certificates](#certificates)).
-   What remains is a checker whose correctness is itself proved, and
+1. **Certificates.** Kater emits certificates of its final step, and a
+   checker proved sound in Lean checks them (see
+   [The checker in Lean](#the-checker-in-lean)). What remains is
    certificates for the steps before: the passes, which could either be
    proved once from their contracts or emit evidence of their own (the
    saturations, for instance, which paths they added for which hypothesis).

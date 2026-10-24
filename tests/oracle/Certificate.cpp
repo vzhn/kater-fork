@@ -18,15 +18,284 @@
 
 #include "Certificate.hpp"
 
+#include "NFAUtils.hpp"
 #include "ParsingDriver.hpp"
 #include "Theory.hpp"
 #include "Utils.hpp"
 
+#include <algorithm>
+#include <cctype>
+#include <format>
+#include <fstream>
+#include <functional>
 #include <iostream>
 #include <set>
 #include <vector>
 
 namespace oracle {
+
+namespace {
+
+/*
+ * Certificates as JSON, for the checker in formal/: a certificate's automata,
+ * simulation, pairs and letter inclusions, as Checker::Certificate has them.
+ * A letter is {"relation": [id, inverse] or null, "pre": [[id, complement],
+ * ...], "post": [...]}, with its text for the reader; row p of the
+ * simulation lists, as 0s and 1s, which states simulate p.
+ */
+
+auto jsonString(const std::string &s) -> std::string
+{
+	std::string result = "\"";
+	for (auto c : s) {
+		auto u = static_cast<unsigned char>(c);
+		if (c == '"' || c == '\\') {
+			result += '\\';
+			result += c;
+		} else if (std::iscntrl(u) != 0) {
+			result += std::format("\\u{:04x}", u);
+		} else {
+			result += c;
+		}
+	}
+	return result + "\"";
+}
+
+auto jsonBool(bool b) -> const char * { return b ? "true" : "false"; }
+
+void writeChecks(std::ostream &out, const PredicateSet &checks)
+{
+	out << "[";
+	const auto *sep = "";
+	for (const auto &p : checks) {
+		out << sep << "[" << p.getID() << ", " << jsonBool(p.isComplement()) << "]";
+		sep = ", ";
+	}
+	out << "]";
+}
+
+void writeLabel(std::ostream &out, const TransLabel &label, const Theory &theory)
+{
+	out << "{\"relation\": ";
+	if (const auto &r = label.getRelation())
+		out << "[" << r->getID() << ", " << jsonBool(r->isInverse()) << "]";
+	else
+		out << "null";
+	out << ", \"pre\": ";
+	writeChecks(out, label.getPreChecks());
+	out << ", \"post\": ";
+	writeChecks(out, label.getPostChecks());
+	out << ", \"text\": " << jsonString(toString(label, theory)) << "}";
+}
+
+void writeNFA(std::ostream &out, const NFA &nfa, const Theory &theory)
+{
+	out << "{\"states\": " << nfa.getNumStates() << ",\n  \"starting\": [";
+	const auto *sep = "";
+	for (const auto *s : nfa.starting()) {
+		out << sep << s->getId();
+		sep = ", ";
+	}
+	out << "],\n  \"accepting\": [";
+	sep = "";
+	for (const auto *s : nfa.accepting()) {
+		out << sep << s->getId();
+		sep = ", ";
+	}
+	out << "],\n  \"transitions\": [";
+	sep = "\n   ";
+	for (const auto &s : nfa.states()) {
+		for (const auto &t : s->outs()) {
+			out << sep << "[" << s->getId() << ", ";
+			writeLabel(out, t.label, theory);
+			out << ", " << t.dest->getId() << "]";
+			sep = ",\n   ";
+		}
+	}
+	out << "]}";
+}
+
+/* VERDICT is what checkCertificate says of CERT; MUTATION names how CERT
+ * differs from Kater's certificate, if it does */
+void writeJSON(const std::filesystem::path &path, const std::string &file,
+	       const std::string &constraint, const std::string &mutation,
+	       const Checker::Certificate &cert, const std::optional<std::string> &verdict,
+	       const Theory &theory)
+{
+	std::ofstream out(path);
+	out << "{\"file\": " << jsonString(file)
+	    << ",\n \"constraint\": " << jsonString(constraint);
+	if (!mutation.empty())
+		out << ",\n \"mutation\": " << jsonString(mutation);
+	out << ",\n \"verdict\": " << jsonString(verdict ? "invalid: " + *verdict : "valid");
+	out << ",\n \"lhs\": ";
+	writeNFA(out, cert.lhs, theory);
+	out << ",\n \"rhs\": ";
+	writeNFA(out, cert.rhs, theory);
+
+	out << ",\n \"simulation\": [";
+	const auto width = std::max<size_t>(cert.lhs.getNumStates(), 1);
+	const auto *sep = "\n  ";
+	for (auto row = 0UL; row < cert.simulation.size(); row += width) {
+		std::string bits;
+		for (auto i = row; i < std::min(row + width, cert.simulation.size()); i++)
+			bits += cert.simulation[i] != 0 ? '1' : '0';
+		out << sep << jsonString(bits);
+		sep = ",\n  ";
+	}
+
+	out << "],\n \"pairs\": [";
+	sep = "\n  ";
+	for (const auto &[p, states] : cert.pairs) {
+		out << sep << "[" << p << ", [";
+		const auto *comma = "";
+		for (auto q : states) {
+			out << comma << q;
+			comma = ", ";
+		}
+		out << "]]";
+		sep = ",\n  ";
+	}
+
+	out << "],\n \"inclusions\": [";
+	sep = "\n  ";
+	for (const auto &[a, b] : cert.inclusions) {
+		out << sep << "[";
+		writeLabel(out, a, theory);
+		out << ", ";
+		writeLabel(out, b, theory);
+		out << "]";
+		sep = ",\n  ";
+	}
+	out << "]}\n";
+}
+
+auto clone(const Checker::Certificate &cert) -> Checker::Certificate
+{
+	return {.lhs = copy(cert.lhs),
+		.rhs = copy(cert.rhs),
+		.simulation = cert.simulation,
+		.pairs = cert.pairs,
+		.inclusions = cert.inclusions};
+}
+
+/* The index of whether S simulates P, in a simulation over N states */
+auto entry(unsigned n, unsigned s, unsigned p) -> size_t
+{
+	return (static_cast<size_t>(p) * n) + s;
+}
+
+/* A state that does not simulate another one, if any: the index of the
+ * entry. CERT's simulation is over its N states */
+auto missingSimulation(const Checker::Certificate &cert, unsigned n) -> std::optional<size_t>
+{
+	for (auto p = 0U; p < n; p++)
+		for (auto s = 0U; s < n; s++)
+			if (s != p && cert.simulation.at(entry(n, s, p)) == 0)
+				return entry(n, s, p);
+	return std::nullopt;
+}
+
+/* A state r that simulates a state s that simulates p, and r simulating p,
+ * if any: the index of that last entry, without which the simulation is not
+ * transitive */
+auto transitiveSimulation(const Checker::Certificate &cert, unsigned n) -> std::optional<size_t>
+{
+	auto sim = [&](unsigned s, unsigned p) { return cert.simulation.at(entry(n, s, p)) != 0; };
+	for (auto p = 0U; p < n; p++)
+		for (auto s = 0U; s < n; s++)
+			for (auto r = 0U; r < n; r++)
+				if (r != s && s != p && r != p && sim(r, s) && sim(s, p) &&
+				    sim(r, p))
+					return entry(n, r, p);
+	return std::nullopt;
+}
+
+/*
+ * Copies of CERT that each differ from it in one place, named: for checking
+ * that another checker of certificates says what checkCertificate says of
+ * them, and for the same reason
+ */
+auto mutants(const Checker::Certificate &cert)
+	-> std::vector<std::pair<std::string, Checker::Certificate>>
+{
+	std::vector<std::pair<std::string, Checker::Certificate>> result;
+	auto add = [&](const std::string &name,
+		       const std::function<void(Checker::Certificate &)> &mutate) {
+		auto m = clone(cert);
+		mutate(m);
+		result.emplace_back(name, std::move(m));
+	};
+	const auto n = static_cast<unsigned>(cert.lhs.getNumStates());
+
+	if (n > 0 && cert.simulation.size() == static_cast<size_t>(n) * n) {
+		add("simulation-size", [](auto &m) { m.simulation.pop_back(); });
+		add("not-reflexive", [](auto &m) { m.simulation.at(0) = 0; });
+		if (auto i = missingSimulation(cert, n))
+			add("more-simulation", [i = *i](auto &m) { m.simulation.at(i) = 1; });
+		if (auto i = transitiveSimulation(cert, n))
+			add("not-transitive", [i = *i](auto &m) { m.simulation.at(i) = 0; });
+		/* The identity, which is a simulation */
+		add("identity-simulation", [n](auto &m) {
+			m.simulation.assign(m.simulation.size(), 0);
+			for (auto p = 0U; p < n; p++)
+				m.simulation.at(entry(n, p, p)) = 1;
+		});
+	}
+
+	if (!cert.pairs.empty()) {
+		add("drop-first-pair", [](auto &m) { m.pairs.erase(m.pairs.begin()); });
+		add("drop-last-pair", [](auto &m) { m.pairs.pop_back(); });
+	}
+	/* A pair claiming its words from fewer right states */
+	auto pair = std::ranges::find_if(cert.pairs, [](auto &p) { return !p.second.empty(); });
+	if (pair != cert.pairs.end()) {
+		add("shrink-pair", [i = pair - cert.pairs.begin()](auto &m) {
+			auto &states = m.pairs.at(i).second;
+			states.erase(states.max());
+		});
+	}
+	add("pair-out-of-range", [n](auto &m) { m.pairs.emplace_back(n, VSet<unsigned>{}); });
+
+	auto inclusion = std::ranges::find_if(cert.inclusions,
+					      [](auto &ab) { return ab.first != ab.second; });
+	if (inclusion != cert.inclusions.end()) {
+		add("drop-inclusion", [i = inclusion - cert.inclusions.begin()](auto &m) {
+			m.inclusions.erase(m.inclusions.begin() + i);
+		});
+	}
+
+	add("rhs-accepts-nothing", [](auto &m) { m.rhs.clearAllAccepting(); });
+	add("lhs-accepts-everywhere", [](auto &m) {
+		for (const auto &s : m.lhs.states())
+			m.lhs.makeAccepting(s.get());
+	});
+	if (cert.rhs.getNumStates() > 0) {
+		add("rhs-negated", [](auto &m) {
+			auto p = Predicate::createBuiltin(Predicate::BuiltinID::R);
+			p.complement();
+			auto *q = m.rhs[0];
+			NFA::addTransition(q, NFA::Transition(TransLabel(std::nullopt, {p}), q));
+		});
+	}
+	return result;
+}
+
+/* Writes CERT, the K-th certificate of FILE, for constraint C, to DIR, and
+ * its mutants; VERDICT is checkCertificate's */
+void writeJSONs(const std::filesystem::path &dir, const std::string &file, unsigned k,
+		const SubsetConstraint &c, const Checker::Certificate &cert,
+		const std::optional<std::string> &verdict, const Theory &theory)
+{
+	auto base = std::format("{}.{}", std::filesystem::path(file).stem().string(), k);
+	auto constraint = toString(c, theory);
+	writeJSON(dir / std::format("{}.json", base), file, constraint, "", cert, verdict, theory);
+	for (const auto &[name, m] : mutants(cert))
+		writeJSON(dir / std::format("{}.{}.json", base, name), file, constraint, name, m,
+			  checkCertificate(m), theory);
+}
+
+} // namespace
 
 auto checkCertificate(const Checker::Certificate &cert) -> std::optional<std::string>
 {
@@ -41,8 +310,9 @@ auto checkCertificate(const Checker::Certificate &cert) -> std::optional<std::st
 	};
 
 	/* The simulation: a simulator accepts what it simulates does, and
-	 * follows each of its steps into a simulating state; and is transitive,
-	 * so that subsumption composes along a word */
+	 * follows each of its steps into a simulating state. It is also
+	 * reflexive and transitive, as Kater's is, though the proof of this
+	 * check in formal/ needs neither */
 	for (auto p = 0U; p < n; p++) {
 		if (!simulates(p, p))
 			return "the simulation is not reflexive at " + std::to_string(p);
@@ -123,7 +393,8 @@ auto checkCertificate(const Checker::Certificate &cert) -> std::optional<std::st
 	return std::nullopt;
 }
 
-auto certifyFile(const std::string &file, const SearchOptions &opts, bool verbose) -> bool
+auto certifyFile(const std::string &file, const SearchOptions &opts, bool verbose,
+		 const std::optional<std::filesystem::path> &jsonDir) -> bool
 {
 	ParsingDriver driver;
 	if (driver.parse(file) != 0)
@@ -140,7 +411,10 @@ auto certifyFile(const std::string &file, const SearchOptions &opts, bool verbos
 	checker.setCertificateSink(
 		[&](const SubsetConstraint &c, const Checker::Certificate &cert) {
 			certificates++;
-			if (auto why = checkCertificate(cert)) {
+			auto why = checkCertificate(cert);
+			if (jsonDir)
+				writeJSONs(*jsonDir, file, certificates, c, cert, why, theory);
+			if (why) {
 				ok = false;
 				std::cout << "INVALID certificate for " << WithTheory(c, theory)
 					  << ": " << *why << "\n";

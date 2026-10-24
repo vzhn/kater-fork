@@ -1,0 +1,12 @@
+name = "kater-cert"
+version = "0.1.0"
+defaultTargets = ["KaterCert", "kater-cert-check"]
+
+# The definitions, the checker and its soundness proof
+[[lean_lib]]
+name = "KaterCert"
+
+# Reads certificates written by `kater-oracle certify --json` and checks them
+[[lean_exe]]
+name = "kater-cert-check"
+root = "Main"
