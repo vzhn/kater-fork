@@ -308,28 +308,67 @@ theorem steps_sound (hyp : ev.Holds Mi) {s t : Role} {l : Label}
         | state _ => exact absurd h (by simp)
         | after _ => exact absurd h (by simp)
 
-/-- A starting state's role bounds the identity. -/
-theorem startable_sound {r : Role} (h : ev.startable N r = true) :
-    Rel.Sub Rel.id (ev.bound N Mi r) := by
+/-- The role of a starting state of a copy bounds the identity, if the
+identity reaches the copy's start, or the copy starts anywhere. -/
+theorem startable_copy {j g : Nat} (hj : j ∈ ev.automaton.start)
+    (hsrc : ev.hypothesis = .empty ∨ Rel.Sub Rel.id (N.past (Label.denote Mi) (ev.copy g).src)) :
+    Rel.Sub Rel.id (ev.bound N Mi (.copy j g)) := by
+  intro x y hxy
+  cases hxy
+  refine ⟨x, ?_, ev.automaton.past_start hj x x rfl⟩
+  simp only [anchor]
+  split
+  · trivial
+  · rename_i hne
+    rcases hsrc with he | hsrc
+    · exact absurd he hne
+    · exact hsrc x x rfl
+
+theorem foldl_invariant {α β : Type} (P : β → Prop) (f : β → β) (hf : ∀ b, P b → P (f b)) :
+    ∀ (l : List α) (b : β), P b → P (l.foldl (fun b _ => f b) b)
+  | [], _, h => h
+  | _ :: l, b, h => foldl_invariant P f hf l (f b) (hf b h)
+
+/-- The identity reaches the states `byIdentity` gives. -/
+theorem byIdentity_sound (hyp : ev.Holds Mi) (hinc : ev.InclusionsHold Mi) :
+    ∀ n ∈ ev.byIdentity N, Rel.Sub Rel.id (N.past (Label.denote Mi) n) := by
+  unfold byIdentity
+  split
+  · rename_i hcond
+    simp only [Bool.and_eq_true, decide_eq_true_eq] at hcond
+    obtain ⟨hw, hre⟩ := hcond
+    simp only [readsEmpty, List.any_eq_true] at hre
+    obtain ⟨i, hi, hiacc⟩ := hre
+    refine foldl_invariant (fun Z => ∀ n ∈ Z, Rel.Sub Rel.id (N.past (Label.denote Mi) n))
+      (ev.identityStep N) ?_ _ _ (fun n hn => N.past_start hn)
+    intro Z hZ n hn
+    simp only [identityStep, List.mem_append, List.mem_filterMap, List.mem_range] at hn
+    rcases hn with hn | ⟨g, _, hg⟩
+    · exact hZ n hn
+    · split at hg
+      · rename_i hcopy
+        simp only [Bool.and_eq_true, List.contains_iff_mem] at hcopy
+        obtain ⟨hsrc, hexit⟩ := hcopy
+        cases hg
+        exact Rel.Sub.trans (startable_copy (g := g) hi (.inr (hZ _ hsrc)))
+          (exit_sound hw hyp hinc hiacc hexit)
+      · exact absurd hg (by simp)
+  · exact fun n hn => N.past_start hn
+
+/-- A starting state's role bounds the identity, if the identity reaches the
+states of `Z`. -/
+theorem startable_sound {Z : List Nat}
+    (hZ : ∀ n ∈ Z, Rel.Sub Rel.id (N.past (Label.denote Mi) n)) {r : Role}
+    (h : ev.startable Z r = true) : Rel.Sub Rel.id (ev.bound N Mi r) := by
   cases r with
   | state n =>
     simp only [startable, List.contains_iff_mem] at h
-    exact N.past_start h
+    exact hZ n h
   | after n => exact absurd h (by simp [startable])
   | copy j g =>
     simp only [startable, Bool.and_eq_true, Bool.or_eq_true, beq_iff_eq,
       List.contains_iff_mem] at h
-    obtain ⟨hj, hsrc⟩ := h
-    intro x y hxy
-    cases hxy
-    refine ⟨x, ?_, ev.automaton.past_start hj x x rfl⟩
-    simp only [anchor]
-    split
-    · trivial
-    · rename_i hne
-      rcases hsrc with he | hsrc
-      · exact absurd he hne
-      · exact N.past_start hsrc x x rfl
+    exact startable_copy h.1 (h.2.imp id (hZ _))
 
 /-- An accepting state's role bounds no more than `N` denotes. -/
 theorem acceptable_sound (hyp : ev.Holds Mi) (hinc : ev.InclusionsHold Mi) {r : Role}
@@ -349,7 +388,7 @@ theorem acceptable_sound (hyp : ev.Holds Mi) (hinc : ev.InclusionsHold Mi) {r : 
 
 /-- What an accepted check establishes about the saturated automaton. -/
 theorem check_spec (h : ev.check N M = none) :
-    (∀ m ∈ M.start, ev.startable N (ev.role m) = true) ∧
+    (∀ m ∈ M.start, ev.startable (ev.byIdentity N) (ev.role m) = true) ∧
       (∀ m, M.isAccepting m = true → ev.acceptable N (ev.role m) = true) ∧
       ∀ m a m', (a, m') ∈ M.trans m →
         ∃ s ∈ ev.lifts N (ev.role m), ev.steps N s a (ev.role m') = true := by
@@ -393,7 +432,7 @@ theorem check_sound (h : ev.check N M = none) (hyp : ev.Holds Mi)
     Rel.Sub (M.denote (Label.denote Mi)) (N.denote (Label.denote Mi)) := by
   obtain ⟨hstart, hacc, hsteps⟩ := check_spec h
   have hpast := M.past_bound (I := Label.denote Mi) (fun m => ev.bound N Mi (ev.role m))
-    (fun m hm => startable_sound (hstart m hm))
+    (fun m hm => startable_sound (byIdentity_sound hyp hinc) (hstart m hm))
     (fun m a m' ht => by
       obtain ⟨s, hs, hstep⟩ := hsteps m a m' ht
       exact Rel.Sub.trans (Rel.comp_mono (lifts_sound hyp hinc hs) (Rel.Sub.refl _))

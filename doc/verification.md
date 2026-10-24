@@ -11,9 +11,11 @@ them, and what the checking has found so far.
 Almost everything here is *bounded* testing: a claim is refuted by a graph of
 at most N events, or not refuted up to N. It finds bugs; it does not prove
 their absence. The contracts below are the lemmas a proof has to establish
-(see [Next steps](#next-steps)). The exception is the last step of a proof of
-inclusion, whose certificates a checker proved sound in Lean checks (see
-[The checker in Lean](#the-checker-in-lean)).
+(see [Next steps](#next-steps)). The exceptions are the last step of a proof
+of inclusion and the saturations of its right-hand side, whose certificates
+and evidence a checker proved sound in Lean checks (see
+[The checker in Lean](#the-checker-in-lean) and
+[Evidence of the saturations](#evidence-of-the-saturations)).
 
 ## The reference semantics
 
@@ -132,10 +134,12 @@ as eco, the per-location variants, and the built-in assumptions
 event has two `alloc`, `free` or `retire` predecessors, as the exported code
 reads one (`alloc_pos()` and the like).
 
-    kater-oracle transforms [-n EVENTS] [--cases N] [--seed S] [--depth D] [--only PASS]
+    kater-oracle transforms [-n EVENTS] [--cases N] [--seed S] [--depth D] [--only PASS] [--evidence-only]
 
 Each automaton pass against its contract (below), on the automata of random
-expressions.
+expressions, and the evidence of each saturation of a right-hand side (see
+[Evidence of the saturations](#evidence-of-the-saturations)); with
+`--evidence-only`, only the evidence, without searching.
 
     kater-oracle export [-n EVENTS] [--json DIR] FILE...
 
@@ -144,15 +148,18 @@ every claim the Checker proves on the way (recorded with
 `Checker::setObserver`), the inclusion its extensibility check decides (see
 [Extensibility](#extensibility)), the certificates of all of them, and that
 every definition the exporter rewrites keeps its meaning. With `--json`, also
-writes the certificates to DIR, as `certify` does.
+writes the certificates to DIR, as `certify` does, and checks their chains as
+`certify` does, under the temporary assumptions the exporter had made.
 
     kater-oracle certify [-n EVENTS] [--json DIR] FILE...
 
 Has Kater prove FILE's assertions with certificates
-(`Checker::setCertificateSink`), checks each certificate without searching
-(below), and checks every letter inclusion the certificates rest on against
-the semantics. With `--json`, also writes the certificates to DIR for the
-checker in Lean (below).
+(`Checker::setCertificateSink`), checks each certificate and the chain of
+passes its right automaton came by without searching (below), and checks
+against the semantics what they rest on: every letter inclusion, every
+hypothesis a saturation used, under the module's assumptions, and every pass
+without evidence whose automata are small enough. With `--json`, also writes
+the certificates, with their chains, to DIR for the checker in Lean (below).
 
     kater-oracle explain FILE...
 
@@ -194,7 +201,7 @@ certificates, the soundness regressions with `--refutable`, the export check
 and the extensibility of every `kat/*-genmc.kat` model, and the two models of
 `tests/oracle/extensible`, which are not extensible; when `lake` is found too,
 the ones labeled `formal` check the certificates of the suite and of the
-exports with the checker in Lean, and with GenMC (below), the ones labeled
+exports, with their chains, with the checker in Lean, and with GenMC (below), the ones labeled
 `genmc` run the exported checkers:
 
     ctest -L oracle
@@ -214,7 +221,7 @@ contract, on every graph satisfying the hypotheses H:
 | `normalize`, `simplify`, `compactEdges`, `breakToParts`, `removeConsecutivePredicates`, `addTransitivePredicateEdges`, `removeDeadStates`, `removeSimilarTransitions`, `removeRedundantSelfLoops`, `saturateDomains`, `to_DFA` | preserve the denoted relation |
 | `saturateInitFinalPreds`, `saturateLoc` (left-hand side of `& id`) | keep every cycle: `[[T(N)]] & id ⊇ [[N]] & id` |
 | `saturateRotate` (right-hand side of `rot`) | add no cycle |
-| `saturateEmpty`, `saturateID`, `saturateTransitive`, `saturateBuiltin`, `saturateSubword` (right-hand side) | under H, `[[T(N)]] ⊆ [[N]]` |
+| `saturateEmpty`, `saturateID`, `saturateTransitive`, `saturateBuiltin`, `saturateSubword` (right-hand side) | under H, `[[T(N)]] ⊆ [[N]]`; each proof shows it (see [Evidence of the saturations](#evidence-of-the-saturations)) |
 | `pruneNFA` (right-hand side) | removes transitions: `[[T(N)]] ⊆ [[N]]` |
 | `Theory::isIncludedIn`, `composes` | true of every graph (the audit) |
 | letter-wise matching | a matched word's relation is within the matching word's |
@@ -307,7 +314,8 @@ What a verdict of the final check now rests on: the letter inclusions, which
 stay hypotheses (the oracle checks them up to N events); the C++ that writes
 the certificates and the Lean that reads them, since the theorem is about the
 automata in the file; and Lean's kernel and compiler. What the automata mean
-for the expressions rests on the contracts above.
+for the expressions rests on the contracts above, but for the saturations of
+the right-hand side (next section).
 
 The Lean has to stay in step with the C++ it mirrors. Comparing the verdicts
 catches a checker or a format that drifts, but not a model that does: a field
@@ -317,7 +325,8 @@ marked, region by region, with comments that name the Lean mirroring it
 (`/* formal: begin TransLabel, mirrored by formal/KaterCert/Label.lean */`
 ... `/* formal: end TransLabel */`): the letters, their comparison and their
 meaning in the oracle, the meaning of automata, `Checker::Certificate`,
-`checkCertificate`, and the JSON writer. `formal/mirrors.txt` records a
+`checkCertificate`, the evidence of the saturations, the chain and their
+checks (`checkSaturation`, `checkChain`), and the JSON writer. `formal/mirrors.txt` records a
 SHA-256 of each region, without whitespace, as of the last review of the
 Lean against it. `scripts/check-mirrors.sh` (the ctest `check-mirrors`,
 labeled `lint`) reports each region that changed since, with the Lean to
@@ -361,7 +370,7 @@ a starting state of X to its state q relates. The roles are
 |------|------------|-------|
 | `state n` | state n of N | past_N(n) |
 | `after n` | state n of N, entered by t | the union of past_N(p);t over the steps p --t--> n of N |
-| `copy g j` | state j of A, in copy g | past_N(from);past_A(j), where copy g starts at state `from` of N; for an empty hypothesis, any;past_A(j) |
+| `copy j g` | state j of A, in copy g | past_N(from);past_A(j), where copy g starts at state `from` of N; for an empty hypothesis, any;past_A(j) |
 
 A copy of A is anchored on N: it starts at `from`, ends at `to`, and comes
 with a path of N from one to the other that reads w (`from = to` and no path
@@ -371,18 +380,22 @@ for `A <= id`). The copies of an empty hypothesis start anywhere.
 from a starting state to a state m relates no more than m's role bounds, by
 induction over the word:
 
-1. each starting state's role bounds the identity: `state n` for a starting
-   n, `copy g j` for a starting j of A and a starting `from` (any `from`, for
-   an empty hypothesis);
+1. each starting state's role bounds the identity: `state n` for an n the
+   identity reaches, `copy j g` for a starting j of A and a `from` the
+   identity reaches (any `from`, for an empty hypothesis). The identity
+   reaches the starting states of N and, if A reads the empty word, the end
+   of each copy from a state it reaches that can be left (below): there
+   `saturateBuiltin` and `saturateSubword` make the end of a copy from a
+   starting state start too;
 2. each step m --a--> m' of M takes m's role to m''s: m's role *lifts* to a
    role that *steps* by a to m''s;
 3. each accepting state's role lifts to `state n` for an accepting n of N,
-   or is `copy g j` for an accepting j of an empty hypothesis' A, which
+   or is `copy j g` for an accepting j of an empty hypothesis' A, which
    bounds nothing.
 
 A role lifts to itself, and from a role to another whose bound includes it:
-`after n` to `state n`; `state n` to `copy g i`, for each copy g from n and
-starting state i of A; and `copy g j`, for an accepting j of A, to
+`after n` to `state n`; `state n` to `copy i g`, for each copy g from n and
+starting state i of A; and `copy j g`, for an accepting j of A, to
 `state to`, if copy g's path reads w, since past_N(from);[[A]] is within
 past_N(from);[[w]], within past_N(to); and on, from the role lifted to. A
 role steps by a
@@ -390,10 +403,10 @@ role steps by a
 - from `state n` to `state n'`, and to `after n'` if a is t, when N has the
   step n --a--> n';
 - from `after n` to itself, if a is t (t;t <= t);
-- from `copy g j` to `copy g j'`, when A has the step j --a--> j';
+- from `copy j g` to `copy j' g`, when A has the step j --a--> j';
 - to itself, if a is a predicate, which is within the identity;
-- for an empty hypothesis, from `copy g j` with an accepting j to any role
-  (it bounds nothing), and between `copy g i` and `copy g i'` with starting
+- for an empty hypothesis, from `copy j g` with an accepting j to any role
+  (it bounds nothing), and between `copy i g` and `copy i' g'` with starting
   i and i' (they bound everything).
 
 So the words M accepts relate no more than N's, under the hypothesis and the
@@ -419,30 +432,99 @@ which, as the final check's, stay hypotheses. So `[[w]] <= [[path]]`.
   enters by the steps out of A's starting states and whose accepting states
   take the steps out of s.
 - `saturateBuiltin`: a copy for each step n --b--> n' with `r <= b`,
-  entered and left by ε steps, its path that step with `[] ;r <= b`.
+  entered and left by ε steps, its path that one step, with `r <= b`.
 - `saturateSubword`: a copy for each pair of states its search connects,
   with the path the search took, what it knew at each step, and the
   inclusions the theory granted it there.
 - `saturateEmpty`: one copy, anchored nowhere.
 
-**In Lean.** `formal/KaterCert/Saturation.lean` has the evidence and the
-check, `formal/KaterCert/SaturationSound.lean` proves it sound: if it
-accepts the evidence of a pass from N to M, the hypothesis holds and the
-evidence's letter inclusions hold, then `[[M]] <= [[N]]`, with letters as
-the oracle reads them. `formal/KaterCert/Chain.lean` checks a chain: that it
-ends at the certificate's right automaton and that each pass with evidence
-checks, and proves that if both checkers accept, the left automaton is
-within the automaton the right-hand side normalized to, given the letter
-inclusions, the hypotheses and the contracts of the passes without evidence.
+**In Lean.** `formal/KaterCert/Saturation.lean` has the evidence and
+`Evidence.check`, which is `checkSaturation` (`tests/oracle/Chain.cpp`): the
+same conditions, in the same order, with the same messages.
+`formal/KaterCert/SaturationSound.lean` proves it sound:
+
+```lean
+theorem Evidence.check_sound (h : ev.check N M = none) (hyp : ev.Holds Mi)
+    (hinc : ev.InclusionsHold Mi) :
+    Rel.Sub (M.denote (Label.denote Mi)) (N.denote (Label.denote Mi))
+```
+
+If the check accepts the evidence of a saturation from N to M, and the
+hypothesis and the evidence's letter inclusions hold when the base relations
+and predicates mean `Mi`, then M denotes no more than N. The proof is the
+induction above, over any automata (`NFA.past_bound`,
+`formal/KaterCert/Path.lean`); it uses only `propext` and `Quot.sound`.
+
+`formal/KaterCert/Chain.lean` has the chain and `Chain.check`, which is
+`checkChain`: every pass but `normalize`, `prune` and `rotate` has evidence,
+which checks between the automaton before the pass and its result, and the
+last result is the certificate's right automaton. `Chain.sound` joins the
+chain to the final check:
+
+```lean
+theorem Chain.sound (c : Certificate) (ch : Chain) (h : (c.check <|> ch.check c.rhs) = none)
+    (Mi : Interp E)
+    (hinc : ∀ a b, (a, b) ∈ c.inclusions → Rel.Sub (a.denote Mi) (b.denote Mi))
+    (hsat : ch.SaturationsHold Mi) (htrust : ch.TrustedHold Mi) :
+    Rel.Sub (c.lhs.denote (Label.denote Mi)) (ch.start.denote (Label.denote Mi))
+```
+
+If both checkers accept, the certificate's left automaton denotes no more
+than the automaton the right-hand side normalized to, given the letter
+inclusions of the certificate and of each saturation, each saturation's
+hypothesis (`SaturationsHold`), and the contracts of the passes without
+evidence (`TrustedHold`). For `rot`, the contract of `rotate` is about cycles
+instead, so the theorem covers its saturations but not the rotation. The
+build checks that neither proof has a `sorry` or an axiom beyond Lean's
+standard ones.
+
+`kater-cert-check` checks the chain of each certificate that has one, and
+`checkCertificateAndChain` records the verdicts it has to agree with. Next to
+the copies of a certificate that differ in the certificate, `certify --json`
+writes copies that differ in its chain: a role dropped, a saturation without
+evidence, a step nothing justifies, a starting `after` state, another
+transitive letter, a copy moved, a hypothesis automaton without starting
+states, a letter inclusion dropped, a last automaton that is not the right
+one. To keep the files small, only the inclusion is dropped from the chains
+of the compilation schemes, whose automata have thousands of states.
+
+**Results.** On `tests/correct`, the 59 certificates come with chains, all
+of which check: 274 saturations with evidence (133 `saturateBuiltin`, 123
+`saturateTransitive` with 2899 `after` states, 9 `saturateSubword` with 8788
+copies on paths of 3 to 5 steps, 6 `saturateID` with 97 copies, and 3
+`saturateEmpty`). The checker in Lean agrees with `checkCertificateAndChain`
+on all 1014 files, 955 of them copies, in about four seconds; every copy that
+differs in the chain is rejected, for the reason it was made. The 61
+certificates of the exports of `kat/*-genmc.kat` come with chains through 178
+saturations, all of which check, and the checker agrees on their 1081 files.
+Up to 4 events (12 seconds), the oracle refutes none of the 519 letter
+inclusions the suite's certificates and evidence rest on, none of the 174
+hypotheses its saturations use, under the files' assumptions, and none of
+the 117 passes without evidence small enough to check (223 are not).
+
+So no saturation of these proofs is trusted any longer. `kater-oracle
+transforms --evidence-only` checks the evidence of each saturation on the
+automata of random expressions, under random hypotheses, which need not
+hold, as the evidence does not depend on them: it checks for every one of
+45000 cases at depths 3 to 5 (9 seeds of 5000). It took the rule for
+starting states that copies reading the empty word need: random hypotheses
+have such automata, the suite's do not. No saturation puts a transitive loop
+at a starting state, the case the check would reject.
 
 **What remains trusted** for a proof of `A <= B`: the translations of A and
 B to automata (`toNFA`, `normalize`, and the passes of the left-hand side);
-the passes of the right-hand side without evidence; the hypotheses, that is,
-that the assumptions say what Kater saturates with (the automaton A, from
-the assumption's left-hand side); and the letter inclusions. `kater-oracle
-certify` checks the last three on every graph up to N events, the
-hypotheses under the module's assumptions: it is how the oracle found #13,
-assumptions read as something they do not say.
+the passes of the right-hand side without evidence (`normalize` after each
+assumption, `prune`, `rotate`); the hypotheses, that is, that each
+assumption says what Kater saturates with (the automaton of its left-hand
+side, and how Kater reads its shape); and the letter inclusions. `kater-oracle
+certify` checks the last three on every graph up to N events, the hypotheses
+under the module's assumptions; that is how the oracle found #13 and #19,
+assumptions read as something they do not say. It checks the contract of a
+pass without evidence only when the pass's automata have at most 24 states
+per event of the bound: `NFASemantics` nests its formulas once per round,
+and on automata with cycles of a few dozen states Z3 takes gigabytes of
+memory and then gives up (at 1 event, `eq-eco-paper`'s `normalize` passes of
+31 states took 15 GB).
 
 ## The exported checkers
 
@@ -1007,12 +1089,17 @@ After the fixes:
 
 ## Next steps
 
-1. **Certificates.** Kater emits certificates of its final step, and a
-   checker proved sound in Lean checks them (see
-   [The checker in Lean](#the-checker-in-lean)). What remains is
-   certificates for the steps before: the passes, which could either be
-   proved once from their contracts or emit evidence of their own (the
-   saturations, for instance, which paths they added for which hypothesis).
+1. **Certificates.** Kater emits certificates of its final step and
+   evidence of the saturations of the right-hand side, and a checker proved
+   sound in Lean checks both (see [The checker in Lean](#the-checker-in-lean)
+   and [Evidence of the saturations](#evidence-of-the-saturations)). What
+   remains is the other passes: `normalize` and pruning on the right-hand
+   side, the left-hand side's, and the translations of the expressions. The
+   roles of the saturations' evidence would carry over to `normalize` if a
+   role could stand for a point inside a letter, and a step for a word whose
+   letters merge into it (`[P];r` into `[P]r`); the C++ would have to find
+   the roles after the fact, as the passes do not track where states come
+   from.
 2. **Formalization.** The model above is the specification: graphs and their
    axioms, the meaning of the builtins, of expressions and of automata. The
    contracts of the passes and the audit's facts are the lemmas. The oracle's

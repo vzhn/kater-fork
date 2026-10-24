@@ -78,3 +78,56 @@ TEST(SaturateTransitive, DoesNotPutTheRelationBeforeOtherSteps)
 	EXPECT_FALSE(acceptsWord(nfa, Word{po(), mo()}));
 	EXPECT_FALSE(acceptsWord(nfa, Word{po(), po(), mo()}));
 }
+
+using RoleKind = SaturationEvidence::Role::Kind;
+
+TEST(SaturateTransitive, RecordsWhatEachStateStandsFor)
+{
+	/* po | mo: the accepting state is entered by both */
+	NFA nfa;
+	auto *s0 = nfa.createStarting();
+	auto *s1 = nfa.createAccepting();
+	NFA::addTransition(s0, NFA::Transition(po(), s1));
+	NFA::addTransition(s0, NFA::Transition(mo(), s1));
+
+	SaturationEvidence ev;
+	saturateTransitive(nfa, Relation::createBuiltin(Relation::po), &ev);
+	EXPECT_EQ(ev.hypothesis, SaturationEvidence::Hypothesis::Transitive);
+	EXPECT_EQ(ev.letter, po());
+	ASSERT_EQ(nfa.getNumStates(), 3U);
+	ASSERT_EQ(ev.roles.size(), nfa.getNumStates());
+	EXPECT_EQ(ev.roles[0].kind, RoleKind::State);
+	/* The state the loop is added to is entered by po alone... */
+	EXPECT_EQ(ev.roles[1].kind, RoleKind::After);
+	EXPECT_EQ(ev.roles[1].state, 1U);
+	/* ... and the state split off it takes the mo step, standing for it */
+	EXPECT_EQ(ev.roles[2].kind, RoleKind::State);
+	EXPECT_EQ(ev.roles[2].state, 1U);
+}
+
+TEST(SaturateID, RecordsACopyAtEachState)
+{
+	auto nfa = makeSharedStart();
+	const auto states = nfa.getNumStates();
+	SaturationEvidence ev;
+	saturateID(nfa, NFA(rf()), &ev);
+
+	/* rf <= id: the word is empty, and each copy goes from a state back to it */
+	EXPECT_EQ(ev.hypothesis, SaturationEvidence::Hypothesis::Within);
+	EXPECT_TRUE(ev.word.empty());
+	EXPECT_EQ(ev.automaton.getNumStates(), 2U);
+	ASSERT_EQ(ev.copies.size(), states);
+	for (auto g = 0U; g < states; g++) {
+		EXPECT_EQ(ev.copies[g].from, g);
+		EXPECT_EQ(ev.copies[g].to, g);
+		EXPECT_TRUE(ev.copies[g].path.empty());
+	}
+	/* The copies' states follow the old ones, copy by copy */
+	ASSERT_EQ(ev.roles.size(), nfa.getNumStates());
+	for (auto m = 0U; m < states; m++)
+		EXPECT_EQ(ev.roles[m].kind, RoleKind::State);
+	const auto &r = ev.roles[states + (2 * 1) + 1];
+	EXPECT_EQ(r.kind, RoleKind::Copy);
+	EXPECT_EQ(r.state, 1U);
+	EXPECT_EQ(r.copy, 1U);
+}

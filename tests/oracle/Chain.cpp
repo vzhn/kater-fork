@@ -200,15 +200,33 @@ auto checkSaturation(const NFA &before, const NFA &after, const SaturationEviden
 		}
 		return false;
 	};
+	/* The states of BEFORE the identity reaches: the starting ones and, if
+	 * the automaton reads the empty word, the ends of the copies from them
+	 * that can be left, and so on */
+	std::vector<uint8_t> byIdentity(before.getNumStates());
+	for (const auto *q : before.starting())
+		byIdentity[q->getId()] = 1;
+	auto readsEmpty =
+		std::ranges::any_of(a.starting(), [](auto *i) { return i->isAccepting(); });
+	for (auto changed = within && readsEmpty; changed;) {
+		changed = false;
+		for (auto g = 0U; g < ev.copies.size(); g++) {
+			const auto &c = ev.copies[g];
+			if (byIdentity[c.from] != 0 && byIdentity[c.to] == 0 && exits(g)) {
+				byIdentity[c.to] = 1;
+				changed = true;
+			}
+		}
+	}
 	auto startable = [&](const Role &r) {
 		switch (r.kind) {
 		case RoleKind::State:
-			return isStarting(before, r.state);
+			return byIdentity[r.state] != 0;
 		case RoleKind::After:
 			return false;
 		case RoleKind::Copy:
 			return isStarting(a, r.state) &&
-			       (empty || isStarting(before, ev.copies[r.copy].from));
+			       (empty || byIdentity[ev.copies[r.copy].from] != 0);
 		}
 		return false;
 	};

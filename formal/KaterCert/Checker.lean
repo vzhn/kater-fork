@@ -18,7 +18,9 @@ namespace KaterCert
 
 /-- What the proof of `lhs ⊆ rhs` rests on: the simulation Kater used on the
 left automaton, the pairs (left state, set of right states) it explored, and
-the letter inclusions it took from the theory. -/
+the letter inclusions it took from the theory. Kater's certificate also has
+the chain of passes `rhs` came by, which `Chain` (`KaterCert/Chain.lean`)
+has and checks apart. -/
 structure Certificate where
   lhs : NFA Label
   rhs : NFA Label

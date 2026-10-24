@@ -31,6 +31,8 @@ struct TransformOptions {
 	unsigned seed = 1;
 	unsigned depth = 3;
 	std::string only; /* test only the transformation of this name */
+	/* check only the evidence of the saturations, without searching */
+	bool evidenceOnly = false;
 	bool verbose = false;
 };
 
@@ -39,9 +41,11 @@ struct TransformOptions {
  * its semantic contract, on the automata of random expressions: toNFA and
  * the normalization passes must preserve the relation an automaton
  * denotes; the left-hand-side saturations of "& id" must keep every
- * cycle; the rotation of a right-hand side must not create a cycle.
- * Prints each violation with both automata and a graph that tells them
- * apart; returns whether there was none.
+ * cycle; the rotation of a right-hand side must not create a cycle; the
+ * saturations of a right-hand side must, under their hypotheses, denote no
+ * more, and show it with evidence that checks (checkSaturation). Prints each
+ * violation with both automata and a graph that tells them apart, and each
+ * saturation whose evidence does not check; returns whether there was none.
  */
 auto testTransforms(const TransformOptions &opts) -> bool;
 

@@ -2,12 +2,17 @@
 # against it: the SHA-256 of each marked region without whitespace, its
 # file, its name, and the Lean that mirrors it. scripts/check-mirrors.sh
 # compares; after a review, scripts/check-mirrors.sh --update rewrites this.
-c38d3379ce14f03b7f3c821cf36cf8853438e7c9ebb2f3a60d0adc3f2025d457 src/Checker.hpp Certificate formal/KaterCert/Checker.lean
+1b736e03d81180880f4830ffb47022f7b4a5dde4471fd24a5f07b4ae123bf96a src/Checker.hpp Chain formal/KaterCert/Chain.lean
+d2f19ae6f31147d39b3e90ac76fc70639cb7b70147b655585a8c6f5a76d51b3a src/Checker.hpp Certificate formal/KaterCert/Checker.lean
 9d50d1e01a21790bda7b998ce6b38070fd64450a4a5f6d4fd1e516cf868bb63b src/Predicate.hpp Predicate formal/KaterCert/Label.lean
 9a31acf9b4682e762c2087791b6b5486158bd3db137aa44dc8d8d4a431415972 src/Predicate.hpp PredicateSet formal/KaterCert/Label.lean
 e4fa364338c8588bd75d885dd143c9c8628f1500eed86d438cf352e941404aa5 src/Relation.hpp Relation formal/KaterCert/Label.lean
+3929fc493501804e8bfc0ff37c0b0e40234ebae73539e1552f4c6724456461bc src/Saturation.hpp SaturationEvidence formal/KaterCert/Saturation.lean
 b3b77f010f48d629f1c2aaef0655afc747a8e963c89c7d33660b7e7a17fb022e src/TransLabel.hpp TransLabel formal/KaterCert/Label.lean
-748ee05f082c80e4802278802c5369898706fb2d53e53444dee4a05de14c1d6d tests/oracle/Certificate.cpp CertificateJSON formal/KaterCert/Read.lean
+7c124b41034d88720011d6cab7f072f52669e60c3aa08b7f08d5a48f847b06bb tests/oracle/Certificate.cpp CertificateJSON formal/KaterCert/Read.lean
+3b4a0c35d23db205cb9311f2bc8377c4abb62af5cd501407e0666b76031689d0 tests/oracle/Certificate.cpp ChainJSON formal/KaterCert/Read.lean
 c78439bb2a01905e6e26b783f20d3869f97bc02b72bf29481209a7fa9b05a6fa tests/oracle/Certificate.cpp checkCertificate formal/KaterCert/Checker.lean
+d5b01cf0647f7151d2e5df0728b121dfec7e19551739db26339d14e76e918353 tests/oracle/Chain.cpp checkSaturation formal/KaterCert/Saturation.lean
+1da91525b6062d83a3c168259d33f808f1065680cf1ae94aad94383870168605 tests/oracle/Chain.cpp checkChain formal/KaterCert/Chain.lean
 c4568d0fede7f396c4e2e9fdbb2425c3ad0637f47784d44dcad8630d69f1bf11 tests/oracle/Semantics.cpp LetterSemantics formal/KaterCert/Label.lean
 058d343fe0c6f52693c99e2b7f956a808dd35fff218ae407ca7031a01ab3cf5e tests/oracle/Semantics.cpp NFASemantics formal/KaterCert/NFA.lean

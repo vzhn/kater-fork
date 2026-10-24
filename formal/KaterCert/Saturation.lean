@@ -176,12 +176,30 @@ def steps (s : Role) (l : Label) (t : Role) : Bool :=
             ((ev.hypothesis == .empty || g == g') && ev.automaton.hasStep j l j')
         | _ => false
 
-/-- Whether a role bounds the identity. -/
-def startable : Role → Bool
-  | .state n => N.start.contains n
+/-- Whether the hypothesis' automaton reads the empty word. -/
+def readsEmpty : Bool := ev.automaton.start.any ev.automaton.isAccepting
+
+/-- `Z`, and the ends of the copies from its states that can be left. -/
+def identityStep (Z : List Nat) : List Nat :=
+  Z ++ (List.range ev.copies.size).filterMap fun g =>
+    if Z.contains (ev.copy g).src && ev.exits N g then some (ev.copy g).dst else none
+
+/-- The states of `N` the identity reaches: the starting ones and, if the
+automaton reads the empty word, the ends of the copies from them that can be
+left, and so on. A round adds an end or adds nothing ever after, so as many
+rounds as copies reach all. -/
+def byIdentity : List Nat :=
+  if ev.hypothesis = .within && ev.readsEmpty then
+    (List.range (ev.copies.size + 1)).foldl (fun Z _ => ev.identityStep N Z) N.start
+  else N.start
+
+/-- Whether a role bounds the identity, given the states `Z` of `N` the
+identity reaches. -/
+def startable (Z : List Nat) : Role → Bool
+  | .state n => Z.contains n
   | .after _ => false
   | .copy j g =>
-    ev.automaton.start.contains j && (ev.hypothesis == .empty || N.start.contains (ev.copy g).src)
+    ev.automaton.start.contains j && (ev.hypothesis == .empty || Z.contains (ev.copy g).src)
 
 /-- Whether a role's bound is within what `N` denotes. -/
 def acceptable (r : Role) : Bool :=
@@ -212,8 +230,9 @@ def check : Option String :=
     ((List.range ev.roles.size).findSome? fun m =>
       if ev.inRange N (ev.role m) then none
       else some s!"the role of state {m} names nothing") <|>
-    (M.start.findSome? fun m =>
-      if ev.startable N (ev.role m) then none
+    (let Z := ev.byIdentity N
+     M.start.findSome? fun m =>
+      if ev.startable Z (ev.role m) then none
       else some s!"starting state {m} is not justified") <|>
     ((List.range (max M.size M.accepting.size)).findSome? fun m =>
       if M.isAccepting m && !ev.acceptable N (ev.role m) then
