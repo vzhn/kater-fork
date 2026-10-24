@@ -171,27 +171,38 @@ auto Reference::isCoherent(Graph &g, Semantics &sem) -> bool
 	return !constant(sem.eval(*coherence_).compose(eco).anyReflexive());
 }
 
+auto Reference::factsOf(Graph &g, Semantics &sem) -> Facts
+{
+	Facts f;
+	f.wellFormed = g.axioms().empty();
+	f.consistent = true;
+	f.consistentUnless = true;
+	for (const auto &[c, unless] : consistency_) {
+		auto holds = constant(sem.holds(*c));
+		f.consistent &= holds;
+		f.consistentUnless &= holds || (unless && constant(sem.holds(*unless)));
+	}
+	f.coherent = isCoherent(g, sem);
+	auto porf = g.relation(RB::po)
+			    ->unite(*g.relation(RB::rf))
+			    .unite(*g.relation(RB::tc))
+			    .unite(*g.relation(RB::tj))
+			    .unite(*g.relation(RB::lin));
+	f.porfAcyclic = !constant(porf.plus().anyReflexive());
+	f.pporfAcyclic = !constant(sem.eval(*pporf_).anyReflexive());
+	return f;
+}
+
 auto Reference::facts(const Execution &x) -> Facts
 {
+	return evaluate(x, [&](Graph &g, Semantics &sem) { return factsOf(g, sem); });
+}
+
+auto Reference::factsWithPrefix(const Execution &x) -> std::pair<Facts, Pairs>
+{
 	return evaluate(x, [&](Graph &g, Semantics &sem) {
-		Facts f;
-		f.wellFormed = g.axioms().empty();
-		f.consistent = true;
-		f.consistentUnless = true;
-		for (const auto &[c, unless] : consistency_) {
-			auto holds = constant(sem.holds(*c));
-			f.consistent &= holds;
-			f.consistentUnless &= holds || (unless && constant(sem.holds(*unless)));
-		}
-		f.coherent = isCoherent(g, sem);
-		auto porf = g.relation(RB::po)
-				    ->unite(*g.relation(RB::rf))
-				    .unite(*g.relation(RB::tc))
-				    .unite(*g.relation(RB::tj))
-				    .unite(*g.relation(RB::lin));
-		f.porfAcyclic = !constant(porf.plus().anyReflexive());
-		f.pporfAcyclic = !constant(sem.eval(*pporf_).anyReflexive());
-		return f;
+		auto f = factsOf(g, sem);
+		return std::make_pair(f, constant(sem.eval(*pporf_)));
 	});
 }
 

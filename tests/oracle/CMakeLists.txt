@@ -11,6 +11,7 @@ add_executable(kater-oracle
   Enumerate.cpp
   Execution.cpp
   Export.cpp
+  Extensible.cpp
   GenMC.cpp
   Graph.cpp
   Matrix.cpp
@@ -45,6 +46,17 @@ set_tests_properties(oracle-audit oracle-transforms oracle-check-correct
 file(GLOB ORACLE_GENMC_MODELS ${PROJECT_SOURCE_DIR}/kat/*-genmc.kat)
 add_test(NAME oracle-export COMMAND kater-oracle export -n 3 ${ORACLE_GENMC_MODELS})
 set_tests_properties(oracle-export PROPERTIES LABELS "oracle" TIMEOUT 900)
+
+# Each GenMC model is extensible, as GenMC's exploration needs: an event it
+# may add, into a hole under IMM and LKMM, joins every small consistent graph
+# consistently (LKMM, the slowest, on smaller graphs)
+set(ORACLE_EXTENSIBLE_MODELS ${ORACLE_GENMC_MODELS})
+list(FILTER ORACLE_EXTENSIBLE_MODELS EXCLUDE REGEX "lkmm-genmc[.]kat$")
+add_test(NAME oracle-extensible COMMAND kater-oracle extensible -n 3 ${ORACLE_EXTENSIBLE_MODELS})
+add_test(NAME oracle-extensible-lkmm
+  COMMAND kater-oracle extensible -n 2 ${PROJECT_SOURCE_DIR}/kat/lkmm-genmc.kat)
+set_tests_properties(oracle-extensible oracle-extensible-lkmm PROPERTIES
+  LABELS "oracle" TIMEOUT 900)
 
 # Kater's proofs of the suite come with certificates, which check, and the
 # letter inclusions they rest on hold

@@ -86,6 +86,9 @@ public:
 	auto facts(const Execution &x) -> Facts;
 	auto coherent(const Execution &x) -> bool;
 
+	/* The facts of X and its prefix relation, evaluated at once */
+	auto factsWithPrefix(const Execution &x) -> std::pair<Facts, Pairs>;
+
 	/* The relation each view saves, in the order of GenMC's view indices */
 	auto views(const Execution &x) -> std::vector<Pairs>;
 
@@ -98,6 +101,7 @@ public:
 
 private:
 	auto isCoherent(Graph &g, Semantics &sem) -> bool;
+	auto factsOf(Graph &g, Semantics &sem) -> Facts;
 
 	template <typename F>
 	auto evaluate(const Execution &x, F f) -> std::invoke_result_t<F, Graph &, Semantics &>;
