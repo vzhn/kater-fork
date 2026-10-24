@@ -1,0 +1,24 @@
+# kat/imm-genmc.kat is extensible here, but not maximally. The read e4, in a
+# hole before the join e5, read maximally from the release write e2, makes
+# e2 -sw_to_f-> e5 (rf ; po ; [TJ] ; [ACQ]), and so the ar cycle e1
+# -FSC;hb;eco;hb;FSC-> e11 (e1 -po-> e2 -hb-> e6 -mo-> e10 -po-> e11)
+# -FSC;hb;eco;hb;FSC-> e1 (e11 -po-> e12 -fr-> e0 -po-> e1). Read from init,
+# it closes nothing. IMM's ppo has po ; [F], but no po ; [TJ].
+e0: T0 W(x) rlx
+e1: T0 F sc
+e2: T0 W(y) rel
+e3: T1 TB acq
+e4: T1 R(y) rlx
+e5: T1 TJ acq
+e6: T1 W(z) rlx
+e7: T2 TB acq
+e8: T2 TE rel
+e9: T3 TB acq
+e10: T3 W(z) rlx
+e11: T3 F sc
+e12: T3 R(x) rlx
+rf: e2->e4
+mo(x): e0
+mo(y): e2
+mo(z): e6 e10
+tj: e8->e5

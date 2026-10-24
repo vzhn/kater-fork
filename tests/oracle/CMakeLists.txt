@@ -53,18 +53,24 @@ add_test(NAME oracle-export-lkmm
 set_tests_properties(oracle-export oracle-export-lkmm PROPERTIES
   LABELS "oracle" TIMEOUT 1800)
 
-# Each GenMC model is extensible, as GenMC's exploration needs: an event it
-# may add, into a hole under IMM and LKMM, joins every small consistent graph
-# consistently (LKMM, the slowest, on smaller graphs)
+# Each GenMC model is extensible on small graphs, as GenMC's exploration
+# needs: an event it may add, into a hole under IMM and LKMM, joins every
+# small consistent graph consistently; and, as Kater's extensibility check
+# claims, added maximally, when nothing after it accesses its location
+# (LKMM, the slowest, on smaller graphs)
 set(ORACLE_EXTENSIBLE_MODELS ${ORACLE_GENMC_MODELS})
 list(FILTER ORACLE_EXTENSIBLE_MODELS EXCLUDE REGEX "lkmm-genmc[.]kat$")
-add_test(NAME oracle-extensible COMMAND kater-oracle extensible -n 3 ${ORACLE_EXTENSIBLE_MODELS})
+add_test(NAME oracle-extensible
+  COMMAND kater-oracle extensible --maximal -n 3 ${ORACLE_EXTENSIBLE_MODELS})
 add_test(NAME oracle-extensible-lkmm
-  COMMAND kater-oracle extensible -n 2 ${PROJECT_SOURCE_DIR}/kat/lkmm-genmc.kat)
+  COMMAND kater-oracle extensible --maximal -n 2 ${PROJECT_SOURCE_DIR}/kat/lkmm-genmc.kat)
 set_tests_properties(oracle-extensible oracle-extensible-lkmm PROPERTIES
   LABELS "oracle" TIMEOUT 900)
 
-# Two models that are not: the oracle finds the event GenMC cannot add
+# Models that are not, at a graph each where the oracle finds an event
+# GenMC cannot add (vzhn/kater-fork#33): the two of extensible/, which Kater
+# rejects, and IMM and LKMM themselves, on larger graphs; and one where IMM
+# can add the event, but not maximally
 foreach(m mp mp-acq)
   add_test(NAME oracle-extensible-refuted-${m}
     COMMAND kater-oracle extensible --refutable
@@ -72,6 +78,21 @@ foreach(m mp mp-acq)
       ${CMAKE_CURRENT_SOURCE_DIR}/extensible/${m}-genmc.kat)
   set_tests_properties(oracle-extensible-refuted-${m} PROPERTIES LABELS "oracle")
 endforeach()
+foreach(case imm:imm-addr-po lkmm:lkmm-moe)
+  string(REPLACE ":" ";" parts ${case})
+  list(GET parts 0 model)
+  list(GET parts 1 graph)
+  add_test(NAME oracle-extensible-refuted-${graph}
+    COMMAND kater-oracle extensible --refutable
+      --graph ${CMAKE_CURRENT_SOURCE_DIR}/extensible/${graph}.graph
+      ${PROJECT_SOURCE_DIR}/kat/${model}-genmc.kat)
+  set_tests_properties(oracle-extensible-refuted-${graph} PROPERTIES LABELS "oracle")
+endforeach()
+add_test(NAME oracle-extensible-maximal-refuted-imm-join
+  COMMAND kater-oracle extensible --maximal --refutable
+    --graph ${CMAKE_CURRENT_SOURCE_DIR}/extensible/imm-join.graph
+    ${PROJECT_SOURCE_DIR}/kat/imm-genmc.kat)
+set_tests_properties(oracle-extensible-maximal-refuted-imm-join PROPERTIES LABELS "oracle")
 
 # vzhn/kater-fork#33: Kater's extensibility check rejects the two models of
 # extensible/, and their exports fail
