@@ -318,9 +318,12 @@ static auto compilationWord(const CompSchemeRHS &rhs) -> std::vector<TransLabel>
 	return word;
 }
 
-/* Saturates RHS with ASSM; returns whether the assumption was of a supported shape */
-static auto expandSubsetAssumption(NFA &rhs, const SubsetConstraint *assm, const KatModule &module)
-	-> bool
+using Passes = std::vector<Checker::Pass>;
+
+/* Saturates RHS with ASSM; returns whether the assumption was of a supported
+ * shape. With PASSES, records there the saturation and its evidence */
+static auto expandSubsetAssumption(NFA &rhs, const SubsetConstraint *assm, const KatModule &module,
+				   Passes *passes) -> bool
 {
 	auto &theory = module.getTheory();
 	auto *lRE = assm->getLHS();
@@ -331,19 +334,32 @@ static auto expandSubsetAssumption(NFA &rhs, const SubsetConstraint *assm, const
 	if (assm->sameEnds() || assm->rotated())
 		return false;
 
+	/* The evidence of the saturation applied below, when recorded */
+	std::optional<SaturationEvidence> ev;
+	if (passes != nullptr)
+		ev.emplace();
+	auto *evidence = ev ? &*ev : nullptr;
+	auto record = [&](const char *name) {
+		if (passes != nullptr)
+			passes->push_back(
+				{.name = name, .evidence = std::move(ev), .result = copy(rhs)});
+	};
+
 	/* If `any` is used in the assumption, realize it as `any*` */
 	auto lNFA = starifyAny(lRE->clone())->toNFA();
 	normalize(lNFA, theory);
 
 	/* Handle `A <= 0` assumption */
 	if (rRE->isFalse()) {
-		saturateEmpty(rhs, std::move(lNFA));
+		saturateEmpty(rhs, std::move(lNFA), evidence);
+		record("saturateEmpty");
 		return true;
 	}
 
 	/* Handle `A <= id` assumption */
 	if (*rRE == *RegExp::createId()) {
-		saturateID(rhs, std::move(lNFA));
+		saturateID(rhs, std::move(lNFA), evidence);
+		record("saturateID");
 		return true;
 	}
 
@@ -351,14 +367,16 @@ static auto expandSubsetAssumption(NFA &rhs, const SubsetConstraint *assm, const
 	auto *seqRE = dynamic_cast<const SeqRE *>(lRE);
 	if (seqRE && *rRE == *seqRE->getKid(0) && *rRE == *seqRE->getKid(1) && rRE->isRelation()) {
 		auto rel = *dynamic_cast<const CharRE *>(rRE)->getLabel().getRelation();
-		saturateTransitive(rhs, rel);
+		saturateTransitive(rhs, rel, evidence);
+		record("saturateTransitive");
 		return true;
 	}
 	/* Transform `A+ <= A` to `transitive A` */
 	auto *plusRE = dynamic_cast<const PlusRE *>(&*lRE);
 	if (plusRE && *rRE == *plusRE->getKid(0) && rRE->isRelation()) {
 		auto rel = *dynamic_cast<const CharRE *>(rRE)->getLabel().getRelation();
-		saturateTransitive(rhs, rel);
+		saturateTransitive(rhs, rel, evidence);
+		record("saturateTransitive");
 		return true;
 	}
 
@@ -371,11 +389,14 @@ static auto expandSubsetAssumption(NFA &rhs, const SubsetConstraint *assm, const
 	/* Handle `A <= builtin` assumption; `A <= [P]` gives `A <= id` */
 	auto *charRHS = dynamic_cast<const CharRE *>(&*rRE);
 	if (charRHS && charRHS->getLabel().isPredicate()) {
-		saturateID(rhs, std::move(lNFA));
+		saturateID(rhs, std::move(lNFA), evidence);
+		record("saturateID");
 		return true;
 	}
 	if (charRHS) {
-		saturateBuiltin(rhs, *charRHS->getLabel().getRelation(), std::move(lNFA), theory);
+		saturateBuiltin(rhs, *charRHS->getLabel().getRelation(), std::move(lNFA), theory,
+				evidence);
+		record("saturateBuiltin");
 		return true;
 	}
 	/* Handle `[A];po;[B] <= [A];po;[C];po;[B]` assumption: wherever the RHS
@@ -391,7 +412,8 @@ static auto expandSubsetAssumption(NFA &rhs, const SubsetConstraint *assm, const
 				TransLabel(std::nullopt, compRHS.post.value_or(PredicateSet{}))));
 		auto chainNFA = chain->toNFA();
 		normalize(chainNFA, theory);
-		saturateSubword(rhs, chainNFA, compilationWord(compRHS), theory);
+		saturateSubword(rhs, chainNFA, compilationWord(compRHS), theory, evidence);
+		record("saturateSubword");
 		return true;
 	}
 
@@ -412,7 +434,9 @@ static void warnUnsupportedAssumption(const AssumeStatement *assm, const Theory 
 	LOG_ONCE_AT(msg, VerbosityLevel::Warning, assm->getDbgInfo()) << msg;
 }
 
-void expandAssumption(NFA &rhs, const AssumeStatement *assm, const KatModule &module)
+/* Saturates RHS with ASSM. With PASSES, records there each saturation and its evidence */
+void expandAssumption(NFA &rhs, const AssumeStatement *assm, const KatModule &module,
+		      Passes *passes = nullptr)
 {
 	assert(assm);
 
@@ -420,8 +444,8 @@ void expandAssumption(NFA &rhs, const AssumeStatement *assm, const KatModule &mo
 	if (const auto *cc = dynamic_cast<const EqualityConstraint *>(cst)) {
 		auto invC = SubsetConstraint::create(cc->getRHS()->clone(), cc->getLHS()->clone(),
 						     cc->sameEnds(), cc->rotated());
-		auto fwd = expandSubsetAssumption(rhs, cc, module);
-		auto bwd = expandSubsetAssumption(rhs, &*invC, module);
+		auto fwd = expandSubsetAssumption(rhs, cc, module, passes);
+		auto bwd = expandSubsetAssumption(rhs, &*invC, module, passes);
 		if (!fwd || !bwd)
 			warnUnsupportedAssumption(assm, module.getTheory());
 		return;
@@ -436,11 +460,18 @@ void expandAssumption(NFA &rhs, const AssumeStatement *assm, const KatModule &mo
 		/* total r: r is a strict total order (the Kater paper, Prop. 3.12).
 		 * Of that, only transitivity is used: making an r-step optional, as
 		 * this used to, would need r to be reflexive */
-		saturateTransitive(rhs, *charRE->getLabel().getRelation());
+		std::optional<SaturationEvidence> ev;
+		if (passes != nullptr)
+			ev.emplace();
+		saturateTransitive(rhs, *charRE->getLabel().getRelation(), ev ? &*ev : nullptr);
+		if (passes != nullptr)
+			passes->push_back({.name = "saturateTransitive",
+					   .evidence = std::move(ev),
+					   .result = copy(rhs)});
 		return;
 	}
 	if (const auto *ec = dynamic_cast<const SubsetConstraint *>(cst)) {
-		if (!expandSubsetAssumption(rhs, ec, module))
+		if (!expandSubsetAssumption(rhs, ec, module, passes))
 			warnUnsupportedAssumption(assm, module.getTheory());
 		return;
 	}
@@ -809,16 +840,40 @@ auto Checker::isDFASubLanguageOfNFA(NFA &nfa, const NFA &other, Certificate *cer
 	return {.result = true, .cex = {}};
 }
 
-auto Checker::decideInclusion(NFA &lhs, const NFA &rhs, const Constraint &cst) const
-	-> InclusionResult
+auto Checker::decideInclusion(NFA &lhs, const NFA &rhs, const Constraint &cst,
+			      std::optional<Chain> chain) const -> InclusionResult
 {
 	if (!certificateSink)
 		return isDFASubLanguageOfNFA(lhs, rhs);
 	Certificate cert;
 	auto result = isDFASubLanguageOfNFA(lhs, rhs, &cert);
+	cert.chain = std::move(chain);
 	if (result.result)
 		certificateSink(cst, cert);
 	return result;
+}
+
+/* Records in CHAIN, if any, that pass NAME, without evidence, left NFA */
+static void recordPass(std::optional<Checker::Chain> &chain, const char *name, const NFA &nfa)
+{
+	if (chain)
+		chain->passes.push_back(
+			{.name = name, .evidence = std::nullopt, .result = copy(nfa)});
+}
+
+void Checker::saturateRHS(NFA &rhs, const NFA &lhs, std::optional<Chain> &chain) const
+{
+	const auto &theory = getTheory();
+
+	for (const auto &assm : getModule().getAssumptions()) {
+		expandAssumption(rhs, &*assm, getModule(), chain ? &chain->passes : nullptr);
+		normalize(rhs, theory);
+		recordPass(chain, "normalize", rhs);
+	}
+	pruneNFA(rhs, lhs, theory);
+	removeDeadStates(rhs);
+	normalize(rhs, theory);
+	recordPass(chain, "prune", rhs);
 }
 
 auto Checker::checkInclusion(SubsetConstraint &subsetC) const -> InclusionResult
@@ -840,23 +895,22 @@ auto Checker::checkInclusion(SubsetConstraint &subsetC) const -> InclusionResult
 
 	auto nfa2 = subsetC.getRHS()->toNFA();
 	normalize(nfa2, theory);
-	for (const auto &assm : module.getAssumptions()) {
-		expandAssumption(nfa2, &*assm, module);
-		normalize(nfa2, theory);
-	}
-	pruneNFA(nfa2, lhs, theory);
-	removeDeadStates(nfa2);
-	normalize(nfa2, theory);
+	/* How the right automaton comes from NFA2, for the certificate */
+	std::optional<Chain> chain;
+	if (certificateSink)
+		chain.emplace(Chain{.start = copy(nfa2), .passes = {}});
+	saturateRHS(nfa2, lhs, chain);
 	if (subsetC.rotated()) {
 		saturateRotate(nfa2, theory);
 		normalize(nfa2, theory);
+		recordPass(chain, "rotate", nfa2);
 	}
 	/* doing another similarity pass here would
 	 * further minimize the NFA, but minimizing
 	 * doesn't seem to help. The remaining time
 	 * is determined by the LHS anyway, and these
 	 * passes are costly */
-	return decideInclusion(lhs, nfa2, subsetC);
+	return decideInclusion(lhs, nfa2, subsetC, std::move(chain));
 }
 
 auto Checker::checkAssertion(Constraint &cst) -> InclusionResult
@@ -1160,14 +1214,11 @@ auto Checker::decideExitWords(NFA &words, bool backToEvent, const Constraint &cs
 									    letterRE(RB::fr)))));
 	auto rhs = rhsRE->toNFA();
 	normalize(rhs, theory);
-	for (const auto &assm : getModule().getAssumptions()) {
-		expandAssumption(rhs, &*assm, getModule());
-		normalize(rhs, theory);
-	}
-	pruneNFA(rhs, lhs, theory);
-	removeDeadStates(rhs);
-	normalize(rhs, theory);
-	return decideInclusion(lhs, rhs, cst);
+	std::optional<Chain> chain;
+	if (certificateSink)
+		chain.emplace(Chain{.start = copy(rhs), .passes = {}});
+	saturateRHS(rhs, lhs, chain);
+	return decideInclusion(lhs, rhs, cst, std::move(chain));
 }
 
 auto Checker::decideExtensibility(const RegExp &re, bool single, const Constraint &cst) const

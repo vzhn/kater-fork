@@ -21,8 +21,10 @@
 
 #include "Counterexample.hpp"
 #include "KatModule.hpp"
+#include "Saturation.hpp"
 
 #include <functional>
+#include <optional>
 #include <string>
 
 /*
@@ -60,6 +62,27 @@ public:
 	 * a record of what Kater claims, for checking it independently */
 	using Observer = std::function<void(const Constraint &, const InclusionResult &)>;
 
+	/* formal: begin Chain, mirrored by formal/KaterCert/Chain.lean */
+	/*
+	 * How the right automaton of an inclusion check came from the right-hand
+	 * side: the automaton the right-hand side normalized to, and each pass
+	 * after it with the automaton it produced, the last of which is the
+	 * right automaton. A saturation comes with the evidence that its
+	 * hypothesis justifies what it added. The other passes are trusted:
+	 * "normalize" and "prune" denote no more than they are given, and
+	 * "rotate" adds no cycle
+	 */
+	struct Pass {
+		std::string name;
+		std::optional<SaturationEvidence> evidence;
+		NFA result;
+	};
+	struct Chain {
+		NFA start;
+		std::vector<Pass> passes;
+	};
+	/* formal: end Chain */
+
 	/* formal: begin Certificate, mirrored by formal/KaterCert/Checker.lean */
 	/*
 	 * What the proof of an inclusion rests on, for checking it without
@@ -78,6 +101,9 @@ public:
 		std::vector<std::pair<unsigned, VSet<unsigned>>> pairs;
 		/* (a, b): letter a is included in letter b */
 		std::vector<std::pair<TransLabel, TransLabel>> inclusions;
+		/* How RHS came from the right-hand side, if recorded: checked on
+		 * its own (formal/KaterCert/Chain.lean) */
+		std::optional<Chain> chain;
 	};
 	/* formal: end Certificate */
 	/* Gets the certificate of an inclusion, and the constraint it proves it
@@ -135,10 +161,14 @@ private:
 
 	auto isDFASubLanguageOfNFA(NFA &nfa, const NFA &other, Certificate *cert = nullptr) const
 		-> InclusionResult;
+	/* Saturates RHS with the module's assumptions, normalizing after each,
+	 * and prunes what LHS cannot use; records the passes in CHAIN, if any */
+	void saturateRHS(NFA &rhs, const NFA &lhs, std::optional<Chain> &chain) const;
 	/* isDFASubLanguageOfNFA, with the certificate, if it holds, handed to
-	 * the certificate sink with CST, the constraint it is a proof for */
-	auto decideInclusion(NFA &lhs, const NFA &rhs, const Constraint &cst) const
-		-> InclusionResult;
+	 * the certificate sink with CST, the constraint it is a proof for, and
+	 * CHAIN, how RHS came from the right-hand side */
+	auto decideInclusion(NFA &lhs, const NFA &rhs, const Constraint &cst,
+			     std::optional<Chain> chain) const -> InclusionResult;
 	[[nodiscard]] auto checkInclusion(SubsetConstraint &subsetC) const -> InclusionResult;
 	/* The extensibility check of CST, whose cycles are those of the words of
 	 * RE (of one word, with SINGLE) */

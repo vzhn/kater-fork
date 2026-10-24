@@ -22,11 +22,55 @@
 #include "Theory.hpp"
 
 #include <algorithm>
+#include <map>
 #include <ranges>
 #include <set>
 #include <vector>
 
 namespace RV = std::views;
+
+using Role = SaturationEvidence::Role;
+
+/* Starts EV, if any, for a saturation of NFA under HYPOTHESIS: each state of
+ * NFA stands for itself, until the saturation says otherwise */
+static void startEvidence(SaturationEvidence *ev, const NFA &nfa,
+			  SaturationEvidence::Hypothesis hypothesis)
+{
+	if (ev == nullptr)
+		return;
+	*ev = SaturationEvidence{};
+	ev->hypothesis = hypothesis;
+	for (auto i = 0U; i < nfa.getNumStates(); i++)
+		ev->roles.push_back({.kind = Role::Kind::State, .state = i});
+}
+
+/* Records in EV, if any, a COPY of the evidence's automaton, whose states the
+ * NFA is about to add from OFFSET on */
+static void recordCopy(SaturationEvidence *ev, size_t offset, SaturationEvidence::Copy copy)
+{
+	if (ev == nullptr)
+		return;
+	VERIFY(ev->roles.size() == offset, "a copy's states follow the states with roles");
+	const auto g = static_cast<unsigned>(ev->copies.size());
+	for (auto j = 0U; j < ev->automaton.getNumStates(); j++)
+		ev->roles.push_back({.kind = Role::Kind::Copy, .state = j, .copy = g});
+	ev->copies.push_back(std::move(copy));
+}
+
+/* Records in EV, if any, that the theory includes letter A in letter B */
+static void recordInclusion(SaturationEvidence *ev, const TransLabel &a, const TransLabel &b)
+{
+	if (ev != nullptr && a != b)
+		ev->inclusions.emplace_back(a, b);
+}
+
+static void finishEvidence(SaturationEvidence *ev)
+{
+	if (ev == nullptr)
+		return;
+	std::ranges::sort(ev->inclusions);
+	ev->inclusions.erase(std::ranges::unique(ev->inclusions).begin(), ev->inclusions.end());
+}
 
 /*
  * Duplicate the automaton for each of the initial state(s)' different
@@ -174,8 +218,12 @@ void saturateLoc(NFA &nfa, const Theory &theory)
 	});
 }
 
-void saturateID(NFA &nfa, NFA &&id)
+void saturateID(NFA &nfa, NFA &&id, SaturationEvidence *ev)
 {
+	startEvidence(ev, nfa, SaturationEvidence::Hypothesis::Within);
+	if (ev != nullptr)
+		ev->automaton = copy(id);
+
 	std::vector<NFA::State *> inits(id.start_begin(), id.start_end());
 	std::vector<NFA::State *> fnals(id.accept_begin(), id.accept_end());
 
@@ -189,6 +237,8 @@ void saturateID(NFA &nfa, NFA &&id)
 	std::for_each(states.begin(), states.end(), [&](auto *s) {
 		/* alt() appends the copy's states, so state i of ID ends up at OFFSET+i */
 		const auto offset = nfa.getNumStates();
+		/* A copy from S back to S along no path: the word is empty */
+		recordCopy(ev, offset, {.from = s->getId(), .to = s->getId(), .path = {}});
 		nfa.alt(copy(id));
 
 		for (auto *init : inits)
@@ -200,10 +250,14 @@ void saturateID(NFA &nfa, NFA &&id)
 	});
 }
 
-void saturateTransitive(NFA &nfa, const Relation &rel)
+void saturateTransitive(NFA &nfa, const Relation &rel, SaturationEvidence *ev)
 {
 	TransLabel lab(rel);
 	std::vector<NFA::State *> toDuplicate;
+
+	startEvidence(ev, nfa, SaturationEvidence::Hypothesis::Transitive);
+	if (ev != nullptr)
+		ev->letter = lab;
 
 	lab.flip();
 	std::for_each(nfa.states_begin(), nfa.states_end(), [&](auto &s) {
@@ -216,9 +270,18 @@ void saturateTransitive(NFA &nfa, const Relation &rel)
 	std::for_each(toDuplicate.begin(), toDuplicate.end(), [&](auto *s) {
 		if (std::any_of(s->in_begin(), s->in_end(),
 				[&](auto &t) { return t.label != lab; })) {
-			nfa.splitState(s, [&](auto &t) { return t.label == lab; });
+			auto *d = nfa.splitState(s, [&](auto &t) { return t.label == lab; });
+			/* The state split off takes the other steps into S */
+			if (ev != nullptr) {
+				VERIFY(ev->roles.size() == d->getId(), "a split state comes last");
+				ev->roles.push_back(
+					{.kind = Role::Kind::State, .state = s->getId()});
+			}
 		}
 		NFA::addSelfTransition(s, TransLabel(rel));
+		/* S is entered by REL alone, which may repeat there */
+		if (ev != nullptr)
+			ev->roles[s->getId()] = {.kind = Role::Kind::After, .state = s->getId()};
 	});
 }
 
@@ -246,20 +309,35 @@ void addNFAPath(NFA &nfa, const NFA &path, NFA::State *src, NFA::State *dst)
 		nfa.addEpsilonTransition(nfa[static_cast<unsigned>(offset) + fnal->getId()], dst);
 }
 
-void saturateBuiltin(NFA &nfa, const Relation &rel, NFA sat, const Theory &theory)
+void saturateBuiltin(NFA &nfa, const Relation &rel, NFA sat, const Theory &theory,
+		     SaturationEvidence *ev)
 {
 	TransLabel lab(rel);
 
+	startEvidence(ev, nfa, SaturationEvidence::Hypothesis::Within);
+	if (ev != nullptr) {
+		ev->automaton = copy(sat);
+		ev->word = {lab};
+	}
+
 	/* Collect all paths but don't modify in place */
-	std::vector<std::pair<NFA::State *, NFA::State *>> paths;
+	std::vector<std::pair<NFA::State *, NFA::Transition>> paths;
 	auto relInTrans = [&](auto &t) { return theory.isIncludedIn(lab, t.label); };
 	for (auto &s : nfa.states()) {
 		for (auto &t : s->outs() | RV::filter(relInTrans))
-			paths.emplace_back(&*s, t.dest);
+			paths.emplace_back(&*s, t);
 	}
 
-	for (auto &p : paths)
-		addNFAPath(nfa, sat, p.first, p.second);
+	for (auto &[s, t] : paths) {
+		/* The copy's path is the step it may stand for, which reads REL */
+		recordCopy(ev, nfa.getNumStates(),
+			   {.from = s->getId(),
+			    .to = t.dest->getId(),
+			    .path = {{.letter = t.label, .dest = t.dest->getId(), .known = {}}}});
+		recordInclusion(ev, lab, t.label);
+		addNFAPath(nfa, sat, s, t.dest);
+	}
+	finishEvidence(ev);
 }
 
 auto collectLabels(const NFA &nfa) -> std::vector<TransLabel>
@@ -272,8 +350,16 @@ auto collectLabels(const NFA &nfa) -> std::vector<TransLabel>
 	return labels;
 }
 
-void saturateEmpty(NFA &start, NFA &&empty)
+void saturateEmpty(NFA &start, NFA &&empty, SaturationEvidence *ev)
 {
+	startEvidence(ev, start, SaturationEvidence::Hypothesis::Empty);
+	if (ev != nullptr) {
+		ev->automaton = copy(empty);
+		/* EMPTY's states follow START's, in a copy anchored nowhere */
+		for (auto j = 0U; j < empty.getNumStates(); j++)
+			ev->roles.push_back({.kind = Role::Kind::Copy, .state = j});
+	}
+
 	std::for_each(empty.start_begin(), empty.start_end(), [&](auto &s) {
 		NFA::addSelfTransition(
 			s, TransLabel(Relation::createBuiltin(Relation::BuiltinID::any)));
@@ -313,7 +399,7 @@ void saturateDomains(NFA &nfa, const Theory &theory)
 }
 
 void saturateSubword(NFA &nfa, const NFA &e, const std::vector<TransLabel> &word,
-		     const Theory &theory)
+		     const Theory &theory, SaturationEvidence *ev)
 {
 	/* Where the search is: the NFA's state, how much of WORD it has read, and
 	 * what WORD's predicates say about the current event */
@@ -324,23 +410,71 @@ void saturateSubword(NFA &nfa, const NFA &e, const std::vector<TransLabel> &word
 
 		auto operator<=>(const Position &) const = default;
 	};
+	/* With evidence, how the search reached a position: from where, and by
+	 * which step of the NFA (none when WORD checked a predicate) */
+	struct Parent {
+		Position from;
+		const NFA::Transition *step;
+	};
 
+	startEvidence(ev, nfa, SaturationEvidence::Hypothesis::Within);
+	if (ev != nullptr) {
+		ev->automaton = copy(e);
+		ev->word = word;
+	}
+
+	using Path = std::vector<SaturationEvidence::Step>;
+	using Inclusions = std::vector<std::pair<TransLabel, TransLabel>>;
 	std::vector<std::pair<NFA::State *, NFA::State *>> shortcuts;
+	std::map<std::pair<NFA::State *, NFA::State *>, std::pair<Path, Inclusions>> paths;
 	for (auto &startUP : nfa.states()) {
 		std::set<Position> visited;
+		std::map<Position, Parent> parents;
 		std::vector<Position> work;
-		auto visit = [&](Position pos) {
-			if (visited.insert(pos).second)
-				work.push_back(std::move(pos));
+		auto visit = [&](Position pos, const Position &from, const NFA::Transition *step) {
+			if (!visited.insert(pos).second)
+				return;
+			if (ev != nullptr)
+				parents.emplace(pos, Parent{.from = from, .step = step});
+			work.push_back(std::move(pos));
+		};
+		/* The path to POS, each step with what WORD's predicates said of the
+		 * event it leaves, and the inclusions the theory granted it */
+		auto pathTo = [&](Position pos) {
+			Path path;
+			Inclusions inclusions;
+			for (auto it = parents.find(pos); it != parents.end();
+			     it = parents.find(pos)) {
+				const auto &[from, step] = it->second;
+				if (step != nullptr) {
+					path.push_back({.letter = step->label,
+							.dest = step->dest->getId(),
+							.known = from.known});
+					auto read =
+						step->label.isPredicate()
+							? TransLabel(std::nullopt, from.known)
+							: TransLabel(word[from.read].getRelation(),
+								     from.known);
+					inclusions.emplace_back(read, step->label);
+				}
+				pos = from;
+			}
+			std::ranges::reverse(path);
+			return std::pair(path, inclusions);
 		};
 
-		visit({&*startUP, 0, {}});
+		const Position start{&*startUP, 0, {}};
+		visited.insert(start);
+		work.push_back(start);
 		while (!work.empty()) {
 			auto pos = work.back();
 			work.pop_back();
 
-			if (pos.read == word.size())
+			if (pos.read == word.size()) {
 				shortcuts.emplace_back(&*startUP, pos.state);
+				if (ev != nullptr && !paths.contains({&*startUP, pos.state}))
+					paths.emplace(std::pair(&*startUP, pos.state), pathTo(pos));
+			}
 
 			/* WORD checks a predicate: it knows more about the event */
 			if (pos.read < word.size() && word[pos.read].isPredicate()) {
@@ -349,7 +483,7 @@ void saturateSubword(NFA &nfa, const NFA &e, const std::vector<TransLabel> &word
 				    PredicateSet::inlineCapacity) {
 					auto known = pos.known;
 					known.insert(checks);
-					visit({pos.state, pos.read + 1, known});
+					visit({pos.state, pos.read + 1, known}, pos, nullptr);
 				}
 				continue;
 			}
@@ -358,7 +492,7 @@ void saturateSubword(NFA &nfa, const NFA &e, const std::vector<TransLabel> &word
 				/* The NFA checks a predicate WORD implies */
 				if (t.label.isPredicate()) {
 					if (theory.isIncludedIn(pos.known, t.label.getPreChecks()))
-						visit({t.dest, pos.read, pos.known});
+						visit({t.dest, pos.read, pos.known}, pos, &t);
 					continue;
 				}
 				/* Both read a relation, WORD's in the NFA's */
@@ -366,15 +500,24 @@ void saturateSubword(NFA &nfa, const NFA &e, const std::vector<TransLabel> &word
 				    theory.isIncludedIn(
 					    TransLabel(word[pos.read].getRelation(), pos.known),
 					    t.label))
-					visit({t.dest, pos.read + 1, {}});
+					visit({t.dest, pos.read + 1, {}}, pos, &t);
 			}
 		}
 	}
 
 	std::ranges::sort(shortcuts);
 	shortcuts.erase(std::ranges::unique(shortcuts).begin(), shortcuts.end());
-	for (auto [p, q] : shortcuts)
+	for (auto [p, q] : shortcuts) {
+		if (ev != nullptr) {
+			auto &[path, inclusions] = paths.at({p, q});
+			for (const auto &[a, b] : inclusions)
+				recordInclusion(ev, a, b);
+			recordCopy(ev, nfa.getNumStates(),
+				   {.from = p->getId(), .to = q->getId(), .path = path});
+		}
 		addNFAPath(nfa, e, p, q);
+	}
+	finishEvidence(ev);
 }
 
 void saturateRotate(NFA &nfa, const Theory &theory)

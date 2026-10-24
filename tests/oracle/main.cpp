@@ -39,10 +39,11 @@
  *
  *   kater-oracle certify [-n EVENTS] [-t SECONDS] [--json DIR] FILE...
  *       Has Kater prove FILE's assertions with certificates, checks each
- *       certificate without searching, and checks the letter inclusions
- *       they rest on against the semantics. With --json, also writes each
- *       certificate, and copies of it that differ in one place, to DIR as
- *       JSON, with checkCertificate's verdict: the input of the checker in
+ *       certificate and its chain without searching, and checks the letter
+ *       inclusions, hypotheses and passes without evidence they rest on
+ *       against the semantics. With --json, also writes each certificate,
+ *       and copies of it that differ in one place, to DIR as JSON, with
+ *       checkCertificateAndChain's verdict: the input of the checker in
  *       formal/.
  *
  *   kater-oracle explain FILE
@@ -50,9 +51,10 @@
  *       FILE through the stages of Kater's inclusion check.
  *
  *   kater-oracle transforms [-n EVENTS] [-t SECONDS] [--cases N] [--seed S]
- *                           [--depth D] [--only NAME]
+ *                           [--depth D] [--only NAME] [--evidence-only]
  *       Tests the automaton transformations of the decision procedure
- *       against their semantic contracts, on random expressions.
+ *       against their semantic contracts, on random expressions, and the
+ *       evidence of the saturations; with --evidence-only, only that.
  *
  *   kater-oracle genmc --runner RUNNER [-n EVENTS] [--threads T]
  *                      [--locations L] [--heap-events H] [--random N]
@@ -131,7 +133,8 @@ struct Options {
 		   "       kater-oracle explain FILE...\n"
 		   "       kater-oracle audit [-n EVENTS] [-t SECONDS] [-v]\n"
 		   "       kater-oracle transforms [-n EVENTS] [-t SECONDS] [--cases N]\n"
-		   "                               [--seed S] [--depth D] [--only NAME] [-v]\n"
+		   "                               [--seed S] [--depth D] [--only NAME]\n"
+		   "                               [--evidence-only] [-v]\n"
 		   "       kater-oracle genmc --runner RUNNER [-n EVENTS] [--threads T]\n"
 		   "                          [--locations L] [--heap-events H] [--random N]\n"
 		   "                          [--random-events M] [--seed S] [--limit G]\n"
@@ -179,6 +182,8 @@ auto parseOptions(int argc, char **argv, int first) -> Options
 			opts.transforms.depth = value();
 		else if (arg == "--only")
 			opts.transforms.only = text();
+		else if (arg == "--evidence-only")
+			opts.transforms.evidenceOnly = true;
 		else if (arg == "--json")
 			opts.jsonDir = text();
 		else if (arg == "--runner")

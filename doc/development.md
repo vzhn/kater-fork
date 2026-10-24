@@ -62,10 +62,11 @@ cd Release && ctest -L genmc
 ```
 
 `formal/` is a Lean 4 project that proves sound a checker of the
-certificates Kater emits for its inclusion checks. With Lean installed
+certificates Kater emits for its inclusion checks, and of the evidence its
+saturations of the right-hand side record. With Lean installed
 (through [elan](https://github.com/leanprover/elan)), `lake build` in
-`formal/` checks the proof, and the tests labeled `formal` run the checker on
-the certificates of the suite:
+`formal/` checks the proofs, and the tests labeled `formal` run the checker
+on the certificates of the suite:
 
 ```shell
 cd Release && ctest -L formal

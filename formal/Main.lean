@@ -3,9 +3,9 @@ import KaterCert
 /-!
 `kater-cert-check [-v] PATH...`: checks the certificates in PATH (files, or
 directories of `.json` files) as `kater-oracle certify --json` writes them,
-and compares each verdict with the one the file records (`checkCertificate`'s),
-or with "valid" if it records none. Exits with 1 if a file does not read or a
-verdict differs.
+with their chains when they have one, and compares each verdict with the one
+the file records (`checkCertificateAndChain`'s), or with "valid" if it
+records none. Exits with 1 if a file does not read or a verdict differs.
 -/
 
 open KaterCert
@@ -41,6 +41,8 @@ def main (args : List String) : IO UInt32 := do
     return 2
   let mut certificates : Tally := {}
   let mut mutants : Tally := {}
+  let mut chains := 0
+  let mut saturations := 0
   let mut recorded := 0
   let mut failures := 0
   for f in ← files paths do
@@ -49,7 +51,11 @@ def main (args : List String) : IO UInt32 := do
       IO.println s!"{f}: cannot read: {e}"
       failures := failures + 1
     | .ok e =>
-      let why := e.cert.check
+      let why := e.cert.check <|> e.chain.bind (·.check e.cert.rhs)
+      if let some ch := e.chain then
+        if e.mutation.isNone && why.isNone then
+          chains := chains + 1
+          saturations := saturations + (ch.passes.filter (·.evidence.isSome)).length
       if e.mutation.isSome then
         mutants := mutants.add why.isNone
       else
@@ -64,5 +70,6 @@ def main (args : List String) : IO UInt32 := do
         IO.println s!"  expected {expected}: {e.constraint}"
   IO.println s!"{certificates.valid + certificates.invalid} certificates: {certificates.valid} valid, {certificates.invalid} invalid"
   IO.println s!"{mutants.valid + mutants.invalid} mutants: {mutants.valid} valid, {mutants.invalid} invalid"
+  IO.println s!"{chains} valid certificates with chains, through {saturations} saturations with evidence"
   IO.println s!"{recorded} recorded verdicts, {failures} files unread or differing"
   return if failures = 0 then 0 else 1

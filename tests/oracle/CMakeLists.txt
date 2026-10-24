@@ -8,6 +8,7 @@ endif()
 add_executable(kater-oracle
   Audit.cpp
   Certificate.cpp
+  Chain.cpp
   Enumerate.cpp
   Execution.cpp
   Export.cpp
@@ -103,14 +104,15 @@ foreach(m mp mp-acq)
     PASS_REGULAR_EXPRESSION "error: not extensible: a cycle of acyclic")
 endforeach()
 
-# Kater's proofs of the suite come with certificates, which check, and the
-# letter inclusions they rest on hold
+# Kater's proofs of the suite come with certificates and chains, which
+# check, and the letter inclusions and hypotheses they rest on hold
 add_test(NAME oracle-certify COMMAND kater-oracle certify -n 3 ${ORACLE_CORRECT})
 set_tests_properties(oracle-certify PROPERTIES LABELS "oracle" TIMEOUT 900)
 
-# The certificates of the whole suite, checked by the Lean checker in formal/
-# (whose build proves it sound), along with copies that differ in one place:
-# it must give each file the verdict checkCertificate gave it
+# The certificates of the whole suite, with the chains of passes their right
+# automata came by, checked by the Lean checker in formal/ (whose build
+# proves it sound), along with copies that differ in one place: it must give
+# each file the verdict checkCertificateAndChain gave it, and check chains
 find_program(LAKE lake HINTS $ENV{ELAN_HOME}/bin $ENV{HOME}/.elan/bin)
 if(LAKE)
   # elan's lake finds its toolchains through ELAN_HOME, which ctest's
@@ -134,7 +136,8 @@ if(LAKE)
   set_tests_properties(formal-certificates-write PROPERTIES
     FIXTURES_REQUIRED certificates-clean FIXTURES_SETUP certificates-json)
   set_tests_properties(formal-certificates-check PROPERTIES
-    FIXTURES_REQUIRED certificates-json ENVIRONMENT "${LAKE_ENVIRONMENT}")
+    FIXTURES_REQUIRED certificates-json ENVIRONMENT "${LAKE_ENVIRONMENT}"
+    FAIL_REGULAR_EXPRESSION "\n0 valid certificates with chains")
   set_tests_properties(formal-certificates-clean formal-certificates-write
     formal-certificates-check PROPERTIES LABELS "oracle;formal" TIMEOUT 1800)
 
@@ -153,7 +156,8 @@ if(LAKE)
   set_tests_properties(formal-export-certificates-write PROPERTIES
     FIXTURES_REQUIRED export-certificates-clean FIXTURES_SETUP export-certificates-json)
   set_tests_properties(formal-export-certificates-check PROPERTIES
-    FIXTURES_REQUIRED export-certificates-json ENVIRONMENT "${LAKE_ENVIRONMENT}")
+    FIXTURES_REQUIRED export-certificates-json ENVIRONMENT "${LAKE_ENVIRONMENT}"
+    FAIL_REGULAR_EXPRESSION "\n0 valid certificates with chains")
   set_tests_properties(formal-export-certificates-clean formal-export-certificates-write
     formal-export-certificates-check PROPERTIES LABELS "oracle;formal" TIMEOUT 1800)
   # One lake at a time in formal/

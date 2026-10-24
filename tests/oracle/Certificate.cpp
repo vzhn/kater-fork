@@ -18,6 +18,7 @@
 
 #include "Certificate.hpp"
 
+#include "Chain.hpp"
 #include "Constraint.hpp"
 #include "NFAUtils.hpp"
 #include "ParsingDriver.hpp"
@@ -30,6 +31,7 @@
 #include <fstream>
 #include <functional>
 #include <iostream>
+#include <map>
 #include <set>
 #include <vector>
 
@@ -117,8 +119,10 @@ void writeNFA(std::ostream &out, const NFA &nfa, const Theory &theory)
 	out << "]}";
 }
 
-/* VERDICT is what checkCertificate says of CERT; MUTATION names how CERT
- * differs from Kater's certificate, if it does */
+void writeChain(std::ostream &out, const Checker::Chain &chain, const Theory &theory);
+
+/* VERDICT is what checkCertificate, then checkChain, say of CERT; MUTATION
+ * names how CERT differs from Kater's certificate, if it does */
 void writeJSON(const std::filesystem::path &path, const std::string &file,
 	       const std::string &constraint, const std::string &mutation,
 	       const Checker::Certificate &cert, const std::optional<std::string> &verdict,
@@ -169,9 +173,176 @@ void writeJSON(const std::filesystem::path &path, const std::string &file,
 		out << "]";
 		sep = ",\n  ";
 	}
-	out << "]}\n";
+	out << "]";
+	if (cert.chain) {
+		out << ",\n \"chain\": ";
+		writeChain(out, *cert.chain, theory);
+	}
+	out << "}\n";
 }
 /* formal: end CertificateJSON */
+
+/* formal: begin ChainJSON, mirrored by formal/KaterCert/Read.lean */
+/*
+ * A chain as JSON: its letters once, in "labels", and elsewhere a letter's
+ * index there. An automaton's steps are [source, letter, destination]. A
+ * pass is {"pass": name, "evidence": ..., "result": automaton}, without
+ * evidence when trusted. Evidence has the "hypothesis" ("transitive",
+ * "within" or "empty"), its "letter", "automaton" and "word"; the "roles",
+ * each ["state", n], ["after", n] or ["copy", j, g]; the "copies", each
+ * {"from": n, "to": n, "path": [[letter, destination, known], ...]}, known
+ * a list of predicates; and the "inclusions", pairs of letters.
+ */
+class ChainWriter {
+
+public:
+	ChainWriter(const Checker::Chain &chain, const Theory &theory) : theory_(&theory)
+	{
+		collect(chain.start);
+		for (const auto &p : chain.passes) {
+			collect(p.result);
+			if (!p.evidence)
+				continue;
+			const auto &ev = *p.evidence;
+			index_.try_emplace(ev.letter, 0);
+			collect(ev.automaton);
+			for (const auto &l : ev.word)
+				index_.try_emplace(l, 0);
+			for (const auto &c : ev.copies)
+				for (const auto &s : c.path)
+					index_.try_emplace(s.letter, 0);
+			for (const auto &[a, b] : ev.inclusions) {
+				index_.try_emplace(a, 0);
+				index_.try_emplace(b, 0);
+			}
+		}
+		auto i = 0U;
+		for (auto &[l, n] : index_)
+			n = i++;
+	}
+
+	void write(std::ostream &out, const Checker::Chain &chain) const
+	{
+		out << "{\"labels\": [";
+		const auto *sep = "\n  ";
+		for (const auto &[l, n] : index_) {
+			out << sep;
+			writeLabel(out, l, *theory_);
+			sep = ",\n  ";
+		}
+		out << "],\n \"start\": ";
+		writeNFA(out, chain.start);
+		out << ",\n \"passes\": [";
+		sep = "\n  ";
+		for (const auto &p : chain.passes) {
+			out << sep << "{\"pass\": " << jsonString(p.name);
+			if (p.evidence) {
+				out << ",\n   \"evidence\": ";
+				writeEvidence(out, *p.evidence);
+			}
+			out << ",\n   \"result\": ";
+			writeNFA(out, p.result);
+			out << "}";
+			sep = ",\n  ";
+		}
+		out << "]}";
+	}
+
+private:
+	void collect(const NFA &nfa)
+	{
+		for (const auto &s : nfa.states())
+			for (const auto &t : s->outs())
+				index_.try_emplace(t.label, 0);
+	}
+
+	void writeNFA(std::ostream &out, const NFA &nfa) const
+	{
+		out << "{\"states\": " << nfa.getNumStates() << ", \"starting\": [";
+		const auto *sep = "";
+		for (const auto *s : nfa.starting()) {
+			out << sep << s->getId();
+			sep = ", ";
+		}
+		out << "], \"accepting\": [";
+		sep = "";
+		for (const auto *s : nfa.accepting()) {
+			out << sep << s->getId();
+			sep = ", ";
+		}
+		out << "],\n    \"transitions\": [";
+		sep = "";
+		for (const auto &s : nfa.states()) {
+			for (const auto &t : s->outs()) {
+				out << sep << "[" << s->getId() << ", " << index_.at(t.label)
+				    << ", " << t.dest->getId() << "]";
+				sep = ", ";
+			}
+		}
+		out << "]}";
+	}
+
+	void writeEvidence(std::ostream &out, const SaturationEvidence &ev) const
+	{
+		using H = SaturationEvidence::Hypothesis;
+		using K = SaturationEvidence::Role::Kind;
+		out << "{\"hypothesis\": "
+		    << (ev.hypothesis == H::Transitive ? "\"transitive\""
+			: ev.hypothesis == H::Within   ? "\"within\""
+						       : "\"empty\"")
+		    << ", \"letter\": " << index_.at(ev.letter) << ",\n    \"automaton\": ";
+		writeNFA(out, ev.automaton);
+		out << ",\n    \"word\": [";
+		const auto *sep = "";
+		for (const auto &l : ev.word) {
+			out << sep << index_.at(l);
+			sep = ", ";
+		}
+		out << "],\n    \"roles\": [";
+		sep = "";
+		for (const auto &r : ev.roles) {
+			out << sep;
+			if (r.kind == K::Copy)
+				out << "[\"copy\", " << r.state << ", " << r.copy << "]";
+			else
+				out << "[\"" << (r.kind == K::State ? "state" : "after") << "\", "
+				    << r.state << "]";
+			sep = ", ";
+		}
+		out << "],\n    \"copies\": [";
+		sep = "";
+		for (const auto &c : ev.copies) {
+			out << sep << "{\"from\": " << c.from << ", \"to\": " << c.to
+			    << ", \"path\": [";
+			const auto *comma = "";
+			for (const auto &s : c.path) {
+				out << comma << "[" << index_.at(s.letter) << ", " << s.dest
+				    << ", ";
+				writeChecks(out, s.known);
+				out << "]";
+				comma = ", ";
+			}
+			out << "]}";
+			sep = ",\n     ";
+		}
+		out << "],\n    \"inclusions\": [";
+		sep = "";
+		for (const auto &[a, b] : ev.inclusions) {
+			out << sep << "[" << index_.at(a) << ", " << index_.at(b) << "]";
+			sep = ", ";
+		}
+		out << "]}";
+	}
+
+	const Theory *theory_;
+	std::map<TransLabel, unsigned> index_;
+};
+
+void writeChain(std::ostream &out, const Checker::Chain &chain, const Theory &theory)
+{
+	ChainWriter(chain, theory).write(out, chain);
+}
+/* formal: end ChainJSON */
 
 auto clone(const Checker::Certificate &cert) -> Checker::Certificate
 {
@@ -286,16 +457,26 @@ auto mutants(const Checker::Certificate &cert)
 
 } // namespace
 
+auto checkCertificateAndChain(const Checker::Certificate &cert) -> std::optional<std::string>
+{
+	if (auto why = checkCertificate(cert))
+		return why;
+	return checkChain(cert);
+}
+
 void writeCertificateJSONs(const std::filesystem::path &dir, const std::string &file, unsigned nth,
 			   const std::string &claim, const Checker::Certificate &cert,
 			   const Theory &theory)
 {
 	auto base = std::format("{}.{}", std::filesystem::path(file).stem().string(), nth);
-	writeJSON(dir / std::format("{}.json", base), file, claim, "", cert, checkCertificate(cert),
-		  theory);
+	writeJSON(dir / std::format("{}.json", base), file, claim, "", cert,
+		  checkCertificateAndChain(cert), theory);
 	for (const auto &[name, m] : mutants(cert))
 		writeJSON(dir / std::format("{}.{}.json", base, name), file, claim, name, m,
 			  checkCertificate(m), theory);
+	for (const auto &[name, m] : chainMutants(cert))
+		writeJSON(dir / std::format("{}.{}.json", base, name), file, claim, name, m,
+			  checkCertificateAndChain(m), theory);
 }
 
 /* formal: begin checkCertificate, mirrored by formal/KaterCert/Checker.lean */
@@ -411,49 +592,86 @@ auto certifyFile(const std::string &file, const SearchOptions &opts, bool verbos
 	auto ok = true;
 	auto certificates = 0U;
 	std::set<std::pair<TransLabel, TransLabel>> inclusions;
-	checker.setCertificateSink(
-		[&](const Constraint &cst, const Checker::Certificate &cert) -> void {
-			certificates++;
-			auto why = checkCertificate(cert);
-			if (jsonDir)
-				writeCertificateJSONs(*jsonDir, file, certificates,
-						      toString(cst, theory), cert, theory);
-			if (why) {
-				ok = false;
-				std::cout << "INVALID certificate for " << WithTheory(cst, theory)
-					  << ": " << *why << "\n";
-				return;
-			}
-			if (verbose)
-				std::cout << "valid certificate for " << WithTheory(cst, theory)
-					  << " (" << cert.pairs.size() << " pairs)\n";
-			for (const auto &[a, b] : cert.inclusions)
-				if (a != b)
-					inclusions.emplace(a, b);
-		});
+	/* The hypotheses the saturations used, and the passes without evidence */
+	std::map<std::string, Query> hypotheses;
+	std::vector<std::pair<std::string, Query>> passes;
+	auto largePasses = 0U;
+	checker.setCertificateSink([&](const Constraint &cst,
+				       const Checker::Certificate &cert) -> void {
+		certificates++;
+		auto why = checkCertificateAndChain(cert);
+		if (jsonDir)
+			writeCertificateJSONs(*jsonDir, file, certificates, toString(cst, theory),
+					      cert, theory);
+		if (why) {
+			ok = false;
+			std::cout << "INVALID certificate for " << WithTheory(cst, theory) << ": "
+				  << *why << "\n";
+			return;
+		}
+		if (verbose)
+			std::cout << "valid certificate for " << WithTheory(cst, theory) << " ("
+				  << cert.pairs.size() << " pairs, "
+				  << (cert.chain ? cert.chain->passes.size() : 0) << " passes)\n";
+		for (const auto &[a, b] : cert.inclusions)
+			if (a != b)
+				inclusions.emplace(a, b);
+		if (!cert.chain)
+			return;
+		for (const auto &p : cert.chain->passes)
+			if (p.evidence)
+				inclusions.insert(p.evidence->inclusions.begin(),
+						  p.evidence->inclusions.end());
+		auto claims =
+			chainClaims(*cert.chain, toString(cst, theory), opts.maxEvents, theory);
+		for (auto &h : claims.hypotheses)
+			hypotheses.try_emplace(h.text, std::move(h.violation));
+		for (auto &p : claims.passes)
+			passes.emplace_back(std::move(p.text), std::move(p.violation));
+		largePasses += claims.largePasses;
+	});
 	for (const auto &assrt : module->asserts())
 		checker.checkAssertion(*assrt->getConstraint());
 
-	/* The letter inclusions the certificates rest on */
-	auto refuted = 0U;
-	for (const auto &[a, b] : inclusions) {
-		auto s = search(
-			*module, [&](Graph &g, Semantics &sem) { return hyps(g, sem); },
-			[&](Graph & /*g*/, Semantics &sem) {
-				return !sem.eval(a).includedIn(sem.eval(b));
-			},
-			opts);
-		if (s.outcome == Search::Outcome::Counterexample) {
-			ok = false;
-			refuted++;
-			std::cout << "FALSE inclusion " << toString(a, theory)
-				  << " <= " << toString(b, theory) << "\n"
-				  << s.detail;
+	/* What the certificates rest on, each a claim to refute: returns whether
+	 * a graph does. NFASemantics nests its formulas once per round, and Z3
+	 * gives up on those of some automata with cycles of a few dozen states:
+	 * such claims count as undecided */
+	auto undecided = 0U;
+	auto refute = [&](const std::string &what, const Query &violation) {
+		Search s;
+		try {
+			s = search(
+				*module, [&](Graph &g, Semantics &sem) { return hyps(g, sem); },
+				violation, opts);
+		} catch (const z3::exception &) {
+			undecided++;
+			return 0U;
 		}
-	}
+		if (s.outcome != Search::Outcome::Counterexample)
+			return 0U;
+		ok = false;
+		std::cout << "FALSE " << what << "\n" << s.detail;
+		return 1U;
+	};
+	auto refuted = 0U;
+	for (const auto &[a, b] : inclusions)
+		refuted += refute("inclusion " + toString(a, theory) + " <= " + toString(b, theory),
+				  [&](Graph & /*g*/, Semantics &sem) {
+					  return !sem.eval(a).includedIn(sem.eval(b));
+				  });
+	auto refutedHypotheses = 0U;
+	for (const auto &[text, violation] : hypotheses)
+		refutedHypotheses += refute("hypothesis " + text, violation);
+	auto refutedPasses = 0U;
+	for (const auto &[text, violation] : passes)
+		refutedPasses += refute(text, violation);
 	std::cout << file << ": " << certificates << " certificates, " << inclusions.size()
-		  << " letter inclusions (" << refuted << " false, up to " << opts.maxEvents
-		  << " events)\n";
+		  << " letter inclusions (" << refuted << " false), " << hypotheses.size()
+		  << " hypotheses (" << refutedHypotheses << " false), " << passes.size()
+		  << " trusted passes (" << refutedPasses << " false, " << largePasses
+		  << " more too large to check), up to " << opts.maxEvents << " events; "
+		  << undecided << " of these claims undecided\n";
 	return ok;
 }
 

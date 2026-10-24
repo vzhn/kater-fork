@@ -18,6 +18,8 @@
 
 #include "Transforms.hpp"
 
+#include "Chain.hpp"
+
 #include "NFAUtils.hpp"
 #include "ParsingDriver.hpp"
 #include "Saturation.hpp"
@@ -179,7 +181,8 @@ struct Transform {
 	std::string name;
 	bool normalizeFirst; /* the pass assumes a normalized automaton */
 	Contract contract;
-	std::function<void(NFA &, const Theory &, const Given &)> apply;
+	/* The pass; a saturation of a right-hand side records its evidence */
+	std::function<void(NFA &, const Theory &, const Given &, SaturationEvidence *)> apply;
 	GivenQuery hypothesis = nullptr;
 };
 
@@ -205,71 +208,99 @@ auto transforms() -> std::vector<Transform>
 	using C = Contract;
 	return {
 		{"removeDeadStates", false, C::Equivalent,
-		 [](NFA &n, const Theory &, const Given &) { removeDeadStates(n); }},
+		 [](NFA &n, const Theory &, const Given &, SaturationEvidence *) {
+			 removeDeadStates(n);
+		 }},
 		{"removeSimilarTransitions", false, C::Equivalent,
-		 [](NFA &n, const Theory &, const Given &) { removeSimilarTransitions(n); }},
+		 [](NFA &n, const Theory &, const Given &, SaturationEvidence *) {
+			 removeSimilarTransitions(n);
+		 }},
 		{"removeRedundantSelfLoops", false, C::Equivalent,
-		 [](NFA &n, const Theory &, const Given &) { removeRedundantSelfLoops(n); }},
+		 [](NFA &n, const Theory &, const Given &, SaturationEvidence *) {
+			 removeRedundantSelfLoops(n);
+		 }},
 		{"compactEdges", false, C::Equivalent,
-		 [](NFA &n, const Theory &t, const Given &) { compactEdges(n, t); }},
+		 [](NFA &n, const Theory &t, const Given &, SaturationEvidence *) {
+			 compactEdges(n, t);
+		 }},
 		{"breakToParts", false, C::Equivalent,
-		 [](NFA &n, const Theory &, const Given &) { breakToParts(n); }},
+		 [](NFA &n, const Theory &, const Given &, SaturationEvidence *) {
+			 breakToParts(n);
+		 }},
 		/* addTransitivePredicateEdges needs no state reached by both
 		 * predicates and relations, which removeConsecutivePredicates
 		 * ensures before calling it */
 		{"addTransitivePredicateEdges", false, C::Equivalent,
-		 [](NFA &n, const Theory &t, const Given &) {
+		 [](NFA &n, const Theory &t, const Given &, SaturationEvidence *) {
 			 splitMixedIncoming(n);
 			 addTransitivePredicateEdges(n, t);
 		 }},
 		{"simplify", false, C::Equivalent,
-		 [](NFA &n, const Theory &t, const Given &) { simplify(n, t); }},
+		 [](NFA &n, const Theory &t, const Given &, SaturationEvidence *) {
+			 simplify(n, t);
+		 }},
 		{"saturateDomains", false, C::Equivalent,
-		 [](NFA &n, const Theory &t, const Given &) { saturateDomains(n, t); }},
+		 [](NFA &n, const Theory &t, const Given &, SaturationEvidence *) {
+			 saturateDomains(n, t);
+		 }},
 		{"removeConsecutivePredicates", false, C::Equivalent,
-		 [](NFA &n, const Theory &t, const Given &) { removeConsecutivePredicates(n, t); }},
+		 [](NFA &n, const Theory &t, const Given &, SaturationEvidence *) {
+			 removeConsecutivePredicates(n, t);
+		 }},
 		{"normalize", false, C::Equivalent,
-		 [](NFA &n, const Theory &t, const Given &) { normalize(n, t); }},
+		 [](NFA &n, const Theory &t, const Given &, SaturationEvidence *) {
+			 normalize(n, t);
+		 }},
 		{"to_DFA", true, C::Equivalent,
-		 [](NFA &n, const Theory &, const Given &) { n = n.to_DFA().first; }},
+		 [](NFA &n, const Theory &, const Given &, SaturationEvidence *) {
+			 n = n.to_DFA().first;
+		 }},
 		{"saturateInitFinalPreds", true, C::KeepsCycles,
-		 [](NFA &n, const Theory &t, const Given &) { saturateInitFinalPreds(n, t); }},
+		 [](NFA &n, const Theory &t, const Given &, SaturationEvidence *) {
+			 saturateInitFinalPreds(n, t);
+		 }},
 		{"saturateLoc", true, C::KeepsCycles,
-		 [](NFA &n, const Theory &t, const Given &) { saturateLoc(n, t); }},
+		 [](NFA &n, const Theory &t, const Given &, SaturationEvidence *) {
+			 saturateLoc(n, t);
+		 }},
 		{"saturateRotate", true, C::AddsNoCycles,
-		 [](NFA &n, const Theory &t, const Given &) { saturateRotate(n, t); }},
+		 [](NFA &n, const Theory &t, const Given &, SaturationEvidence *) {
+			 saturateRotate(n, t);
+		 }},
 
 		/* The saturations of a right-hand side, each under its hypothesis */
 		{"saturateEmpty", true, C::Weaker,
-		 [](NFA &n, const Theory &t, const Given &g) {
-			 saturateEmpty(n, normalized(*g.expr, t));
+		 [](NFA &n, const Theory &t, const Given &g, SaturationEvidence *ev) {
+			 saturateEmpty(n, normalized(*g.expr, t), ev);
 		 },
 		 [](Graph & /*g*/, Semantics &sem, const Given &g) {
 			 return sem.eval(*g.expr).isEmpty();
 		 }},
 		{"saturateID", true, C::Weaker,
-		 [](NFA &n, const Theory &t, const Given &g) {
-			 saturateID(n, normalized(*g.expr, t));
+		 [](NFA &n, const Theory &t, const Given &g, SaturationEvidence *ev) {
+			 saturateID(n, normalized(*g.expr, t), ev);
 		 },
 		 [](Graph &g, Semantics &sem, const Given &giv) {
 			 return sem.eval(*giv.expr).includedIn(Matrix::identity(g.ctx(), g.size()));
 		 }},
 		{"saturateTransitive", true, C::Weaker,
-		 [](NFA &n, const Theory &, const Given &g) { saturateTransitive(n, g.rel); },
+		 [](NFA &n, const Theory &, const Given &g, SaturationEvidence *ev) {
+			 saturateTransitive(n, g.rel, ev);
+		 },
 		 [](Graph & /*g*/, Semantics &sem, const Given &g) {
 			 auto r = sem.eval(g.rel);
 			 return r.compose(r).includedIn(r);
 		 }},
 		{"saturateBuiltin", true, C::Weaker,
-		 [](NFA &n, const Theory &t, const Given &g) {
-			 saturateBuiltin(n, g.rel, normalized(*g.expr, t), t);
+		 [](NFA &n, const Theory &t, const Given &g, SaturationEvidence *ev) {
+			 saturateBuiltin(n, g.rel, normalized(*g.expr, t), t, ev);
 		 },
 		 [](Graph & /*g*/, Semantics &sem, const Given &g) {
 			 return sem.eval(*g.expr).includedIn(sem.eval(g.rel));
 		 }},
 		{"saturateSubword", true, C::Weaker,
-		 [](NFA &n, const Theory &t, const Given &g) {
-			 saturateSubword(n, normalized(*g.expr, t), g.word, t);
+		 [](NFA &n, const Theory &t, const Given &g, SaturationEvidence *ev) {
+			 saturateSubword(n, normalized(*g.expr, t), g.word, t, ev);
 		 },
 		 [](Graph &g, Semantics &sem, const Given &giv) {
 			 return sem.eval(*giv.expr).includedIn(evalWord(sem, g, giv.word));
@@ -317,6 +348,8 @@ auto testTransforms(const TransformOptions &opts) -> bool
 	RandomRE gen(opts.seed);
 	auto all = transforms();
 	std::map<std::string, unsigned> failures;
+	/* The saturations whose evidence did not check */
+	std::map<std::string, unsigned> unproved;
 	auto ok = true;
 
 	for (auto c = 0U; c < opts.cases; c++) {
@@ -325,7 +358,7 @@ auto testTransforms(const TransformOptions &opts) -> bool
 		Given given{.expr = gen.expr(2), .rel = gen.relation(), .word = gen.word()};
 
 		/* toNFA itself: the automaton of RE denotes what RE does */
-		if (opts.only.empty() || opts.only == "toNFA") {
+		if (!opts.evidenceOnly && (opts.only.empty() || opts.only == "toNFA")) {
 			auto nfa = re->toNFA();
 			auto s = search(
 				*module, noHypotheses,
@@ -348,7 +381,24 @@ auto testTransforms(const TransformOptions &opts) -> bool
 			if (t.normalizeFirst)
 				normalize(before, theory);
 			auto after = copy(before);
-			t.apply(after, theory, given);
+			SaturationEvidence ev;
+			t.apply(after, theory, given, &ev);
+
+			/* A saturation shows that it meets its contract */
+			if (t.contract == Contract::Weaker) {
+				if (auto why = checkSaturation(before, after, ev)) {
+					ok = false;
+					if (unproved[t.name]++ < 3 || opts.verbose)
+						std::cout << "UNPROVED " << t.name << " on " << text
+							  << ": " << *why << "\n  given: "
+							  << toString(*given.expr, theory)
+							  << "\n  before:\n"
+							  << render(before) << "  after:\n"
+							  << render(after);
+				}
+			}
+			if (opts.evidenceOnly)
+				continue;
 
 			auto s = search(
 				*module,
@@ -384,6 +434,11 @@ auto testTransforms(const TransformOptions &opts) -> bool
 	if (failures.empty())
 		std::cout << " none";
 	for (const auto &[name, count] : failures)
+		std::cout << " " << name << "=" << count;
+	std::cout << "\nsaturations whose evidence did not check:";
+	if (unproved.empty())
+		std::cout << " none";
+	for (const auto &[name, count] : unproved)
 		std::cout << " " << name << "=" << count;
 	std::cout << "\n";
 	return ok;
