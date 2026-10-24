@@ -166,6 +166,17 @@ hypothesis a saturation used, under the module's assumptions, and every pass
 without evidence whose automata are small enough. With `--json`, also writes
 the certificates, with their chains, to DIR for the checker in Lean (below).
 
+    kater-oracle graphs --json FILE [-n EVENTS] [--threads T] [--locations L]
+                        [--heap-events H] [--random N] [--random-events M]
+                        [--symbolic K] [--symbolic-events E] [--seed S]
+                        [--graph FILE]...
+
+Writes graphs to FILE, as JSON lines, each with the oracle's meaning of
+every builtin relation and predicate on it, for the differential test of
+the model in Lean (see [Whole proofs](#whole-proofs)): every graph up to
+EVENTS events, up to H of a heap, N random ones up to M, K models of the
+symbolic graph's axioms up to E, and the graphs of FILEs.
+
     kater-oracle explain FILE...
 
 The left-hand automaton of each assertion through the stages of the inclusion
@@ -209,7 +220,8 @@ and the extensibility of every `kat/*-genmc.kat` model, and the graphs of
 `tests/oracle/extensible` that refute it, for IMM, LKMM and the two models
 there; when `lake` is found too,
 the ones labeled `formal` check the certificates of the suite and of the
-exports, with their chains, with the checker in Lean, and with GenMC (below), the ones labeled
+exports, with their chains, with the checker in Lean, and compare the model
+in Lean with the oracle, and with GenMC (below), the ones labeled
 `genmc` run the exported checkers:
 
     ctest -L oracle
@@ -662,8 +674,8 @@ rotation of `eq-tso-tsofm`, 1220 states against Lean's 49455, took 17
 minutes.
 
 **What a verdict the checker accepts rests on**: the model, as the meaning
-of Kater's language (the oracle implements the same semantics, so the two
-can be compared); that the evidence is of the module, which rests on Kater's
+of Kater's language, which agrees with the oracle's on every graph the
+differential test below compares them on; that the evidence is of the module, which rests on Kater's
 parser (the oracle shares it), the C++ that writes the evidence and the Lean
 that reads it; and Lean's kernel and compiler. The automata, the passes, the
 theory's facts and the letter inclusions are not trusted any more. The Lean
@@ -671,6 +683,70 @@ mirrors the C++ it reads Kater's choices from (the stages and passes, the
 shapes of assumptions, the builtins, the theory's inclusions), and the
 regions are marked as above. Writing it found three bugs in the theory,
 now fixed (items 19–21 of [Findings](#findings)).
+
+**The model against the oracle.** The model and the oracle implement the
+reference semantics independently, and a differential test compares them:
+a builtin the model defined differently, or an axiom of `WF` that excluded
+graphs GenMC builds, would make `EndToEnd.sound` a theorem about the wrong
+graphs. `kater-oracle graphs --json` writes graphs as JSON lines, each with
+its events and base relations, the order of the execution state and an hb,
+and the oracle's meaning of every builtin relation and predicate on it
+(`Graph::predicate`, `Graph::relation`, `hbPositional` of `Semantics` for
+the positional ones with the graph's hb, and the oracle's same-thread
+matrix). `kater-model-check` (`formal/ModelMain.lean`) reads each into a
+graph of the model whose events are `Fin n` (`Model.Finite`,
+`formal/KaterCert/ModelEval.lean`), decides every builtin there, compares,
+and checks that the graph satisfies `Graph.WF`:
+
+    Release/kater-oracle graphs --json /tmp/graphs.jsonl -n 3 --random 2000 --symbolic 300
+    cd formal && lake exe kater-model-check /tmp/graphs.jsonl
+
+The decisions are the model's definitions made decidable, so the build
+proves that they mean what `Model.lean` says: `Finite.interp_pred` and
+`Finite.interp_rel`, that each is what `Graph.interp` gives the builtin's id,
+and `Finite.wf_sound`, that a graph the check accepts satisfies `WF`. The
+reader also checks that Kater's id of each builtin names the one Lean gives
+that id. `po` is forward within a thread, as the oracle numbers the events;
+`si`, `loc-overlap`, `LK` and `UL`, which the oracle gives no meaning, are
+not compared. The graphs are of five kinds:
+
+- every graph of accesses, fences and dependencies up to 3 events, as
+  `enumerate()` builds them (reads and writes of every ordering a model
+  uses, RMWs, fences, all four dependencies, `po | rf` cycles included),
+  hb `(po | rf | tc | tj)+`: 87345;
+- every graph of the other kinds of events up to 3 (thread creates, joins,
+  finishes and kills, method begins and ends, OTHER, among relaxed reads
+  and writes, with `ctrl`): 5694; and every one with a heap up to 3
+  (allocations, frees, retires, protections through two hazard pointers):
+  7432;
+- 2000 random graphs up to 6 events, with thread creation and join, method
+  calls and `lin`, and heaps, hb `po`;
+- 300 models of the axioms of the symbolic graph (`Graph(ctx, n)`, the one
+  `check` and `audit` search) up to 4 events, made different by Z3's random
+  phases and by fixing some kinds, label flags and edges at random: the only
+  graphs with label flags (durable, recovery, abstract locks, dependable
+  OTHER), and with the hb and execution-state order the solver picks;
+- the 7 graph files of `tests/oracle`.
+
+**Results.** The model and the oracle agree on every builtin of every one
+of these 102778 graphs, 63 million values in all; every graph satisfies
+`WF`, and none violates the oracle's own axioms: there was no disagreement to
+file. The ctests `formal-model-write` and `formal-model-check` (labeled
+`oracle` and `formal`) take about 40 and 10 seconds. A run at 4 events
+(`-n 4 --heap-events 4 --random 20000 --random-events 8 --symbolic 3000
+--symbolic-events 5`), about an hour, finds the same on 11578856 graphs
+(11157958 of accesses, 140930 of the other kinds, 256968 with a heap, 20000
+random up to 8 events, 3000 models up to 5), 10.9 billion values. Flipping a bit
+of the oracle's meaning of a builtin, making `mo` reflexive or a thread
+creation relaxed is reported, as a disagreement or as the axiom of `WF` the
+graph fails. The agreement shows that the model and the oracle are the same
+semantics, not that the semantics is GenMC's: the two were written from the
+same table above. Of that table, GenMC's code confirms the orderings of
+thread events and protections, which
+[#57](https://github.com/vzhn/kater-fork/pull/57) added to `WF`: GenMC
+creates thread creates, finishes and protections releasing, and starts and
+joins acquiring, through constructors that take no ordering
+(`GenMCDriver.cpp`, `ExplorationCore.cpp`).
 
 **The exports.** `kater-oracle evidence --export` has Kater export a model
 and writes the evidence of every claim the export rests on: of each
@@ -1621,5 +1697,6 @@ After the fixes:
    is in Lean now (`formal/KaterCert/Model.lean`), with the axioms the facts
    of the theory need; the oracle's counterexamples fix the corner cases a
    formalization must get right (the initial writes, `po-loc-imm`,
-   same-location for non-accesses), and the Lean model and the oracle should
-   be compared on them.
+   same-location for non-accesses), and the Lean model and the oracle agree
+   on every graph up to 3 events, and on models of the oracle's symbolic
+   graph (see [Whole proofs](#whole-proofs)).
