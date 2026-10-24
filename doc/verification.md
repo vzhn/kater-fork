@@ -171,8 +171,7 @@ check, for triage.
 
     kater-oracle genmc --runner RUNNER [-n EVENTS] [--threads T] [--locations L]
                        [--heap-events H] [--random N] [--random-events M]
-                       [--seed S] [--shard K/N] [--all-races]
-                       [--graph FILE]... FILE...
+                       [--seed S] [--shard K/N] [--graph FILE]... FILE...
 
 Runs the GenMC checker Kater exports for each `kat/NAME-genmc.kat` FILE, inside
 GenMC, on every graph up to EVENTS events, every one with a heap up to H, and
@@ -843,15 +842,28 @@ The checks of the previous table ran again on these graphs, and agreed too:
 the checker from before item 16 accepts 15 of these random graphs of IMM,
 #27's, and the one from after none. Every clause of every model fails on
 some graphs, in the ctests already: the memory-error clauses tens to
-hundreds of times, the races thousands. Left out is the race of a failing clause `A = 0`, which the exported
-checks do not set ([#34](https://github.com/vzhn/kater-fork/issues/34)):
-compared (`--all-races`), it disagrees in 1074 of the 31817 errors GenMC finds
-on RC11's graphs of the memory-error checks up to 4 events, where
-`checkErrors()` gives the race of a double free, of a use after free or of an
-access to a retired block as none, or as what an earlier failing clause left.
-`tests/oracle/genmc/graphs/issue-34.graph` has a warning leave its race to a
-double free; the ctest `oracle-genmc-issue-34` compares it with
-`--all-races`, and fails once the bug is fixed.
+hundreds of times, the races thousands. These runs left out the race of a
+failing clause `A = 0`, which the exported checks did not set (item 22,
+[#34](https://github.com/vzhn/kater-fork/issues/34)): compared, it disagreed
+in 1074 of the 31817 errors GenMC finds on RC11's graphs of the memory-error
+checks up to 4 events, where `checkErrors()` gave the race of a double free,
+of a use after free or of an access to a retired block as none, or as what an
+earlier failing clause left. Since the fix the comparison leaves no race out.
+Run again on the graphs of the memory-error checks and on 100000 random
+graphs per model, as above (the graphs of the models' own instructions have
+no frees or retires), it finds no disagreement in any check; each cell is
+how many times `checkErrors()` ran and, in parentheses, how often it found an
+error, or how often the clauses `A = 0` failed:
+
+| | SC | TSO | RA | RC11 | IMM | LKMM |
+|---|---|---|---|---|---|---|
+| `checkErrors` | 1868506 (384480) | 1975476 (354009) | 2012754 (355038) | 6673908 (1389773) | 6653879 (1388829) | 7883004 (194511) |
+| clauses `A = 0` | 33222 | 9693 | 10628 | 61302 | 61173 | 36712 |
+| disagreements | 0 | 0 | 0 | 0 | 0 | 0 |
+
+The ctest `oracle-genmc-issue-34` replays
+`tests/oracle/genmc/graphs/issue-34.graph`, where a warning left its race to
+a double free.
 
 Three differences are explained, and the comparison allows for them:
 
@@ -1294,11 +1306,29 @@ Kater used to prove; the oracle refutes each (`ctest -L oracle`).
     A combination is now invalid by its plain predicates alone; a unit test
     has negated ones.
 
+22. **A failing clause `A = 0` left the race of an earlier one**
+    ("GenMCPrinter: the check of a clause A = 0 sets its counterexample";
+    #34). The check `GenMCPrinter` prints for an `unless` clause `A = 0`
+    returned false as soon as `A` related an event to the one checked, but
+    set no counterexample, unlike the check of `A <= VIEW`. So
+    `checkErrors()` gave as the race of a double free, or of an access to
+    freed or retired memory (`free; [FREE|HPRET] = 0`, `free ; [R | W] = 0`,
+    `retire ; [NOTHPPROT] = 0`), the one the last failing clause had left:
+    none in a fresh checker, or a label of an earlier execution, which GenMC
+    may have freed since, and which `GenMCDriver::reportError()`
+    dereferences to print it. The check now sets the counterexample to the
+    event it reaches; the exported checkers change in these checks alone.
+    Found by `kater-oracle genmc` once it compared these races (see
+    [Results](#results)); the ctest `oracle-genmc-issue-34` replays
+    `tests/oracle/genmc/graphs/issue-34.graph`, where a WW race left its race
+    to a double free.
+
 Items 1–4, 7, 8, 11, 13 and 19 made Kater prove false claims, 12, 14 and 20
 could have, 15 made it run forever, 16 made an exported checker accept
-graphs its model forbids, and 18 and 21 let Kater export models GenMC
-cannot explore; the others crashed it, read memory it should not, or
-produced code GenMC rejects.
+graphs its model forbids, 18 and 21 let Kater export models GenMC cannot
+explore, and 22 made exported checkers hand GenMC a stale label to report;
+the others crashed it, read memory it should not, or produced code GenMC
+rejects.
 Under the sanitizers the whole suite, the unit tests, 4000 fuzzed files and the
 export of every `kat/*-genmc.kat` model now run without a report, and the
 exported checkers are the same as without them.
@@ -1328,12 +1358,11 @@ After the fixes:
   so for the events Kater's extensibility check is about (see
   [Extensibility](#extensibility));
 - the exported checkers of all six models type-check against GenMC
-  (0.19.0-vzhn.10), and the fixes left them byte-identical but for item 16,
-  which changed their acyclicity checks alone; a Kater built with assertions
-  exports the same ones;
+  (0.19.0-vzhn.10), and the fixes left them byte-identical but for items 16
+  and 22, which changed their acyclicity checks and the checks of their
+  clauses `A = 0` alone; a Kater built with assertions exports the same ones;
 - run inside GenMC, they answer as the reference semantics does on every
-  graph tried, their memory-error checks included, but for the races of
-  [#34](https://github.com/vzhn/kater-fork/issues/34), still open (see
+  graph tried, their memory-error checks and races included (see
   [Results](#results)).
 
 ## Open issues
@@ -1358,14 +1387,6 @@ After the fixes:
   15: the oracle refutes two, and finds no counterexample to the other two
   with up to 4 events (one has hypotheses no graph meets, since it makes
   `ctrl` reflexive, which Kater cannot know is impossible).
-- **The race of an error whose `unless` clause is `A = 0`**
-  ([#34](https://github.com/vzhn/kater-fork/issues/34)): the check
-  `GenMCPrinter` prints for it sets no counterexample, so `checkErrors()`
-  gives as the race of a double free or a use after free what an earlier
-  failing clause left, possibly of an earlier execution, or none.
-  `GenMCDriver::reportError()` dereferences it. Found by `kater-oracle genmc`;
-  `tests/oracle/genmc/graphs/issue-34.graph` is the reproducer, and the ctest
-  `oracle-genmc-issue-34` fails once this is fixed.
 - **IMM and LKMM are not extensible**
   ([#38](https://github.com/vzhn/kater-fork/issues/38),
   [#39](https://github.com/vzhn/kater-fork/issues/39)): GenMC can leave a
@@ -1390,6 +1411,11 @@ After the fixes:
   exception `kater-oracle` did not catch. `certify` now catches it, and
   checks a pass of a chain without evidence only when its automata have at
   most 24 states per event of the bound.
+- **The check of `0 <= VIEW` does not return**
+  ([#51](https://github.com/vzhn/kater-fork/issues/51)): for an inclusion
+  `A <= VIEW` whose left-hand automaton accepts nothing, such as
+  `export 0 <= hb`, the `visit` function `printSubset` prints ends without a
+  `return`. None of the models has such a clause.
 - **Not checked by the oracle**: of the printed code, the revisits of the
   dependency-tracking models (see
   [The exported checkers](#the-exported-checkers)).

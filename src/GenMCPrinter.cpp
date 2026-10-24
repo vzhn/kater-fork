@@ -1510,9 +1510,15 @@ void GenMCPrinter::printSubset(const SubsetConstraint *subCst, std::string prefi
 	});
 	if (subCst->isEmpty()) {
 		/* Case e <= 0 : we can optimize and return false if any accepting is
-		 * reachable */
-		paramsLHS.atFinal = [](CodeBuilder &c) { c.line("return false;"); };
-		paramsLHS.atFinalPos = [](CodeBuilder &c, const std::string &) {
+		 * reachable, the event it is reached at being the counterexample */
+		paramsLHS.atFinal = [counterexample](CodeBuilder &c) {
+			if (counterexample)
+				c.line("cexLab = lab;");
+			c.line("return false;");
+		};
+		paramsLHS.atFinalPos = [counterexample](CodeBuilder &c, const std::string &e) {
+			if (counterexample)
+				c.line("cexLab = g.getEventLabelIfPresent({});", e);
 			c.line("return false;");
 		};
 	} else if (viewLet != std::ranges::end(lets)) {
