@@ -12,6 +12,10 @@ The base relations and predicates are uninterpreted: an `Interp` gives them
 any meaning, as an execution graph does. What the builtins mean in GenMC's
 graphs is not modeled here, so the letter inclusions a certificate rests on
 stay hypotheses.
+
+This mirrors the C++ regions `TransLabel`, `Relation`, `Predicate`,
+`PredicateSet` (`src/`) and `LetterSemantics` (`tests/oracle/Semantics.cpp`):
+`scripts/check-mirrors.sh` reports when they change.
 -/
 
 namespace KaterCert

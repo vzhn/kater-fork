@@ -23,5 +23,15 @@ configured with `-DBUILD_TESTS=ON`:
     Release/kater-oracle certify -n 1 --json /tmp/certificates tests/correct/*/*.kat
     cd formal && lake exe kater-cert-check /tmp/certificates
 
-`ctest -L formal` does the same. See `doc/verification.md` (The checker in
-Lean) for the model, what the proof needs, and what remains trusted.
+`ctest -L formal` does the same.
+
+The Lean mirrors parts of Kater's C++: its letters, its certificates,
+`checkCertificate`, the oracle's meaning of letters and automata, and the
+JSON writer. Those parts are marked in the C++ with `formal: begin` and
+`formal: end` comments, and `mirrors.txt` records a hash of each as of the
+last review of the Lean against it. `scripts/check-mirrors.sh` reports the
+regions that changed since, with the Lean to review; after the review,
+`scripts/check-mirrors.sh --update` records them as they are.
+
+See `doc/verification.md` (The checker in Lean) for the model, what the
+proof needs, and what remains trusted.

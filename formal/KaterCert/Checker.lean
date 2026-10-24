@@ -8,6 +8,10 @@ Kater's certificate of an inclusion between two automata
 (`Checker::Certificate`), and `check`, the checker of
 `tests/oracle/Certificate.cpp` (`checkCertificate`): the same conditions in
 the same order, with the same messages.
+
+This mirrors the C++ regions `Certificate` (`src/Checker.hpp`) and
+`checkCertificate` (`tests/oracle/Certificate.cpp`): `scripts/check-mirrors.sh`
+reports when they change.
 -/
 
 namespace KaterCert

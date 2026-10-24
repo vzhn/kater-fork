@@ -256,6 +256,21 @@ the certificates and the Lean that reads them, since the theorem is about the
 automata in the file; and Lean's kernel and compiler. What the automata mean
 for the expressions rests on the contracts above.
 
+The Lean has to stay in step with the C++ it mirrors. Comparing the verdicts
+catches a checker or a format that drifts, but not a model that does: a field
+added to `TransLabel`, say, that the JSON leaves out would make two letters
+the same in Lean and different in Kater. So the C++ that the Lean mirrors is
+marked, region by region, with comments that name the Lean mirroring it
+(`/* formal: begin TransLabel, mirrored by formal/KaterCert/Label.lean */`
+... `/* formal: end TransLabel */`): the letters, their comparison and their
+meaning in the oracle, the meaning of automata, `Checker::Certificate`,
+`checkCertificate`, and the JSON writer. `formal/mirrors.txt` records a
+SHA-256 of each region, without whitespace, as of the last review of the
+Lean against it. `scripts/check-mirrors.sh` (the ctest `check-mirrors`,
+labeled `lint`) reports each region that changed since, with the Lean to
+review; after the review, `scripts/check-mirrors.sh --update` records the
+regions as they are.
+
 ## Findings
 
 All fixed, with a regression test each. Most were found by the oracle, the

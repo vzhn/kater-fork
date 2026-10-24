@@ -125,6 +125,7 @@ public:
 	/* Whether this relation is inversed */
 	[[nodiscard]] constexpr auto isComplement() const -> bool { return comp; }
 
+	/* formal: begin Predicate, mirrored by formal/KaterCert/Label.lean */
 	auto operator<=>(const Predicate &) const = default;
 	friend auto operator<<(std::ostream &ostr, const Predicate &p) -> std::ostream &;
 
@@ -149,6 +150,7 @@ private:
 
 	static inline ID dispenser{}; // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
 };
+/* formal: end Predicate */
 
 struct PredicateHasher {
 	auto operator()(const Predicate &p) const -> size_t
@@ -234,6 +236,7 @@ public:
 			minus(p);
 	}
 
+	/* formal: begin PredicateSet, mirrored by formal/KaterCert/Label.lean */
 	auto operator<=>(const PredicateSet &other) const
 	{
 		return std::lexicographical_compare_three_way(begin(), end(), other.begin(),
@@ -251,6 +254,7 @@ private:
 	std::array<Predicate, inlineCapacity> preds_{};
 	unsigned size_ = 0;
 };
+/* formal: end PredicateSet */
 
 /* Renders PRED via THEORY, or as a debug token if THEORY does not know it */
 auto nameOf(const Predicate &pred, const Theory *theory) -> std::string;
