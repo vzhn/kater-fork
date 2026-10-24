@@ -1,0 +1,21 @@
+// A model GenMC cannot explore, though every stretch between the eco steps
+// of its cycles has a ppo step: what isPPOIntersectionInPPO is meant to ask
+// for is not enough for extensibility (vzhn/kater-fork#33).
+//
+// An acquire read orders what follows it in ppo, but not what precedes
+// it, so in
+//
+//     x := 1;  r := y (acq);  z := 1;  ||  a := z (acq);  b := x;
+//
+// a revisit by z := 1 keeps the acquire read r and leaves x := 1 out. Once
+// a := z has read 1 and b := x has read 0, x := 1 cannot be added:
+// b -fr-> x := 1 -[W];po;[ACQ];po;[W]-> z := 1 -rfe-> a -[ACQ];po-> b is a
+// cycle (mp-acq.graph), and x := 1 has no other place in mo. The stretch
+// out of x := 1 starts with a po step outside ppo; the ppo step comes later.
+
+let ppo = [ACQ] ; po | data | addr | ctrl
+
+view hb = po
+export coherence hb
+
+export acyclic (ppo | rfe | mo | fr | [W];po;[ACQ];po;[W] | tc | tj | lin)
