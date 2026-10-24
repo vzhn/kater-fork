@@ -86,6 +86,8 @@ def subPred : Pred → Pred → Bool
   | .SC, .ATOM | .SC, .ACQ | .SC, .REL => true
   | .R, .DEP | .R, .LOC | .ALLOC, .DEP | .ALLOC, .LOC => true
   | .FREE, .LOC | .HPPROT, .LOC | .W, .LOC => true
+  | .TC, .ATOM | .TC, .REL | .TE, .ATOM | .TE, .REL => true
+  | .TB, .ATOM | .TB, .ACQ | .TJ, .ATOM | .TJ, .ACQ => true
   | _, _ => false
 
 /-- Kater's sets of pairwise disjoint builtin predicates (`disjointPredSets_`). -/
