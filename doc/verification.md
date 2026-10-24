@@ -324,6 +324,126 @@ labeled `lint`) reports each region that changed since, with the Lean to
 review; after the review, `scripts/check-mirrors.sh --update` records the
 regions as they are.
 
+### Evidence of the saturations
+
+A certificate is about the automata the final check compared, and the right
+one is not the right-hand side's: Kater saturates that with each hypothesis
+in turn, normalizing after each, then prunes it. Its contracts say that
+under the hypotheses each saturation denotes no more than what it was
+given; with a certificate sink set, the saturations show it instead, and the
+certificate covers the way from the right-hand side's automaton to its own.
+
+**The chain.** The certificate records the automaton the right-hand side
+normalizes to, and each pass after it with the automaton it produced, the
+last of which is the certificate's right automaton: each saturation with its
+evidence, and the passes in between (`normalize` after each assumption,
+`prune` at the end, which removes transitions and normalizes again, and
+`rotate` for `rot`) without. A saturation that records evidence, under its
+hypothesis, denotes no more than the automaton before it; the other passes
+are trusted to do the same, but for `rotate`, which keeps cycles instead.
+
+**Hypotheses.** A saturation uses one hypothesis:
+
+- `t;t <= t` for a letter t: `saturateTransitive`, for `r;r <= r`,
+  `r+ <= r` and `total r`;
+- `[[A]] <= [[w]]` for an automaton A and a word w: `saturateID` (w empty,
+  for `A <= id` and `A <= [P]`), `saturateBuiltin` (w = r, for `A <= r`) and
+  `saturateSubword` (A is `[A];po+;[B]`, w is `[A];po;[C];po;[B]`), where A
+  is the automaton Kater saturates with;
+- `[[A]] = 0`: `saturateEmpty`.
+
+**Roles.** The evidence gives each state m of the saturated automaton M a
+role, which bounds what the words reaching m relate, in terms of the
+automaton N that was saturated. Let past_X(q) be the pairs that a word from
+a starting state of X to its state q relates. The roles are
+
+| Role | Stands for | Bound |
+|------|------------|-------|
+| `state n` | state n of N | past_N(n) |
+| `after n` | state n of N, entered by t | the union of past_N(p);t over the steps p --t--> n of N |
+| `copy g j` | state j of A, in copy g | past_N(from);past_A(j), where copy g starts at state `from` of N; for an empty hypothesis, any;past_A(j) |
+
+A copy of A is anchored on N: it starts at `from`, ends at `to`, and comes
+with a path of N from one to the other that reads w (`from = to` and no path
+for `A <= id`). The copies of an empty hypothesis start anywhere.
+
+**The check.** It confirms, by local conditions only, that every word of M
+from a starting state to a state m relates no more than m's role bounds, by
+induction over the word:
+
+1. each starting state's role bounds the identity: `state n` for a starting
+   n, `copy g j` for a starting j of A and a starting `from` (any `from`, for
+   an empty hypothesis);
+2. each step m --a--> m' of M takes m's role to m''s: m's role *lifts* to a
+   role that *steps* by a to m''s;
+3. each accepting state's role lifts to `state n` for an accepting n of N,
+   or is `copy g j` for an accepting j of an empty hypothesis' A, which
+   bounds nothing.
+
+A role lifts to itself, and from a role to another whose bound includes it:
+`after n` to `state n`; `state n` to `copy g i`, for each copy g from n and
+starting state i of A; and `copy g j`, for an accepting j of A, to
+`state to`, if copy g's path reads w, since past_N(from);[[A]] is within
+past_N(from);[[w]], within past_N(to); and on, from the role lifted to. A
+role steps by a
+
+- from `state n` to `state n'`, and to `after n'` if a is t, when N has the
+  step n --a--> n';
+- from `after n` to itself, if a is t (t;t <= t);
+- from `copy g j` to `copy g j'`, when A has the step j --a--> j';
+- to itself, if a is a predicate, which is within the identity;
+- for an empty hypothesis, from `copy g j` with an accepting j to any role
+  (it bounds nothing), and between `copy g i` and `copy g i'` with starting
+  i and i' (they bound everything).
+
+So the words M accepts relate no more than N's, under the hypothesis and the
+letter inclusions the copies' paths use: `[[M]] <= [[N]]`.
+
+**Paths.** A copy's path reads w if the two can be walked together, knowing
+along the way which predicates w checked of the current event: a predicate
+letter of w adds its checks to what is known; a predicate letter `[Q]` of
+the path needs `[K] <= [Q]` for a subset K of what is known; a relation
+letter of the path needs the next letter of w to be a bare relation r with
+`[K];r <= b` for the path's letter b and a subset K of what is known, after
+which nothing is known. Each step of the path records its K, and an
+inclusion it needs is equality or one of the evidence's letter inclusions,
+which, as the final check's, stay hypotheses. So `[[w]] <= [[path]]`.
+
+**What each saturation records.**
+
+- `saturateTransitive`: `after s` for each state s it adds the loop
+  s --t--> s to, `state s` for the state it splits off s, and `state n` for
+  the others. A loop at a starting state would not check, as `after s`
+  does not bound the identity.
+- `saturateID`: a copy at each state s, from s to s with no path, which s
+  enters by the steps out of A's starting states and whose accepting states
+  take the steps out of s.
+- `saturateBuiltin`: a copy for each step n --b--> n' with `r <= b`,
+  entered and left by ε steps, its path that step with `[] ;r <= b`.
+- `saturateSubword`: a copy for each pair of states its search connects,
+  with the path the search took, what it knew at each step, and the
+  inclusions the theory granted it there.
+- `saturateEmpty`: one copy, anchored nowhere.
+
+**In Lean.** `formal/KaterCert/Saturation.lean` has the evidence and the
+check, `formal/KaterCert/SaturationSound.lean` proves it sound: if it
+accepts the evidence of a pass from N to M, the hypothesis holds and the
+evidence's letter inclusions hold, then `[[M]] <= [[N]]`, with letters as
+the oracle reads them. `formal/KaterCert/Chain.lean` checks a chain: that it
+ends at the certificate's right automaton and that each pass with evidence
+checks, and proves that if both checkers accept, the left automaton is
+within the automaton the right-hand side normalized to, given the letter
+inclusions, the hypotheses and the contracts of the passes without evidence.
+
+**What remains trusted** for a proof of `A <= B`: the translations of A and
+B to automata (`toNFA`, `normalize`, and the passes of the left-hand side);
+the passes of the right-hand side without evidence; the hypotheses, that is,
+that the assumptions say what Kater saturates with (the automaton A, from
+the assumption's left-hand side); and the letter inclusions. `kater-oracle
+certify` checks the last three on every graph up to N events, the
+hypotheses under the module's assumptions: it is how the oracle found #13,
+assumptions read as something they do not say.
+
 ## The exported checkers
 
 `kater-oracle export` checks what the exporter proves and rewrites; the code
