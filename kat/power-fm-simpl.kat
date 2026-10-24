@@ -16,4 +16,4 @@ let robs = prop1; hb*;fr | hb*;fr;prop1
 
 let eco = (rf | mo | fr)+
 
-let ar = obs | (mo | rfe | fr | prop)+ | hb+ | eco*;po?;eco* | (mo|rfe|prop1)+ | robs
+let ar = obs | (mo | rfe | fr | prop)+ | hb+ | eco;po?;eco* | (mo|rfe|prop1)+ | robs
