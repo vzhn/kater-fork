@@ -432,12 +432,15 @@ void breakToParts(NFA &nfa)
 
 void addTransitivePredicateEdges(NFA &nfa, const Theory &theory)
 {
+	/* The shortcuts come from the automaton as it is, and are added only
+	 * once all are known: a shortcut added on the way would be taken for a
+	 * second step by the states visited after it, and removed with it */
+	std::vector<std::pair<NFA::State *, NFA::Transition>> toAdd;
 	std::vector<std::pair<NFA::State *, NFA::Transition>> toRemove;
 	std::vector<NFA::Transition> toCreateStarting;
 
 	for (auto it = nfa.states_begin(); it != nfa.states_end(); ++it) {
 		auto &s = *it;
-		std::vector<NFA::Transition> toAdd;
 		for (auto outIt = s->out_begin(); outIt != s->out_end(); ++outIt) {
 			if (!outIt->label.isPredicate()) {
 				continue;
@@ -452,7 +455,7 @@ void addTransitivePredicateEdges(NFA &nfa, const Theory &theory)
 				if (theory.composes(outIt->label, outIt2->label)) {
 					auto l = outIt->label;
 					l.merge(outIt2->label);
-					toAdd.emplace_back(l, outIt2->dest);
+					toAdd.emplace_back(&*s, NFA::Transition(l, outIt2->dest));
 				}
 				if (outIt->dest->isStarting()) {
 					toCreateStarting.push_back(*outIt2);
@@ -460,8 +463,9 @@ void addTransitivePredicateEdges(NFA &nfa, const Theory &theory)
 				toRemove.emplace_back(outIt->dest, *outIt2);
 			}
 		}
-		nfa.addTransitions(&*s, toAdd.begin(), toAdd.end());
 	}
+	std::for_each(toAdd.begin(), toAdd.end(),
+		      [&](auto &p) { NFA::addTransition(p.first, p.second); });
 	if (!toCreateStarting.empty()) {
 		auto *n = nfa.createStarting();
 		nfa.addTransitions(n, toCreateStarting.begin(), toCreateStarting.end());

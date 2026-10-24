@@ -158,14 +158,6 @@ struct Given {
 /* A hypothesis about GIVEN, as a formula */
 using GivenQuery = std::function<Term(Graph &, Semantics &, const Given &)>;
 
-/* What normalize does before the predicate passes */
-void prepareForPredicatePasses(NFA &nfa, const Theory &theory)
-{
-	simplify(nfa, theory);
-	saturateDomains(nfa, theory);
-	breakToParts(nfa);
-}
-
 /* Splits each state reached by both predicates and relations in two, as
  * removeConsecutivePredicates does */
 void splitMixedIncoming(NFA &nfa)
@@ -222,13 +214,11 @@ auto transforms() -> std::vector<Transform>
 		 [](NFA &n, const Theory &t, const Given &) { compactEdges(n, t); }},
 		{"breakToParts", false, C::Equivalent,
 		 [](NFA &n, const Theory &, const Given &) { breakToParts(n); }},
-		/* The two predicate passes only hold in the context normalize calls
-		 * them in: after simplify, saturateDomains and breakToParts, which
-		 * leave few chains of predicates. On other automata they can lose
-		 * a path through three consecutive predicates (doc/verification.md) */
+		/* addTransitivePredicateEdges needs no state reached by both
+		 * predicates and relations, which removeConsecutivePredicates
+		 * ensures before calling it */
 		{"addTransitivePredicateEdges", false, C::Equivalent,
 		 [](NFA &n, const Theory &t, const Given &) {
-			 prepareForPredicatePasses(n, t);
 			 splitMixedIncoming(n);
 			 addTransitivePredicateEdges(n, t);
 		 }},
@@ -237,10 +227,7 @@ auto transforms() -> std::vector<Transform>
 		{"saturateDomains", false, C::Equivalent,
 		 [](NFA &n, const Theory &t, const Given &) { saturateDomains(n, t); }},
 		{"removeConsecutivePredicates", false, C::Equivalent,
-		 [](NFA &n, const Theory &t, const Given &) {
-			 prepareForPredicatePasses(n, t);
-			 removeConsecutivePredicates(n, t);
-		 }},
+		 [](NFA &n, const Theory &t, const Given &) { removeConsecutivePredicates(n, t); }},
 		{"normalize", false, C::Equivalent,
 		 [](NFA &n, const Theory &t, const Given &) { normalize(n, t); }},
 		{"to_DFA", true, C::Equivalent,
