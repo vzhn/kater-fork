@@ -43,23 +43,31 @@ namespace oracle {
  */
 auto checkCertificate(const Checker::Certificate &cert) -> std::optional<std::string>;
 
+/* checkCertificate, then checkChain (Chain.hpp): why CERT, with the chain of
+ * passes its right automaton came by, is not a proof, if it is not */
+auto checkCertificateAndChain(const Checker::Certificate &cert) -> std::optional<std::string>;
+
 /*
  * Has Kater prove the assertions of FILE with certificates, checks each
- * certificate, and checks each letter inclusion they rest on against the
- * semantics, up to the search bound. Returns whether all of it holds.
+ * certificate and its chain, and checks against the semantics, up to the
+ * search bound, what they rest on: each letter inclusion, each hypothesis a
+ * saturation used, under the module's assumptions, and each pass of a chain
+ * without evidence. Returns whether all of it holds.
  *
  * With JSONDIR, also writes the k-th certificate of FILE to
  * JSONDIR/<stem>.<k>.json, and copies of it that differ in one place to
- * JSONDIR/<stem>.<k>.<how>.json, each with checkCertificate's verdict: the
- * input of the checker in formal/.
+ * JSONDIR/<stem>.<k>.<how>.json, each with checkCertificateAndChain's
+ * verdict: the input of the checker in formal/.
  */
 auto certifyFile(const std::string &file, const SearchOptions &opts, bool verbose,
 		 const std::optional<std::filesystem::path> &jsonDir = std::nullopt) -> bool;
 
 /*
- * Writes CERT, the NTH certificate of FILE, a proof of CLAIM, to
- * DIR/<stem>.<nth>.json, and copies of it that differ in one place to
- * DIR/<stem>.<nth>.<how>.json, each with checkCertificate's verdict
+ * Writes CERT, the NTH certificate of FILE, a proof of CLAIM, with its chain,
+ * to DIR/<stem>.<nth>.json, and copies of it that differ in one place to
+ * DIR/<stem>.<nth>.<how>.json, each with checkCertificateAndChain's verdict:
+ * those that differ in the certificate have no chain, those that differ in
+ * the chain have the certificate
  */
 void writeCertificateJSONs(const std::filesystem::path &dir, const std::string &file, unsigned nth,
 			   const std::string &claim, const Checker::Certificate &cert,

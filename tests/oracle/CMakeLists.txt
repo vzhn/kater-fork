@@ -8,6 +8,7 @@ endif()
 add_executable(kater-oracle
   Audit.cpp
   Certificate.cpp
+  Chain.cpp
   Enumerate.cpp
   Execution.cpp
   Export.cpp

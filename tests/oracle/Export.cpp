@@ -19,6 +19,7 @@
 #include "Export.hpp"
 
 #include "Certificate.hpp"
+#include "Chain.hpp"
 #include "Checker.hpp"
 #include "Config.hpp"
 #include "Counterexample.hpp"
@@ -192,23 +193,48 @@ auto validateExport(const std::string &file, const SearchOptions &opts, bool ver
 	});
 
 	/* ... and the certificates of the ones it proved, with those of the
-	 * extensibility check, which builds automata of its own */
+	 * extensibility check, which builds automata of its own; what their
+	 * chains rest on holds under the temporary assumptions of the time */
 	std::vector<std::string> invalid;
 	std::set<std::pair<TransLabel, TransLabel>> inclusions;
 	std::vector<std::pair<std::string, Checker::Certificate>> stretches;
+	std::vector<
+		std::pair<ChainClaim, std::shared_ptr<std::vector<std::unique_ptr<Constraint>>>>>
+		chainClaimsMade;
+	auto largePasses = 0U;
 	auto certificates = 0U;
 	checker.setCertificateSink([&](const Constraint &cst,
 				       const Checker::Certificate &cert) -> void {
 		const auto *acyc = dynamic_cast<const AcyclicConstraint *>(&cst);
 		auto claim = acyc != nullptr ? stretchesClaim(*acyc, theory)
 					     : toString(cst, theory);
-		if (auto why = checkCertificate(cert))
+		if (auto why = checkCertificateAndChain(cert))
 			invalid.push_back(claim + ": " + *why);
 		if (jsonDir)
 			writeCertificateJSONs(*jsonDir, file, ++certificates, claim, cert, theory);
 		for (const auto &[a, b] : cert.inclusions)
 			if (a != b)
 				inclusions.emplace(a, b);
+		if (cert.chain) {
+			auto temporaries =
+				std::make_shared<std::vector<std::unique_ptr<Constraint>>>();
+			for (const auto &a : module->getAssumptions())
+				if (a->isTemporary())
+					temporaries->push_back(a->getConstraint()->clone());
+			auto claims = chainClaims(*cert.chain, claim, opts.maxEvents, theory);
+			for (auto &h : claims.hypotheses)
+				chainClaimsMade.emplace_back(
+					ChainClaim{.text = "hypothesis " + h.text,
+						   .violation = std::move(h.violation)},
+					temporaries);
+			for (auto &p : claims.passes)
+				chainClaimsMade.emplace_back(std::move(p), temporaries);
+			largePasses += claims.largePasses;
+			for (const auto &p : cert.chain->passes)
+				if (p.evidence)
+					inclusions.insert(p.evidence->inclusions.begin(),
+							  p.evidence->inclusions.end());
+		}
 		if (acyc != nullptr)
 			stretches.emplace_back(claim,
 					       Checker::Certificate{.lhs = copy(cert.lhs),
@@ -293,9 +319,27 @@ auto validateExport(const std::string &file, const SearchOptions &opts, bool ver
 				sameMeaning("rewrite in an export", *olds[k], *news[k]);
 	}
 
-	/* The certificates of the claims, and the letter inclusions they rest on */
+	/* The certificates of the claims, and the letter inclusions, hypotheses
+	 * and passes they rest on */
 	for (const auto &why : invalid)
 		std::cout << "INVALID certificate for " << why << "\n";
+	std::set<std::string> seen;
+	for (const auto &[c, temporaries] : chainClaimsMade) {
+		if (!seen.insert(c.text).second)
+			continue;
+		v.expectNone(
+			c.text,
+			[&](Graph &g, Semantics &sem) {
+				auto t = Term::constant(g.ctx(), true);
+				for (const auto &tmp : *temporaries)
+					t = t && sem.holds(*tmp);
+				return t;
+			},
+			c.violation);
+	}
+	if (largePasses > 0)
+		std::cout << "unchecked: " << largePasses
+			  << " passes without evidence, between automata too large\n";
 	for (const auto &[a, b] : inclusions)
 		v.expectNone("letter inclusion " + toString(a, theory) +
 				     " <= " + toString(b, theory),
