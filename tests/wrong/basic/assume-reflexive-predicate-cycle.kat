@@ -1,0 +1,8 @@
+// An assumption that makes u0 reflexive left compactEdges a cycle of
+// predicates it removed and added back forever (#22)
+relation u0
+predicate P0
+predicate P1
+disjoint P0 # P1
+assume ((u0)+ | ([SC])?) <= u0
+assert ((u0 | moi) ; ([F])*) = ( ( ( u0 | moi ) ; ( [F] ) * ) ) +

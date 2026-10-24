@@ -360,7 +360,15 @@ auto joinPredicateEdges(NFA &nfa, const Theory &theory) -> bool
 				}
 				return true;
 			});
-		changed |= !toRemove.empty();
+		/* A step removed only to be added back changes nothing. Through a
+		 * cycle of predicates between states that do not accept, every round
+		 * does just that, and counting it as a change never ends the loop */
+		changed |= std::ranges::any_of(toRemove,
+					       [&](auto &t) {
+						       return std::ranges::find(toAdd, t) ==
+							      toAdd.end();
+					       }) ||
+			   std::ranges::any_of(toAdd, [&](auto &t) { return !s->hasOutgoing(t); });
 		nfa.removeTransitions(&*s, toRemove.begin(), toRemove.end());
 		nfa.addTransitions(&*s, toAdd.begin(), toAdd.end());
 	});
