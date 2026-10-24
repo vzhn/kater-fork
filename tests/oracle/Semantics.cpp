@@ -289,6 +289,22 @@ auto Semantics::holds(const Constraint &c) -> Term
 		return holdsSubset(*sub);
 	if (const auto *acyc = dynamic_cast<const AcyclicConstraint *>(&c))
 		return !eval(*acyc->getRE()).plus().anyReflexive();
+	/* "total r": r is a strict total order, on all events (the Kater paper,
+	 * Prop. 3.12). Kater ignores totality of anything but a relation */
+	if (const auto *tot = dynamic_cast<const TotalityConstraint *>(&c)) {
+		const auto *charRE = dynamic_cast<const CharRE *>(tot->getRE());
+		if (charRE != nullptr && charRE->getLabel().isRelation()) {
+			auto r = eval(*charRE);
+			auto n = g_->size();
+			std::vector<Term> order{r.compose(r).includedIn(r)};
+			for (auto e = 0U; e < n; e++) {
+				order.push_back(!r(e, e));
+				for (auto f = e + 1; f < n; f++)
+					order.push_back(r(e, f) || r(f, e));
+			}
+			return allOf(g_->ctx(), order);
+		}
+	}
 	throw Unsupported("constraint " + [&] {
 		std::ostringstream s;
 		c.dump(s, theory_);

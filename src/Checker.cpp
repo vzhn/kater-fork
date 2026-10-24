@@ -432,7 +432,10 @@ void expandAssumption(NFA &rhs, const AssumeStatement *assm, const KatModule &mo
 			warnUnsupportedAssumption(assm, module.getTheory());
 			return;
 		}
-		saturateTotal(rhs, *charRE->getLabel().getRelation());
+		/* total r: r is a strict total order (the Kater paper, Prop. 3.12).
+		 * Of that, only transitivity is used: making an r-step optional, as
+		 * this used to, would need r to be reflexive */
+		saturateTransitive(rhs, *charRE->getLabel().getRelation());
 		return;
 	}
 	if (const auto *ec = dynamic_cast<const SubsetConstraint *>(cst)) {
