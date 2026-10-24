@@ -146,10 +146,10 @@ expressions, and the evidence of each saturation of a right-hand side (see
 Exports FILE into a scratch directory and checks what the export relies on:
 every claim the Checker proves on the way (recorded with
 `Checker::setObserver`), the inclusions its extensibility checks decide (see
-[Extensibility](#extensibility)), the certificates of all of them, and that
-every definition the exporter rewrites keeps its meaning. With `--json`, also
-writes the certificates to DIR, as `certify` does, and checks their chains as
-`certify` does, under the temporary assumptions the exporter had made.
+[Extensibility](#extensibility)), the certificates of all of them and their
+chains, as `certify` does, under the temporary assumptions the exporter had
+made, and that every definition the exporter rewrites keeps its meaning. With
+`--json`, also writes the certificates to DIR, as `certify` does.
 
     kater-oracle certify [-n EVENTS] [--json DIR] FILE...
 
@@ -498,9 +498,9 @@ of which check: 274 saturations with evidence (133 `saturateBuiltin`, 123
 copies on paths of 3 to 5 steps, 6 `saturateID` with 97 copies, and 3
 `saturateEmpty`). The checker in Lean agrees with `checkCertificateAndChain`
 on all 1014 files, 955 of them copies, in about four seconds; every copy that
-differs in the chain is rejected, for the reason it was made. The 61
-certificates of the exports of `kat/*-genmc.kat` come with chains through 178
-saturations, all of which check, and the checker agrees on their 1081 files.
+differs in the chain is rejected, for the reason it was made. The 67
+certificates of the exports of `kat/*-genmc.kat` come with chains through 202
+saturations, all of which check, and the checker agrees on their 1212 files.
 Up to 4 events (12 seconds), the oracle refutes none of the 519 letter
 inclusions the suite's certificates and evidence rest on, none of the 174
 hypotheses its saturations use, under the files' assumptions, and none of
