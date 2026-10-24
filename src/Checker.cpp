@@ -509,7 +509,7 @@ void completeCounterexample(const NFA &nfa, NFA::State *s, Counterexample &cex)
 		}
 
 		for (auto it = s->out_begin(); it != s->out_end(); ++it) {
-			auto nextCex(cex);
+			auto nextCex(c);
 			nextCex.extend(it->label);
 
 			if (visited[it->dest->getId()] != 0)

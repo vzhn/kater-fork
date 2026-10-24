@@ -7,6 +7,16 @@ add_test(
 )
 set_tests_properties(checkall PROPERTIES LABELS "integration" TIMEOUT 600)
 
+# vzhn/kater-fork#37: a counterexample has the whole word, the path after the
+# letter the right-hand side cannot read included
+add_test(
+    NAME counterexample-issue-37
+    COMMAND $<TARGET_FILE:${PROJECT_NAME}>
+      ${CMAKE_CURRENT_SOURCE_DIR}/wrong/basic/counterexample-completion.kat
+)
+set_tests_properties(counterexample-issue-37 PROPERTIES LABELS "integration"
+    PASS_REGULAR_EXPRESSION "counterexample: \\[R\\] po \\[W\\] rf ===> \\[R\\] po \\[F\\] ?\n")
+
 # Every GenMC model exports (vzhn/kater-fork#35: with assertions on, Kater
 # aborted on all of them)
 foreach(m sc tso ra rc11 imm lkmm)
