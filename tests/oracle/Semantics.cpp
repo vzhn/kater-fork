@@ -148,6 +148,13 @@ auto Semantics::genmcHb() -> const Matrix &
 	return *hb_;
 }
 
+auto isHbPositional(Relation::BuiltinID r) -> bool
+{
+	using RB = Relation::BuiltinID;
+	return r == RB::last_na_reads || r == RB::last_na_writes || r == RB::last_at_reads ||
+	       r == RB::last_at_writes || r == RB::unprotected;
+}
+
 /*
  * GenMC's ExecutionState keeps, for each location, the NA reads, the atomic
  * reads, the atomic writes and the accesses made while no hazard pointer
@@ -157,16 +164,9 @@ auto Semantics::genmcHb() -> const Matrix &
  * asks about its location (pomax_*_pos(); unprotected_pos() for allocations,
  * frees and retires) with the events before it recorded.
  */
-auto Semantics::positional(Relation::BuiltinID r) -> std::optional<Matrix>
+auto hbPositional(Graph &g, Relation::BuiltinID r, const Matrix &hb) -> Matrix
 {
 	using RB = Relation::BuiltinID;
-	if (r != RB::last_na_reads && r != RB::last_na_writes && r != RB::last_at_reads &&
-	    r != RB::last_at_writes && r != RB::unprotected)
-		return std::nullopt;
-	if (auto it = positional_.find(r); it != positional_.end())
-		return it->second;
-
-	auto &g = *g_;
 	auto n = g.size();
 	auto na = [&](unsigned e) { return g.hasOrder(e, Order::NA); };
 	auto access = [&](unsigned e) { return g.is(e, Kind::R) || g.is(e, Kind::W); };
@@ -190,7 +190,7 @@ auto Semantics::positional(Relation::BuiltinID r) -> std::optional<Matrix>
 	auto asks = [&](unsigned e) {
 		return r == RB::unprotected ? lifecycle(e) : access(e) || lifecycle(e);
 	};
-	const auto *hb = r == RB::last_na_writes ? nullptr : &genmcHb();
+	auto byHb = r != RB::last_na_writes;
 
 	Matrix m(g.ctx(), n);
 	for (auto x = 0U; x < n; x++) {
@@ -203,11 +203,24 @@ auto Semantics::positional(Relation::BuiltinID r) -> std::optional<Matrix>
 					continue;
 				auto later = recorded(z) && g.sameBlock(z, y) &&
 					     g.addedBefore(x, z) && g.addedBefore(z, y);
-				t = t && !(hb != nullptr ? later && (*hb)(x, z) : later);
+				t = t && !(byHb ? later && hb(x, z) : later);
 			}
 			m.set(x, y, t);
 		}
 	}
+	return m;
+}
+
+auto Semantics::positional(Relation::BuiltinID r) -> std::optional<Matrix>
+{
+	if (!isHbPositional(r))
+		return std::nullopt;
+	if (auto it = positional_.find(r); it != positional_.end())
+		return it->second;
+	/* last_na_writes keeps the last, whatever hb is: a module needs no hb for it */
+	auto m = r == Relation::BuiltinID::last_na_writes
+			 ? hbPositional(*g_, r, Matrix(g_->ctx(), g_->size()))
+			 : hbPositional(*g_, r, genmcHb());
 	return positional_.emplace(static_cast<int>(r), std::move(m)).first->second;
 }
 

@@ -18,6 +18,7 @@ import KaterCert.Loc
 import KaterCert.Rotate
 import KaterCert.Builtin
 import KaterCert.Model
+import KaterCert.ModelEval
 import KaterCert.ReadChain
 import KaterCert.Hypotheses
 import KaterCert.Whole

@@ -35,8 +35,8 @@ namespace oracle {
  */
 struct Alphabet {
 	struct Instruction {
-		/* R, W or F, an RMW being an R with `rmw`; or Alloc, Free,
-		 * HpRetire, HpProtect */
+		/* R, W or F, an RMW being an R with `rmw`; Alloc, Free,
+		 * HpRetire, HpProtect; or another kind, of no location */
 		Kind kind;
 		Order order;
 		bool rmw = false;

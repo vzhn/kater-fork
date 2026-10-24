@@ -64,9 +64,11 @@ GenMC may add maximally keeps it if the graph without the event had it.
 | `KaterCert/Erase.lean` | a graph without one of its events, and the letters that mean the same there |
 | `KaterCert/EndToEnd.lean` | `EndToEnd.sound`: the assertion of an accepted proof holds on every graph; `EndToEnd.extensible`: the constraint of an accepted extensibility check is extensible |
 | `ChainMain.lean` | `kater-chain-check`: reads and checks the evidence of whole proofs and of extensibility checks |
+| `KaterCert/ModelEval.lean` | the model on finite graphs: each builtin and each axiom decided, as the model defines them |
+| `ModelMain.lean` | `kater-model-check`: compares the model with the oracle on the graphs `kater-oracle graphs --json` writes |
 
-`lake build` checks the proofs and builds `kater-cert-check` and
-`kater-chain-check`. To check the certificates and the whole proofs of
+`lake build` checks the proofs and builds `kater-cert-check`,
+`kater-chain-check` and `kater-model-check`. To check the certificates and the whole proofs of
 Kater's test suite, from the repository's root, with a build configured with
 `-DBUILD_TESTS=ON`:
 
@@ -80,6 +82,12 @@ and the evidence of the claims the exports of the GenMC models rest on:
 
     Release/kater-oracle evidence --export --json /tmp/export-evidence kat/*-genmc.kat
     cd formal && lake exe kater-chain-check /tmp/export-evidence
+
+and the model against the oracle, on every graph up to 3 events and
+others:
+
+    Release/kater-oracle graphs --json /tmp/graphs.jsonl -n 3 --random 2000 --symbolic 300
+    cd formal && lake exe kater-model-check /tmp/graphs.jsonl
 
 `ctest -L formal` does the same.
 

@@ -16,6 +16,7 @@ add_executable(kater-oracle
   Extensible.cpp
   GenMC.cpp
   Graph.cpp
+  GraphJSON.cpp
   Matrix.cpp
   Reference.cpp
   Search.cpp
@@ -222,9 +223,36 @@ if(LAKE)
   set_tests_properties(formal-export-evidence-clean formal-export-evidence-write
     formal-export-evidence-check PROPERTIES LABELS "oracle;formal" TIMEOUT 1800)
 
+  # The model of formal/ against the oracle's semantics, which implement the
+  # same reference semantics independently: on every graph up to 3 events (of
+  # accesses, fences and dependencies; of the other kinds of events; of a
+  # heap), on random graphs with thread events and method calls, on models
+  # of the symbolic graph's axioms and on the graph files here, the meaning
+  # of each builtin is the same in both, and each graph satisfies the
+  # model's axioms
+  file(GLOB_RECURSE ORACLE_GRAPH_FILES ${CMAKE_CURRENT_SOURCE_DIR}/*.graph)
+  list(SORT ORACLE_GRAPH_FILES)
+  set(ORACLE_GRAPH_ARGS)
+  foreach(f ${ORACLE_GRAPH_FILES})
+    list(APPEND ORACLE_GRAPH_ARGS --graph ${f})
+  endforeach()
+  set(MODEL_JSON ${CMAKE_CURRENT_BINARY_DIR}/model-graphs.jsonl)
+  add_test(NAME formal-model-write
+    COMMAND kater-oracle graphs --json ${MODEL_JSON} -n 3 --heap-events 3 --random 2000
+      --symbolic 300 --seed 1 ${ORACLE_GRAPH_ARGS})
+  add_test(NAME formal-model-check
+    COMMAND ${LAKE} exe kater-model-check ${MODEL_JSON}
+    WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}/formal)
+  set_tests_properties(formal-model-write PROPERTIES FIXTURES_SETUP model-json)
+  set_tests_properties(formal-model-check PROPERTIES
+    FIXTURES_REQUIRED model-json ENVIRONMENT "${LAKE_ENVIRONMENT}")
+  set_tests_properties(formal-model-write formal-model-check PROPERTIES
+    LABELS "oracle;formal" TIMEOUT 1800)
+
   # One lake at a time in formal/
   set_tests_properties(formal-certificates-check formal-export-certificates-check
-    formal-evidence-check formal-export-evidence-check PROPERTIES RESOURCE_LOCK formal-lake)
+    formal-evidence-check formal-export-evidence-check formal-model-check
+    PROPERTIES RESOURCE_LOCK formal-lake)
 endif()
 
 # The exported checkers, run inside GenMC, against the reference semantics

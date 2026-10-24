@@ -1,6 +1,6 @@
 name = "kater-cert"
 version = "0.1.0"
-defaultTargets = ["KaterCert", "kater-cert-check", "kater-chain-check"]
+defaultTargets = ["KaterCert", "kater-cert-check", "kater-chain-check", "kater-model-check"]
 
 # The definitions, the checker and its soundness proof
 [[lean_lib]]
@@ -16,3 +16,9 @@ root = "Main"
 [[lean_exe]]
 name = "kater-chain-check"
 root = "ChainMain"
+
+# Compares the model with the oracle on the graphs `kater-oracle graphs --json`
+# writes
+[[lean_exe]]
+name = "kater-model-check"
+root = "ModelMain"
