@@ -107,8 +107,9 @@ public:
 	};
 	/* formal: end Certificate */
 	/* Gets the certificate of an inclusion, and the constraint it proves it
-	 * for: the subset constraint checkInclusion decides, or the acyclicity
-	 * constraint whose stretches isPPOIntersectionInPPO checks */
+	 * for: the subset constraint checkInclusion decides, or the acyclicity or
+	 * coherence constraint whose extensibility isPPOIntersectionInPPO or
+	 * isCoherenceExtensible checks */
 	using CertificateSink = std::function<void(const Constraint &, const Certificate &)>;
 
 	Checker() = delete;
@@ -126,23 +127,33 @@ public:
 
 	void setObserver(Observer obs) { observer = std::move(obs); }
 
-	/* Called with the certificate of each inclusion checkAssertion and
-	 * isPPOIntersectionInPPO prove */
+	/* Called with the certificate of each inclusion checkAssertion and the
+	 * extensibility checks prove */
 	void setCertificateSink(CertificateSink sink) { certificateSink = std::move(sink); }
 
 	/*
-	 * The exporter's check of extensibility: GenMC adds an event once its
-	 * pporf-predecessors are in the graph, and, when ppo is not po, the
-	 * event may have po-successors there already, which the constraints
-	 * must let it join without a cycle. Decides whether the eco-free
-	 * stretches the starred ACYC is cut into, between its eco steps, are
-	 * within (any* ; pporf ; any*) | id.
-	 * FIXME (vzhn/kater-fork#33): the eco steps are looked for in the
-	 * inverted labels of incoming transitions, so no stretch is cut and
-	 * the left-hand automaton accepts nothing: the inclusion holds of
-	 * every constraint
+	 * The exporter's check of extensibility. GenMC adds an event e once its
+	 * pporf-predecessors are in the graph; when ppo is not po, e may have
+	 * po-successors there already. Added maximally (reading the last write
+	 * in mo, or last in mo), e has no eco step out of it. Decides that no
+	 * cycle of ACYC can then leave e by another step without a pporf step
+	 * out of e, unless it can do without e (both its steps at e within
+	 * po): every such visit of e, read from e to the end of the word of
+	 * ACYC it leaves e in, is in pporf ; any*.
+	 *
+	 * With isCoherenceExtensible for the coherence view, this proves:
+	 * for every consistent graph and every event e GenMC may add to it
+	 * (nothing after it in pporf, nothing reading from it, not part of an
+	 * RMW, not a thread start or create), such that nothing po-after e
+	 * accesses e's location, the graph with e added maximally is
+	 * consistent (doc/verification.md, "Extensibility")
 	 */
 	auto isPPOIntersectionInPPO(const AcyclicConstraint *acyc) const -> InclusionResult;
+	/* The same for the cycles of COH's view composed with eco, which must
+	 * be irreflexive: a cycle that leaves e where its word begins comes
+	 * back to e, and may also be a po path to another event of e's
+	 * location, and eco back, which there is none of */
+	auto isCoherenceExtensible(const CoherenceConstraint *coh) const -> InclusionResult;
 
 private:
 	[[nodiscard]] auto getTheory() const -> const Theory & { return getModule().getTheory(); }
@@ -159,6 +170,15 @@ private:
 	auto decideInclusion(NFA &lhs, const NFA &rhs, const Constraint &cst,
 			     std::optional<Chain> chain) const -> InclusionResult;
 	[[nodiscard]] auto checkInclusion(SubsetConstraint &subsetC) const -> InclusionResult;
+	/* The extensibility check of CST, whose cycles are those of the words of
+	 * RE (of one word, with SINGLE) */
+	auto decideExtensibility(const RegExp &re, bool single, const Constraint &cst) const
+		-> InclusionResult;
+	/* Whether every word of WORDS, read from an event GenMC may add, has a
+	 * pporf step out of the event, or else, with BACK_TO_EVENT, is a po
+	 * path to an event of its location and eco back */
+	auto decideExitWords(NFA &words, bool backToEvent, const Constraint &cst) const
+		-> InclusionResult;
 
 	KatModule *module;
 	Options options;

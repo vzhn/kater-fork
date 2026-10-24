@@ -1,0 +1,18 @@
+# kat/lkmm-genmc.kat is not extensible. The write e2 is in a hole before the
+# read e3 of its location, which reads e5 from T1: coherence puts e2 mo-before
+# e5, its only place in mo, and e2 -moe-> e5 closes the pb cycle e2 -prop-> e5
+# -strong-fence-> e7, e7 -prop-> e0 -strong-fence-> e2 (prop: e2 -moe-> e5,
+# e7 -fre-> e0). Without e2 the graph is consistent. GenMC's revisits leave
+# this hole only once the prefix of e5 has an event of T0 past e2
+# (GenMCDriver::isCoBeforeSavedPrefix).
+e0: T0 W(x) rlx
+e1: T0 F sc lkmm-fence:mb
+e2: T0 W(y) rlx
+e3: T0 R(y) rlx
+e4: T1 TB acq
+e5: T1 W(y) rlx
+e6: T1 F sc lkmm-fence:mb
+e7: T1 R(x) rlx
+rf: e5->e3
+mo(x): e0
+mo(y): e2 e5

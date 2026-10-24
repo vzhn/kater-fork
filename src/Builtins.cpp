@@ -447,6 +447,12 @@ static const SubsetPredSets subsetPredSets_ = {
 	{to_underlying(PB::FREE), {to_underlying(PB::LOC)}},
 	{to_underlying(PB::HPPROT), {to_underlying(PB::LOC)}},
 	{to_underlying(PB::W), {to_underlying(PB::LOC)}},
+	/* GenMC's thread events synchronize: a create and a finish release, a
+	 * start and a join acquire (their labels' orderings) */
+	{to_underlying(PB::TC), {to_underlying(PB::ATOM), to_underlying(PB::REL)}},
+	{to_underlying(PB::TE), {to_underlying(PB::ATOM), to_underlying(PB::REL)}},
+	{to_underlying(PB::TB), {to_underlying(PB::ATOM), to_underlying(PB::ACQ)}},
+	{to_underlying(PB::TJ), {to_underlying(PB::ATOM), to_underlying(PB::ACQ)}},
 };
 
 static auto subset_begin() { return subsetPredSets_.begin(); }

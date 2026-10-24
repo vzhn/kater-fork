@@ -19,6 +19,16 @@ foreach(m sc tso ra rc11 imm lkmm)
   set_tests_properties(export-${m}-genmc PROPERTIES LABELS "integration" TIMEOUT 600)
 endforeach()
 
+# kat/imm-genmc.kat and kat/lkmm-genmc.kat are not extensible
+# (vzhn/kater-fork#38, #39): they say so with export nonextensible, and
+# export with a warning. Once a model is, its test fails: drop the flag
+foreach(m imm lkmm)
+  add_test(NAME export-nonextensible-${m}
+    COMMAND $<TARGET_FILE:${PROJECT_NAME}> -e ${CMAKE_SOURCE_DIR}/kat/${m}-genmc.kat)
+  set_tests_properties(export-nonextensible-${m} PROPERTIES LABELS "integration"
+    PASS_REGULAR_EXPRESSION "warning: not extensible")
+endforeach()
+
 # No layer may include a header from a layer above it (see src/CMakeLists.txt)
 add_test(
     NAME check-layers

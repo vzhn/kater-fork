@@ -565,6 +565,16 @@ error VE_AccessFreed     unless  [Free] ; loc-overlap = 0
 error VE_RaceNotAtomic     unless  na_conflict &lt;= hb_stable
 </pre>
 </div>
+
+<p>
+In export mode, <font style="font-variant: small-caps">Kater</font> also checks that each <code>acyclic</code> and
+<code>coherence</code> export is <i>extensible</i>: that <font style="font-variant: small-caps">GenMC</font> can add an event to a
+consistent graph, once the event's predecessors in <code>(ppo | rfe | tc | tj | lin)+</code>
+are there, without breaking the constraint. It fails the export when it cannot show this.
+<code>export nonextensible acyclic r</code> (or <code>export nonextensible coherence v</code>) says that
+the model knows the export is not extensible: <font style="font-variant: small-caps">Kater</font> then only warns, and
+warns as well, that the flag is stale, if it shows the export extensible.
+</p>
 </div>
 </div>
 </div>

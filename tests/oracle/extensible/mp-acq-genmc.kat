@@ -1,6 +1,7 @@
 // A model GenMC cannot explore, though every stretch between the eco steps
-// of its cycles has a ppo step: what isPPOIntersectionInPPO is meant to ask
-// for is not enough for extensibility (vzhn/kater-fork#33).
+// of its cycles has a ppo step: what isPPOIntersectionInPPO was meant to ask
+// for is not enough for extensibility (vzhn/kater-fork#33). Kater rejects
+// it now: the po step out of x := 1, below, is not in ppo.
 //
 // An acquire read orders what follows it in ppo, but not what precedes
 // it, so in

@@ -193,8 +193,12 @@ let pb = prop ; strong-fence ; lkhb* ; [ATOM]
 view coh = (po | tc | tj | lin)+
 export coherence coh
 
-export acyclic lkhb
-export acyclic pb
+// LKMM is not extensible (vzhn/kater-fork#39): GenMC can leave a hole it
+// cannot fill consistently. Kater's extensibility check fails for lkhb and
+// pb, as it cannot see into prop-int or relate LKMM's predicates;
+// nonextensible makes that a warning.
+export nonextensible acyclic lkhb
+export nonextensible acyclic pb
 
 // ---------------------------------------------------------------------
 // GenMC's happens-before, memory errors
