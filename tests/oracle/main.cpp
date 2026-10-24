@@ -48,11 +48,22 @@
  *                           [--depth D] [--only NAME]
  *       Tests the automaton transformations of the decision procedure
  *       against their semantic contracts, on random expressions.
+ *
+ *   kater-oracle genmc --runner RUNNER [-n EVENTS] [--threads T]
+ *                      [--locations L] [--random N] [--random-events M]
+ *                      [--seed S] [--limit G] [--shard K/N] [--count]
+ *                      [--graph FILE]... FILE...
+ *       Runs the GenMC checkers Kater exports for the kat/NAME-genmc.kat
+ *       FILEs (in kater-oracle-runner) on every graph up to EVENTS events
+ *       (with --shard, on the K-th of every N) and on N random ones up to
+ *       M, or on the graphs of FILEs, and compares their verdicts with the
+ *       reference semantics. --count only counts the graphs.
  */
 
 #include "Audit.hpp"
 #include "Certificate.hpp"
 #include "Export.hpp"
+#include "GenMC.hpp"
 #include "Search.hpp"
 #include "Transforms.hpp"
 
@@ -79,6 +90,7 @@ namespace {
 struct Options {
 	SearchOptions search;
 	TransformOptions transforms;
+	GenMCOptions genmc;
 	bool verbose = false;
 	bool refutable = false;
 	std::vector<std::string> files;
@@ -91,7 +103,11 @@ struct Options {
 		   "       kater-oracle explain FILE...\n"
 		   "       kater-oracle audit [-n EVENTS] [-t SECONDS] [-v]\n"
 		   "       kater-oracle transforms [-n EVENTS] [-t SECONDS] [--cases N]\n"
-		   "                               [--seed S] [--depth D] [--only NAME] [-v]\n";
+		   "                               [--seed S] [--depth D] [--only NAME] [-v]\n"
+		   "       kater-oracle genmc --runner RUNNER [-n EVENTS] [--threads T]\n"
+		   "                          [--locations L] [--random N] [--random-events M]\n"
+		   "                          [--seed S] [--limit G] [--shard K/N] [--count]\n"
+		   "                          [--graph FILE]... FILE...\n";
 	exit(2); // NOLINT(concurrency-mt-unsafe): single-threaded
 }
 
@@ -107,24 +123,54 @@ auto parseOptions(int argc, char **argv, int first) -> Options
 			// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
 			return static_cast<unsigned>(std::stoul(argv[++i]));
 		};
+		auto text = [&]() -> std::string {
+			if (i + 1 >= argc)
+				usage();
+			return argv[++i]; // NOLINT(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+		};
 		if (arg == "-n")
-			opts.search.maxEvents = value();
+			opts.search.maxEvents = opts.genmc.bounds.events = value();
 		else if (arg == "-t")
 			opts.search.timeoutMs = value() * 1000;
 		else if (arg == "-v")
-			opts.verbose = true;
+			opts.verbose = opts.genmc.verbose = true;
 		else if (arg == "--refutable")
 			opts.refutable = true;
 		else if (arg == "--cases")
 			opts.transforms.cases = value();
 		else if (arg == "--seed")
-			opts.transforms.seed = value();
+			opts.transforms.seed = opts.genmc.seed = value();
 		else if (arg == "--depth")
 			opts.transforms.depth = value();
-		else if (arg == "--only" && i + 1 < argc)
-			opts.transforms.only = argv
-				[++i]; // NOLINT(cppcoreguidelines-pro-bounds-pointer-arithmetic)
-		else if (!arg.empty() && arg[0] == '-')
+		else if (arg == "--only")
+			opts.transforms.only = text();
+		else if (arg == "--runner")
+			opts.genmc.runner = text();
+		else if (arg == "--threads")
+			opts.genmc.bounds.threads = value();
+		else if (arg == "--locations")
+			opts.genmc.bounds.locations = value();
+		else if (arg == "--random")
+			opts.genmc.random = value();
+		else if (arg == "--random-events")
+			opts.genmc.randomBounds.events = value();
+		else if (arg == "--limit")
+			opts.genmc.limit = value();
+		else if (arg == "--graph")
+			opts.genmc.graphs.push_back(text());
+		else if (arg == "--count")
+			opts.genmc.count = true;
+		else if (arg == "--shard") {
+			auto spec = text();
+			auto slash = spec.find('/');
+			if (slash == std::string::npos)
+				usage();
+			opts.genmc.shard = static_cast<unsigned>(std::stoul(spec.substr(0, slash)));
+			opts.genmc.shards =
+				static_cast<unsigned>(std::stoul(spec.substr(slash + 1)));
+			if (opts.genmc.shards == 0 || opts.genmc.shard >= opts.genmc.shards)
+				usage();
+		} else if (!arg.empty() && arg[0] == '-')
 			usage();
 		else
 			opts.files.push_back(arg);
@@ -263,6 +309,14 @@ auto main(int argc, char **argv) -> int
 		opts.transforms.search = opts.search;
 		opts.transforms.verbose = opts.verbose;
 		return testTransforms(opts.transforms) ? 0 : 1;
+	}
+	if (cmd == "genmc") {
+		if (opts.files.empty() || opts.genmc.runner.empty())
+			usage();
+		auto ok = true;
+		for (const auto &f : opts.files)
+			ok &= checkGenMC(f, opts.genmc);
+		return ok ? 0 : 1;
 	}
 	usage();
 }

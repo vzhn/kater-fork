@@ -8,8 +8,10 @@ endif()
 add_executable(kater-oracle
   Audit.cpp
   Certificate.cpp
+  Enumerate.cpp
   Execution.cpp
   Export.cpp
+  GenMC.cpp
   Graph.cpp
   Matrix.cpp
   Search.cpp
@@ -46,3 +48,7 @@ set_tests_properties(oracle-export PROPERTIES LABELS "oracle" TIMEOUT 900)
 # letter inclusions they rest on hold
 add_test(NAME oracle-certify COMMAND kater-oracle certify -n 3 ${ORACLE_CORRECT})
 set_tests_properties(oracle-certify PROPERTIES LABELS "oracle" TIMEOUT 900)
+
+# The exported checkers, run inside GenMC, against the reference semantics
+# (needs GenMC)
+add_subdirectory(genmc)
