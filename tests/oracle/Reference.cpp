@@ -33,6 +33,7 @@
 #include "Statement.hpp"
 
 #include <filesystem>
+#include <fstream>
 #include <initializer_list>
 #include <map>
 #include <memory>
@@ -112,6 +113,31 @@ auto lkmmPredicate(const std::string &name, const Execution &x, unsigned e) -> s
 	return std::nullopt;
 }
 
+/* An error or warning export as its line of the .kat has it, from the
+ * error's name on, without comments; empty if the line is not at hand */
+static auto sourceOf(const ExportStatement &stmt) -> std::string
+{
+	const auto &dbg = stmt.getDbgInfo();
+	if (!dbg || dbg->filename.empty())
+		return {};
+	std::ifstream is(dbg->filename);
+	std::string line;
+	for (auto i = 0; i < dbg->line && std::getline(is, line); i++)
+		;
+	if (auto comment = line.find("//"); comment != std::string::npos)
+		line.resize(comment);
+	std::istringstream words(line);
+	std::string word;
+	std::string text;
+	auto named = false;
+	while (words >> word) {
+		if (named)
+			text += (text.empty() ? "" : " ") + word;
+		named |= word == "error" || word == "warning";
+	}
+	return text;
+}
+
 Reference::Reference(std::unique_ptr<KatModule> module) : module_(std::move(module))
 {
 	for (const auto &stmt : module_->exports()) {
@@ -122,18 +148,22 @@ Reference::Reference(std::unique_ptr<KatModule> module) : module_(std::move(modu
 		    dynamic_cast<const SubsetConstraint *>(c) != nullptr)
 			consistency_.push_back({.constraint = c, .unless = stmt->getUnless()});
 		if (const auto *w = dynamic_cast<const WarningConstraint *>(c)) {
-			std::ostringstream text;
-			text << w->getWarningName();
-			if (const auto *u = stmt->getUnless()) {
-				text << " unless ";
-				u->dump(text, &module_->getTheory());
+			auto text = sourceOf(*stmt);
+			if (text.empty()) {
+				std::ostringstream dump;
+				dump << w->getWarningName();
+				if (const auto *u = stmt->getUnless()) {
+					dump << " unless ";
+					u->dump(dump, &module_->getTheory());
+				}
+				text = dump.str();
 			}
 			clauses_.push_back(
 				{.code = w->getWarningName(),
 				 .error = dynamic_cast<const ErrorConstraint *>(c) != nullptr,
 				 .unless =
 					 dynamic_cast<const SubsetConstraint *>(stmt->getUnless()),
-				 .text = text.str()});
+				 .text = text});
 		}
 	}
 	if (const auto *coh = module_->getCOHDeclaration())

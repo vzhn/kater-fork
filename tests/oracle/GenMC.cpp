@@ -427,6 +427,11 @@ public:
 				std::cout << " (" << no->second << " " << negative(kind) << ")";
 			std::cout << ", " << (it == failed_.end() ? 0 : it->second)
 				  << " disagree\n";
+			/* Each clause, and how often it failed */
+			if (kind == "clause")
+				for (const auto &[i, c] : clauses_)
+					std::cout << "    " << ref_->clauseText(i) << ": "
+						  << c.first << " (" << c.second << " false)\n";
 		}
 		for (const auto &[kind, n] : failed_)
 			if (!checked_.contains(kind))
@@ -459,6 +464,11 @@ private:
 			if (want == "0" || excluding_.contains(key) ||
 			    (isErrorCheck(key) && want != "none" && !want.empty()))
 				negative_[kind]++;
+			if (kind == "clause") {
+				auto &c = clauses_[std::stoul(key.substr(key.rfind(' ') + 1))];
+				c.first++;
+				c.second += want == "0" ? 1 : 0;
+			}
 			auto it = actual.find(key);
 			if (it == actual.end())
 				report(kind, x, f, describe(key) + ": GenMC did not answer");
@@ -716,6 +726,8 @@ private:
 	/* This graph's checks that rule some choice out */
 	std::set<std::string> excluding_;
 	std::map<std::string, unsigned> failed_;
+	/* Each clause's verdicts, and its failures */
+	std::map<unsigned, std::pair<unsigned, unsigned>> clauses_;
 };
 
 } // namespace
