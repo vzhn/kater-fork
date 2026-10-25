@@ -6,6 +6,15 @@ released.
 
 ## [Unreleased]
 
+## [0.4.0-vzhn.3] - 2026.10.25
+
+### Fixes
+
+- `kat/lkmm-genmc.kat`: a fetch-and-op's write depends on its read, as
+  herd7's `iico_data` has it (`rmw-data`, predicate `FopR`); GenMC allowed
+  executions herd7 forbids, found by some scheduling policies only
+  (vzhn/genmc-fork#237). `kat/lkmm-ref.kat` and `kater-oracle` follow (#69)
+
 ## [0.4.0-vzhn.2] - 2026.10.25
 
 ### Fixes
