@@ -97,6 +97,12 @@ auto lkmmPredicate(const std::string &name, const Execution &x, unsigned e) -> s
 		return isW && ev.flavor == Flavor::Mb && ev.excl;
 	if (name == "R4rmb")
 		return isR && ev.flavor != Flavor::NoRet;
+	/* The runner makes the reads of these RMWs FaiReadLabels of an add
+	 * (genmc/Runner.cpp); executions have no xchg() */
+	if (name == "FopR")
+		return isR && ev.excl &&
+		       (ev.flavor == Flavor::Plain || ev.flavor == Flavor::Mb ||
+			ev.flavor == Flavor::NoRet);
 	if (name == "Acq")
 		return isR && atLeastAcq && ev.flavor != Flavor::FailedCas &&
 		       (ev.flavor != Flavor::Lock || ev.excl);

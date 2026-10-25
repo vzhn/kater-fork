@@ -27,7 +27,9 @@
 //  - fencerel(X) = po ; [X] ; po.
 //  - GenMC records an RMW's dependencies on its read and makes the write
 //    from the read with none of its own, while herd7's addr, data and ctrl
-//    reach the write as well: herd7's dep = GenMC's dep ; rmw?.
+//    reach the write as well: herd7's dep = GenMC's dep ; rmw?. herd7's
+//    data also has iico_data, from the read of a fetch-and-op to its write,
+//    which GenMC does not record: lkmm-genmc.kat's rmw-data.
 //  - Kater has no int/ext intersections; they are expanded by hand:
 //    (co | fr) & int = moi | fri, (co | fr) & ext = moe | fre, and
 //    po-unlock-lock-po & int takes rfi for its rf (an rfe leaves the
@@ -43,7 +45,7 @@ include "lkmm-genmc.kat"
 // ---------------------------------------------------------------------
 
 // herd7's dependencies, reaching the write of an RMW (see above)
-let hdata = data ; rmw?
+let hdata = data ; rmw? | lkmm-genmc::rmw-data
 let haddr = addr ; rmw?
 let hctrl = ctrl ; rmw?
 

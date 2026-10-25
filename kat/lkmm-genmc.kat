@@ -57,6 +57,10 @@ predicate Rel (genmc: "genmc::isa<WriteLabel>(#) && #->isAtLeastRelease()")
 predicate LKR (genmc: "(genmc::isa<LockCasReadLabel>(#) || genmc::isa<TrylockCasReadLabel>(#)) && static_cast<const ReadLabel *>(static_cast<const EventLabel *>(#))->isRMW()")
 predicate LKW (genmc: "genmc::isa<LockCasWriteLabel>(#) || genmc::isa<TrylockCasWriteLabel>(#)")
 predicate UL (genmc: "genmc::isa<UnlockWriteLabel>(#)")
+// Reads of the RMWs whose write is computed from the read's value (the
+// fetch-and-op family, atomic_add() and the *_return()s): not xchg(), whose
+// write is its argument, nor cmpxchg()
+predicate FopR (genmc: "genmc::isa<FaiReadLabel>(#) && static_cast<const FaiReadLabel *>(static_cast<const EventLabel *>(#))->getOp() != RMWBinOp::Xchg")
 // Anything but a plain access (herd7's Plain = M \ Marked)
 predicate NotPlain (genmc: "!(genmc::isa<MemAccessLabel>(#) && #->isNotAtomic())")
 
@@ -113,8 +117,14 @@ let fence-int = mb-int | po-rel | acq-po | wmb | rmb
 // taking a lock under a condition between two critical sections of another).
 // The bell's carry-dep = (data ; [~Srcu-unlock] ; rfi)*: an srcu_read_lock()
 // reading the index an srcu_read_unlock() wrote back depends on nothing.
-let carry-dep = (data ; rmw? ; [NotSrcuU] ; rfi)*
-let dep = carry-dep ; (addr | data)
+// herd7's data also has an RMW's own iico_data, from the read of a
+// fetch-and-op to its write: through an rfi, the read is ordered before a
+// marked read of the write's value (to-r), which GenMC's dependencies do not
+// record. For data with it, rmw? after data adds nothing on the read's side.
+let rmw-data = [FopR] ; rmw
+let ddata = data | rmw-data
+let carry-dep = (ddata ; rmw? ; [NotSrcuU] ; rfi)*
+let dep = carry-dep ; (addr | ddata)
 let cdep = carry-dep ; ctrl
 let rwdep = (dep | cdep) ; rmw? ; [W]
 let to-w = rwdep | moi | fri | (carry-dep ; addr ; [NA] ; wmb)
