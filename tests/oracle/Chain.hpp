@@ -87,7 +87,7 @@ auto chainClaims(const Checker::Chain &chain, const std::string &of, unsigned ev
  * of a graph, of the automata a pass's claim is about: the semantics nests
  * its formulas once per round, and on automata with cycles of a few dozen
  * states Z3 takes gigabytes, then gives up */
-constexpr size_t maxPassClaimRounds = 24;
+constexpr size_t maxPassClaimRounds = 80;
 
 } // namespace oracle
 

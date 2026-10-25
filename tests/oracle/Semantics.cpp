@@ -325,6 +325,9 @@ auto Semantics::eval(const RegExp &re) -> Matrix
 }
 /* formal: end ExpSemantics */
 
+/* The most rounds of NFASemantics whose terms it does not name */
+constexpr unsigned unnamedRounds = 24;
+
 /* formal: begin NFASemantics, mirrored by formal/KaterCert/NFA.lean */
 auto Semantics::eval(const NFA &nfa) -> Matrix
 {
@@ -346,7 +349,12 @@ auto Semantics::eval(const NFA &nfa) -> Matrix
 		for (const auto *s : nfa.starting())
 			reach[s->getId()][a] = Term::constant(c, true);
 
-		/* A shortest path visits each (state, event) pair at most once */
+		/* A shortest path visits each (state, event) pair at most once.
+		 * The terms nest once per round, which Z3 does not survive past a
+		 * few hundred: with more than unnamedRounds rounds, each round's
+		 * terms are named (Graph::define), which costs time on smaller
+		 * automata */
+		const auto nameTerms = states * n > unnamedRounds;
 		for (auto round = 0U; round < states * n; round++) {
 			auto next = reach;
 			for (auto p = 0U; p < states; p++) {
@@ -360,6 +368,10 @@ auto Semantics::eval(const NFA &nfa) -> Matrix
 					}
 				}
 			}
+			if (nameTerms)
+				for (auto &row : next)
+					for (auto &t : row)
+						t = g_->define(t);
 			reach = std::move(next);
 		}
 

@@ -75,6 +75,7 @@ auto search(const KatModule &module, const Query &hypotheses, const Query &viola
 			auto h = hypotheses(g, sem);
 			auto v = violation(g, sem);
 			solver.add(g.axioms());
+			solver.add(g.definitions());
 			solver.add(h.expr());
 			solver.add(v.expr());
 		} catch (const Unsupported &u) {
