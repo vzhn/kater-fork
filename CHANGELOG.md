@@ -17,7 +17,6 @@ released.
   hypothesis, including those of builtin predicates alone (`disjoint EXCL
   # NA` in `tests/correct/lkmm`), which it left out; it then reported
   what Kater proves under them as unsound (#60)
-
 - `lkmm-genmc.kat`: GenMC's prefix (`ppo`, `rppo`) no longer orders a
   fence before every later event (`[F] ; po`). Which fences a branch has
   depends on its path, and a prefix must not: a write after the join of a
