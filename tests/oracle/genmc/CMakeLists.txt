@@ -30,8 +30,13 @@ ExternalProject_Add(genmc-core
 
 # The checkers, exported from kat/NAME-genmc.kat as ORACLE<NAME>Checker, and
 # ORACLE<NAME>Clauses, which gives the verdicts of their error and warning
-# clauses too
-set(GENMC_MODELS sc tso ra rc11 imm lkmm)
+# clauses too; eqincl is a test of the exports of inclusions and equalities
+# (vzhn/kater-fork#58), which no model has
+set(GENMC_MODELS sc tso ra rc11 imm lkmm eqincl)
+foreach(m ${GENMC_MODELS})
+  set(GENMC_MODEL_FILE_${m} ${PROJECT_SOURCE_DIR}/kat/${m}-genmc.kat)
+endforeach()
+set(GENMC_MODEL_FILE_eqincl ${PROJECT_SOURCE_DIR}/tests/export/eqincl-genmc.kat)
 set(CHECKER_DIR ${CMAKE_CURRENT_BINARY_DIR}/checkers)
 file(MAKE_DIRECTORY ${CHECKER_DIR})
 set(CHECKER_SOURCES)
@@ -44,8 +49,8 @@ foreach(m ${GENMC_MODELS})
   add_custom_command(
     OUTPUT ${CHECKER_DIR}/${class}.cpp ${CHECKER_DIR}/${class}.hpp
     COMMAND sh -c "\"$0\" -e -n oracle${m} -p \"$1\" \"$2\" > \"$1/${m}.log\" 2>&1"
-      $<TARGET_FILE:kater> ${CHECKER_DIR} ${PROJECT_SOURCE_DIR}/kat/${m}-genmc.kat
-    DEPENDS kater ${PROJECT_SOURCE_DIR}/kat/${m}-genmc.kat
+      $<TARGET_FILE:kater> ${CHECKER_DIR} ${GENMC_MODEL_FILE_${m}}
+    DEPENDS kater ${GENMC_MODEL_FILE_${m}}
     COMMENT "Exporting the GenMC checker of ${m}"
     VERBATIM)
   add_custom_command(
@@ -90,10 +95,11 @@ set(GENMC_TEST_ARGS_ra -n 3 --heap-events 3 --random 5000)
 set(GENMC_TEST_ARGS_rc11 -n 3 --heap-events 3 --random 3000)
 set(GENMC_TEST_ARGS_imm -n 3 --heap-events 3 --random 2000)
 set(GENMC_TEST_ARGS_lkmm -n 2 --heap-events 3 --random 2000)
+set(GENMC_TEST_ARGS_eqincl -n 3 --heap-events 3 --random 3000)
 foreach(m ${GENMC_MODELS})
   add_test(NAME oracle-genmc-${m}
     COMMAND kater-oracle genmc --runner $<TARGET_FILE:kater-oracle-runner>
-      ${GENMC_TEST_ARGS_${m}} ${PROJECT_SOURCE_DIR}/kat/${m}-genmc.kat)
+      ${GENMC_TEST_ARGS_${m}} ${GENMC_MODEL_FILE_${m}})
   set_tests_properties(oracle-genmc-${m} PROPERTIES LABELS "oracle;genmc" TIMEOUT 1800)
 endforeach()
 

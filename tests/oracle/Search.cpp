@@ -52,9 +52,10 @@ auto takeHypotheses(const KatModule &module) -> Hypotheses
 	for (const auto &assm : module.getAssumptions())
 		if (assm->getDbgInfo().has_value())
 			h.assumptions.push_back(assm->getConstraint()->clone());
-	for (const auto &set : module.getTheory().disjointPredicateSets())
-		if (std::ranges::any_of(set, [](auto id) { return id < 0; }))
-			h.disjoint.insert(set);
+	/* As declared, builtins included (vzhn/kater-fork#60): the theory's
+	 * closure of them under sub-predicates is Kater's reasoning */
+	for (const auto &set : module.disjointDeclarations())
+		h.disjoint.insert(set);
 	return h;
 }
 

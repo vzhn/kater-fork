@@ -46,6 +46,13 @@ add_test(NAME oracle-wrong-cases
 set_tests_properties(oracle-audit oracle-transforms oracle-check-correct
   oracle-wrong-cases PROPERTIES LABELS "oracle" TIMEOUT 900)
 
+# vzhn/kater-fork#60: the oracle took no disjoint declaration of builtins
+# only, such as lkmm/genmc-facts.inc's EXCL # NA, and refuted with graphs
+# that break it two assertions Kater proves under it (5 events)
+add_test(NAME oracle-check-issue-60
+  COMMAND kater-oracle check -n 5 ${PROJECT_SOURCE_DIR}/tests/correct/lkmm/lkmm-genmc-vs-herd.kat)
+set_tests_properties(oracle-check-issue-60 PROPERTIES LABELS "oracle")
+
 # What the export of each GenMC model relies on: the Checker's claims (the
 # inclusions its extensibility checks decide among them), and that the
 # rewritten definitions keep their meaning (LKMM on smaller graphs: at 3
