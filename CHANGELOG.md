@@ -6,6 +6,15 @@ released.
 
 ## [Unreleased]
 
+## [0.4.0-vzhn.2] - 2026.10.25
+
+### Fixes
+
+- GenMC export: an RMW read's own write part, and the reads of it, no
+  longer stop a revisit of the read in `filterCoherentRevisits()` (the
+  write part moves right after the revisiting write). genmc-fork carried
+  this by hand in its LKMM checker; IMM's results do not change (#67)
+
 ## [0.4.0-vzhn.1] - 2026.10.25
 
 The first release of the vzhn/kater-fork fork, on top of Kater 0.4.0.
