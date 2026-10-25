@@ -8,6 +8,13 @@ released.
 
 ### Fixes
 
+- `lkmm-genmc.kat`: GenMC's prefix (`ppo`, `rppo`) no longer orders a
+  fence before every later event (`[F] ; po`). Which fences a branch has
+  depends on its path, and a prefix must not: a write after the join of a
+  branch with a fence had the branch's read in its prefix, and could not
+  revisit it, or a revisit kept the fence, which the new path never
+  reached. GenMC re-adds a fence left out before the events a revisit
+  kept, and checks the whole graph then (vzhn/genmc-fork#77)
 - GenMC export: `getCoherentPlacings()` no longer offers, under a
   dependency-tracking model (IMM, LKMM), the placing right before the end
   of a store's range when that end is an RMW's write: the store then came
