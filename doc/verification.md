@@ -824,8 +824,9 @@ where porf reaches the block's other events).
 
 The ctests labeled `genmc`, one per model, are built when `GENMC_SOURCE_DIR`
 (a CMake variable, or the environment variable when configuring) names a GenMC
-source tree; the build makes its core library without LLVM. Each takes one or
-two minutes:
+source tree of the layout `GenMCPrinter` prints for, vzhn/genmc-fork's (the
+models in `genmc/genmc/Models`); the build makes its core library without
+LLVM. Each takes one or two minutes:
 
     cmake -DGENMC_SOURCE_DIR=PATH/TO/genmc BUILD-DIR
     ctest -L genmc

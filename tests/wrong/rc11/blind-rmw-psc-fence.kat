@@ -1,0 +1,11 @@
+// tests/correct/rc11/blind-rmw-psc.kat without its assumption: an SC
+// fence hb-before a blind RMW lets the coherence order among the RMWs
+// into psc (GenMC #71's condition is needed).
+
+include "../../../kat/rc11-genmc.kat"
+
+predicate U (genmc: "blind")
+disjoint U # SC
+
+assert [SC] ; rc11-genmc::fhb? ; [U] ; mo ; [U] ; rc11-genmc::hbf? ; [SC] = 0
+assert rc11-genmc::FSC ; rc11-genmc::hb ; [U] ; mo ; [U] ; rc11-genmc::eco? ; rc11-genmc::hb ; rc11-genmc::FSC = 0

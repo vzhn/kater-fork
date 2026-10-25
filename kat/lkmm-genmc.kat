@@ -225,8 +225,18 @@ export error VE_DoubleFree      unless  free; [FREE|HPRET] = 0
 
 // An access and a free of the same memory (last_accesses ; [FREE] <= hb and
 // free ; [R | W] = 0) are hand-written in GenMC (LKMMRcuChecker): a grace
-// period orders a reader's accesses before a free after synchronize_rcu()
+// period orders a reader's accesses before a free after synchronize_rcu(),
+// and an access po-before a free a revisit kept is before it (GenMC #96),
+// which free ; [R | W] <= hb^-1 would say, but Kater tests an inclusion's
+// left end against the view of the new event, its right end, and prints
+// free, alloc and the last_* relations only against a view or against 0
+// (tests/correct/lkmm/lkmm-genmc-invariants.kat)
 export error VE_AccessFreed     unless  unprotected ; [HPRET] <= hb
 export error VE_AccessFreed     unless  retire ; [NOTHPPROT] = 0
 
+// The writes LKMM orders through po and rf are in hb (the invariants
+// test). A grace period's ordering of a reader's write in its critical
+// section before an updater's write after synchronize_rcu() is not:
+// GenMC checks the writes again against it by hand (LKMMRcuChecker,
+// GenMC #113)
 export warning VE_WWRace        unless  ww_conflict <= hb

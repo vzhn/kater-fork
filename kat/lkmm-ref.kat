@@ -1,0 +1,114 @@
+// SPDX-License-Identifier: GPL-2.0+
+//
+// The regular part of the Linux-kernel memory model, transcribed from
+// tools/memory-model/linux-kernel.cat and linux-kernel.bell of Linux 6.18
+// (variant lkmmv2), after the model by Jade Alglave, Luc Maranget, Paul E.
+// McKenney, Andrea Parri and Alan Stern.
+//
+// A reference for lkmm-genmc.kat, not a model to export: it follows the
+// structure of the cat file definition by definition, over the predicates
+// and relations GenMC provides, so that Kater can prove lkmm-genmc.kat's
+// relations equal to it (tests/correct/lkmm/lkmm-genmc-vs-herd.kat).
+//
+// Left out: RCU's rcu-order (not regular), plain-coherence and data races
+// (intersections), the atomicity axiom (GenMC's RMWs). GenMC hand-writes
+// these parts.
+//
+// Encoding of herd7's sets and relations, the assumptions every comparison
+// with lkmm-genmc.kat rests on:
+//
+//  - M = R | W. Marked = ATOM: herd7's Marked is ~M (fences and other
+//    non-memory events) plus the marked accesses, and GenMC gives every
+//    fence, lock and thread event an atomic ordering. Plain = NA.
+//  - Acquire, Release, Mb & R, Mb & W, R4rmb, LKR, LKW, UL, Srcu-unlock and
+//    the fence kinds are lkmm-genmc.kat's predicates of the same meaning
+//    (Acq, Rel, MbR, MbW, R4rmb, LKR, LKW, UL, SrcuU, Fmb, ...). Sync-rcu
+//    and Sync-srcu are Fsync and Fsyncs. RMW (the set) is EXCL.
+//  - fencerel(X) = po ; [X] ; po.
+//  - GenMC records an RMW's dependencies on its read and makes the write
+//    from the read with none of its own, while herd7's addr, data and ctrl
+//    reach the write as well: herd7's dep = GenMC's dep ; rmw?.
+//  - Kater has no int/ext intersections; they are expanded by hand:
+//    (co | fr) & int = moi | fri, (co | fr) & ext = moe | fre, and
+//    po-unlock-lock-po & int takes rfi for its rf (an rfe leaves the
+//    thread, and the po after it stays in the other one). Every other
+//    fence is within po, hence internal.
+//  - ((prop \ id) & int) is the relation GenMC computes by hand,
+//    lkmm-genmc::prop-int.
+
+include "lkmm-genmc.kat"
+
+// ---------------------------------------------------------------------
+// linux-kernel.bell
+// ---------------------------------------------------------------------
+
+// herd7's dependencies, reaching the write of an RMW (see above)
+let hdata = data ; rmw?
+let haddr = addr ; rmw?
+let hctrl = ctrl ; rmw?
+
+// let carry-dep = (data ; [~ Srcu-unlock] ; rfi)*
+let carry-dep = (hdata ; [lkmm-genmc::NotSrcuU] ; rfi)*
+// let addr = carry-dep ; addr (and likewise ctrl, data)
+let caddr = carry-dep ; haddr
+let cctrl = carry-dep ; hctrl
+let cdata = carry-dep ; hdata
+
+// ---------------------------------------------------------------------
+// linux-kernel.cat: fences
+// ---------------------------------------------------------------------
+
+let acq-po = [lkmm-genmc::Acq] ; po ; [R | W]
+let po-rel = [R | W] ; po ; [lkmm-genmc::Rel]
+// let po-unlock-lock-po = po ; [UL] ; (po|rf) ; [LKR] ; po
+let po-unlock-lock-po = po ; [lkmm-genmc::UL] ; (po | rf) ; [lkmm-genmc::LKR] ; po
+// its internal part (see above)
+let po-unlock-lock-po-int = po ; [lkmm-genmc::UL] ; (po | rfi) ; [lkmm-genmc::LKR] ; po
+
+let rmb = [lkmm-genmc::R4rmb] ; po ; [lkmm-genmc::Frmb] ; po ; [lkmm-genmc::R4rmb]
+let wmb = [W] ; po ; [lkmm-genmc::Fwmb] ; po ; [W]
+
+// mb, all but its po-unlock-lock-po clause
+let mb-po =
+	  [R | W] ; po ; [lkmm-genmc::Fmb] ; po ; [R | W]
+	| [R | W] ; po ; [lkmm-genmc::MbR]
+	| [lkmm-genmc::MbW] ; po ; [R | W]
+	| [R | W] ; po ; [lkmm-genmc::Fba] ; po ; [EXCL] ; po? ; [R | W]
+	| [R | W] ; po? ; [EXCL] ; po ; [lkmm-genmc::Faa] ; po ; [R | W]
+	| [R | W] ; po? ; [lkmm-genmc::LKW] ; po ; [lkmm-genmc::Fas] ; po ; [R | W]
+	| [R | W] ; po? ; [lkmm-genmc::SrcuU] ; po ; [lkmm-genmc::Fasru] ; po ; [R | W]
+let mb = mb-po | [R | W] ; po-unlock-lock-po ; [lkmm-genmc::Faul] ; po ; [R | W]
+let mb-int = mb-po | [R | W] ; po-unlock-lock-po-int ; [lkmm-genmc::Faul] ; po ; [R | W]
+
+let gp = po ; [lkmm-genmc::Fsync | lkmm-genmc::Fsyncs] ; po?
+let strong-fence = mb | gp
+let nonrw-fence = strong-fence | po-rel | acq-po
+let fence = nonrw-fence | wmb | rmb
+// fence & int (see above)
+let fence-int = mb-int | gp | po-rel | acq-po | wmb | rmb
+
+// ---------------------------------------------------------------------
+// linux-kernel.cat: preserved program order
+// ---------------------------------------------------------------------
+
+let dep = caddr | cdata
+let rwdep = (dep | cctrl) ; [W]
+// let to-w = rwdep | (overwrite & int) | (addr ; [Plain] ; wmb)
+let to-w = rwdep | moi | fri | (caddr ; [NA] ; wmb)
+let to-r = (caddr ; [R]) | (dep ; [ATOM] ; rfi)
+// let ppo = to-r | to-w | (fence & int) | (po-unlock-lock-po & int)
+let ppo = to-r | to-w | fence-int | po-unlock-lock-po-int
+
+// ---------------------------------------------------------------------
+// linux-kernel.cat: propagation and happens-before
+// ---------------------------------------------------------------------
+
+// let A-cumul(r) = (rfe ; [Marked])? ; r
+let rmw-sequence = (rf ; rmw)*
+let cumul-fence = [ATOM] ; ((rfe ; [ATOM])? ; (strong-fence | po-rel) | wmb |
+	po-unlock-lock-po) ; [ATOM] ; rmw-sequence
+// let prop = [Marked] ; (overwrite & ext)? ; cumul-fence* ; [Marked] ; rfe? ; [Marked]
+let prop = [ATOM] ; (moe | fre)? ; cumul-fence* ; [ATOM] ; rfe? ; [ATOM]
+// let hb = [Marked] ; (ppo | rfe | ((prop \ id) & int)) ; [Marked]
+let hb = [ATOM] ; (ppo | rfe | lkmm-genmc::prop-int) ; [ATOM]
+let pb = prop ; strong-fence ; hb* ; [ATOM]
