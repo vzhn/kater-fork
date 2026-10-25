@@ -166,13 +166,13 @@ let thread-po = po ; [TC | TE] | [TB | TJ] ; po
 // depend on the branch's condition in the prefix, not in LKMM's ppo.
 let pcdep = carry-dep ; pctrl ; rmw? ; [W]
 let ppo = rmw | to-r | to-w | pcdep | [NotPlain] ; (fence-int | po-unlock-lock-po-int) |
-	thread-po | [F] ; po
+	thread-po
 // The prefix a write's revisits take: ppo without pcdep. A read in the
 // prefix only through pcdep (a branch's condition, kept with the events
 // after the join) may still be revisited by the write: what it orders
 // depends on the path, and the path changes with the value it reads.
 let rppo = rmw | to-r | to-w | [NotPlain] ; (fence-int | po-unlock-lock-po-int) |
-	thread-po | [F] ; po
+	thread-po
 
 // ---------------------------------------------------------------------
 // Propagation and happens-before
