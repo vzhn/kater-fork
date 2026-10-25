@@ -1,0 +1,11 @@
+// The inverse of a recursive relation is the inverse of its least solution
+// (#21): x is po;rf*, and v below is within the union of its letters
+let rec x = po | x;rf
+assert x^-1 <= (po^-1 | rf^-1)+
+assert x^-1 <= (rf^-1)*;po^-1
+assert (rf^-1)*;po^-1 <= x^-1
+assert x^-1;x <= (po^-1 | rf^-1)+;(po | rf)+
+
+let rec u = po | u;rf | v;mo
+and v = fr | u;detour | v;[F]
+assert v^-1 <= (fr^-1 | detour^-1 | mo^-1 | po^-1 | rf^-1 | [F])+
