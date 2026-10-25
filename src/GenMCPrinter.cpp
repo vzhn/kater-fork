@@ -1020,7 +1020,7 @@ void GenMCPrinter::printConsistency(
 				clauses.push_back(
 					std::format("{}({})", exportedNames.at(&*stmt), callArg));
 		}
-		// FIXME: for equality
+		/* Inclusions and equalities */
 		for (auto &stmt : module.exports()) {
 			auto *subCst =
 				dynamic_cast<const SubsetConstraint *>(stmt->getConstraint());
@@ -1293,18 +1293,22 @@ auto GenMCPrinter::output() -> bool
 			[&](const SubsetConstraint &scst) {
 				exportedNameSuffix =
 					"ConsInclusion" + std::to_string(stmt->getID());
-				printSubset(&scst, exportedNameSuffix);
+				printSubset(&scst, exportedNameSuffix, false, false);
 			},
 			[&](const EqualityConstraint &ecst) {
 				exportedNameSuffix = "ConsEquality" + std::to_string(stmt->getID());
-				printSubset(&ecst, exportedNameSuffix + "Direct");
+				printSubset(&ecst, exportedNameSuffix + "Direct", false, false);
 				auto convC = SubsetConstraint::create(
 					ecst.getRHS()->clone(), ecst.getLHS()->clone(),
 					ecst.sameEnds(), ecst.rotated());
-				printSubset(&*convC, exportedNameSuffix + "Converse");
-				c.line("bool visit{}(const EventLabel *lab) {{ return "
-				       "visit{}Direct(lab) && visit{}Converse(lab); }}",
-				       exportedNameSuffix, exportedNameSuffix, exportedNameSuffix);
+				printSubset(&*convC, exportedNameSuffix + "Converse", false, false);
+				h.line("bool visit{}(const EventLabel *lab) const;",
+				       exportedNameSuffix);
+				auto fn =
+					c.function("bool {}::visit{}(const EventLabel *lab) const",
+						   className, exportedNameSuffix);
+				c.line("return visit{}Direct(lab) && visit{}Converse(lab);",
+				       exportedNameSuffix, exportedNameSuffix);
 			},
 			[&](const WarningConstraint &wcst) {
 				counterexample = true;
@@ -1353,14 +1357,21 @@ auto GenMCPrinter::output() -> bool
 			c.line("return visit{}(lab);", exportedNameSuffix);
 		}
 
-		//  Full version (currently acyclicity only):
-		if (!dynamic_cast<const AcyclicConstraint *>(stmt->getConstraint()))
-			continue;
-		h.line("bool {}(const ExecutionGraph &g) const;", exportedName);
-		{
+		//  Full version, of the constraints isConsistent(g) checks: the
+		//  acyclicity ones have their own, the inclusions and equalities are
+		//  checked at every label
+		if (dynamic_cast<const AcyclicConstraint *>(stmt->getConstraint())) {
+			h.line("bool {}(const ExecutionGraph &g) const;", exportedName);
 			auto fn = c.function("bool {}::{}(const ExecutionGraph &g) const",
 					     className, exportedName);
 			c.line("return visit{}Full(g);", exportedNameSuffix);
+		} else if (dynamic_cast<const SubsetConstraint *>(stmt->getConstraint())) {
+			h.line("bool {}(const ExecutionGraph &g) const;", exportedName);
+			auto fn = c.function("bool {}::{}(const ExecutionGraph &g) const",
+					     className, exportedName);
+			c.line("return std::ranges::all_of(g.labels(), [&](auto &lab) {{ return "
+			       "{}(&lab); }});",
+			       exportedName);
 		}
 	}
 
@@ -1445,7 +1456,7 @@ auto GenMCPrinter::getStateVisitAssignment(const NFA &nfa) const -> std::vector<
 }
 
 void GenMCPrinter::printSubset(const SubsetConstraint *subCst, std::string prefix,
-			       bool counterexample)
+			       bool counterexample, bool viewOfRHS)
 {
 	auto nfaLHS = subCst->getLHS()->toNFA();
 	simplify(nfaLHS, getModule().getTheory());
@@ -1524,7 +1535,7 @@ void GenMCPrinter::printSubset(const SubsetConstraint *subCst, std::string prefi
 	auto marksAccepting = true;
 	auto lets = getModule().lets();
 	auto viewLet = std::ranges::find_if(lets, [&](auto &let) {
-		return dynamic_cast<const ViewExp *>(let->getSaved()) &&
+		return viewOfRHS && dynamic_cast<const ViewExp *>(let->getSaved()) &&
 		       *let->getRE() == *subCst->getRHS();
 	});
 	if (subCst->isEmpty()) {
@@ -1671,7 +1682,9 @@ void GenMCPrinter::printUnless(const Constraint *cst, std::string prefix, bool c
 
 	auto *subCst = dynamic_cast<const SubsetConstraint *>(cst);
 	assert(subCst);
-	printSubset(subCst, prefix, counterexample);
+	/* The clauses of errors and warnings are checked after the views are
+	 * updated, those of consistency constraints by isConsistent(lab) */
+	printSubset(subCst, prefix, counterexample, counterexample);
 }
 
 void GenMCPrinter::printWarning(const WarningConstraint *stmt, std::string prefix)
