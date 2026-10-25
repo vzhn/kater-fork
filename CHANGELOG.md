@@ -6,6 +6,14 @@ released.
 
 ## [Unreleased]
 
+### Fixes
+
+- GenMC export: `getCoherentPlacings()` no longer offers, under a
+  dependency-tracking model (IMM, LKMM), the placing right before the end
+  of a store's range when that end is an RMW's write: the store then came
+  between the write and the one its read reads (atomicity). GenMC counted
+  such executions under some scheduling policies (vzhn/genmc-fork#237)
+
 ## [0.4.0-vzhn.3] - 2026.10.25
 
 ### Fixes
