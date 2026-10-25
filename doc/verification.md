@@ -908,7 +908,9 @@ The ctests labeled `genmc`, one per model, are built when `GENMC_SOURCE_DIR`
 (a CMake variable, or the environment variable when configuring) names a GenMC
 source tree of the layout `GenMCPrinter` prints for, vzhn/genmc-fork's (the
 models in `genmc/genmc/Models`); the build makes its core library without
-LLVM. Each takes one or two minutes:
+LLVM. Each takes one or two minutes. One more, `oracle-genmc-eqincl`, runs
+the checker of `tests/export/eqincl-genmc.kat`, which exports an inclusion
+and an equality, as no model does (#58):
 
     cmake -DGENMC_SOURCE_DIR=PATH/TO/genmc BUILD-DIR
     ctest -L genmc

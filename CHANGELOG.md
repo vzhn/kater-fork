@@ -20,6 +20,14 @@ released.
   of a store's range when that end is an RMW's write: the store then came
   between the write and the one its read reads (atomicity). GenMC counted
   such executions under some scheduling policies (vzhn/genmc-fork#237)
+- GenMC export: a model that exports an inclusion (`export A <= B`) or
+  an equality (`export A = B`) gets a checker that compiles. Its
+  `isConsistent(g)` called checks over the whole graph that only
+  acyclicity constraints had, and the equality's check was printed as a
+  free function, not a member. Their check of a read, which GenMC makes
+  before it updates the read's views to its rf, no longer looks up a view
+  on the right (`export rfe <= hb`) in them: it missed the rf, and ruled
+  out consistent reads (#58)
 
 ## [0.4.0-vzhn.3] - 2026.10.25
 

@@ -83,8 +83,11 @@ private:
 	void printCalculator(const LetStatement *let, std::string prefix, std::string name);
 
 	void printUnless(const Constraint *cst, std::string prefix, bool counterexample);
+	/* With VIEWOFRHS, a RHS that is a view is looked up in the label's
+	 * view instead of visited; not for isConsistent(lab), which GenMC calls
+	 * on a read before it updates the read's views to its rf */
 	void printSubset(const SubsetConstraint *cst, std::string prefix,
-			 bool counterexample = false);
+			 bool counterexample = false, bool viewOfRHS = true);
 	void printAcyclic(const AcyclicConstraint *cst, std::string prefix);
 	void printWarning(const WarningConstraint *cst, std::string prefix);
 	void printCoherence(const CoherenceConstraint *cst);

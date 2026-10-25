@@ -1,0 +1,11 @@
+// An inclusion and an equality, exported: their checker did not compile,
+// with no checks of them over the whole graph and the equality's visit
+// function not a member (#58); oracle-genmc-eqincl checks its verdicts too,
+// on graphs that break each, and each direction of the equality
+
+let ppo = po
+view hb = (po | [ATOM];rf;[ATOM] | tc | tj | lin)+
+export coherence hb
+export acyclic (po | rf | mo | fr)
+export rfe <= hb
+export [W];po;[R] = [W];po;[R];[ATOM] | [W];po;[NA];po;[R]
