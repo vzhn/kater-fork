@@ -27,8 +27,9 @@ then extensible in the model (see [What Lean checks](#what-lean-checks)).
 `tests/oracle` builds `kater-oracle`, which gives `.kat` its meaning on
 execution graphs and searches, with Z3, for small graphs that refute what
 Kater claims. It shares Kater's parser and AST, and nothing of its
-inference: the Theory is consulted only for names, for the per-location
-variants of user relations, and for the user's `disjoint` declarations.
+inference: the Theory is consulted only for names and for the per-location
+variants of user relations. The module's `disjoint` declarations, those of
+builtin predicates included, are hypotheses as declared.
 
 ### Execution graphs
 
@@ -1631,11 +1632,13 @@ After the fixes:
   so do the 34 assertions that `tests/correct/lkmm` and
   `tests/correct/rc11/blind-rmw-psc.kat` brought with the merge of
   `lkmm-checks` (#56): 39 certificates, resting on 1475 letter inclusions and
-  19 hypotheses that hold up to 4 events. With 5 events the oracle refutes
+  19 hypotheses that hold up to 4 events. With 5 events the oracle refuted
   two of `lkmm-genmc-vs-herd.kat`, but on graphs that break the file's
   `disjoint EXCL # NA`, a declaration of builtin predicates alone, which the
-  oracle leaves out ([#60](https://github.com/vzhn/kater-fork/issues/60)):
-  stated as an assumption, it leaves no counterexample;
+  oracle left out ([#60](https://github.com/vzhn/kater-fork/issues/60)).
+  It now takes every declaration as a hypothesis, and finds no
+  counterexample to any of the file's assertions up to 5 events
+  (`oracle-check-issue-60`);
 - the export of every `kat/*-genmc.kat` model passes: 222 claims and
   rewrites with up to 5 events, and 488 letter inclusions of the claims'
   certificates, before #33 was fixed (7 of the claims the extensibility

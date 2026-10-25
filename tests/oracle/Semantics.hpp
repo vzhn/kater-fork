@@ -81,7 +81,8 @@ public:
 	/* Whether constraint C holds in the graph */
 	auto holds(const Constraint &c) -> Term;
 
-	/* The axioms of the module's user declarations (disjoint predicates) */
+	/* The axioms of the module's declarations (disjoint predicates, builtins
+	 * among them) */
 	auto declarationAxioms(const VSet<VSet<Predicate::ID>> &disjointSets) -> Term;
 
 	/* GenMC's hb: the view the module names hb, which GenMC's driver records
