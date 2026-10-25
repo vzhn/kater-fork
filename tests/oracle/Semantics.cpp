@@ -431,18 +431,20 @@ auto Semantics::declarationAxioms(const VSet<VSet<Predicate::ID>> &disjointSets)
 {
 	auto &c = g_->ctx();
 	std::vector<Term> axioms;
+	auto predicate = [&](Predicate::ID id) -> Predicate {
+		if (auto it = predicates_.find(id); it != predicates_.end())
+			return it->second;
+		if (id >= 0)
+			return Predicate::createBuiltin(static_cast<Predicate::BuiltinID>(id));
+		throw Unsupported("disjointness of undeclared predicates");
+	};
 	for (const auto &set : disjointSets) {
-		if (std::ranges::none_of(set, [](auto id) { return id < 0; }))
-			continue;
 		for (auto it1 = set.begin(); it1 != set.end(); ++it1) {
 			for (auto it2 = it1 + 1; it2 != set.end(); ++it2) {
-				auto p1 = predicates_.find(*it1);
-				auto p2 = predicates_.find(*it2);
-				if (p1 == predicates_.end() || p2 == predicates_.end())
-					throw Unsupported("disjointness of undeclared predicates");
+				auto p1 = predicate(*it1);
+				auto p2 = predicate(*it2);
 				for (auto e = 0U; e < g_->size(); e++)
-					axioms.push_back(
-						!(eval(p1->second, e) && eval(p2->second, e)));
+					axioms.push_back(!(eval(p1, e) && eval(p2, e)));
 			}
 		}
 	}
