@@ -666,9 +666,15 @@ certificates, in about 90 seconds and 140 MB (the ctest
 assertions about `let rec` (`recursion.kat`, `rec-rewrite.kat`) are among
 them. The compilation schemes take the longest: 20 seconds each for
 `comp-rc11f-power-simpl-full` and `comp-rc11rw-power-simpl-full`, whose
-right automata have about 2300 states. Two things keep the rotations quick:
-the search does without the simulation of an automaton of more than 2048
-states, which takes time and memory quadratic in them, and Kater's
+right automata have about 2300 states. The merge of `lkmm-checks` (#56)
+brought the 6 assertions of `tests/correct/rc11/blind-rmw-psc.kat`, which
+the checker accepts among the others, and `tests/correct/lkmm`, whose 28 it
+accepts too, in 20 to 25 minutes, most of it on the inclusions between
+`lkmm-genmc.kat` and the kernel's `linux-kernel.cat`
+(`lkmm-genmc-vs-herd.kat`): they have a ctest of their own,
+`formal-lkmm-evidence-check`, labeled `slow` too. Two things keep the
+rotations quick: the search does without the simulation of an automaton of
+more than 2048 states, which takes time and memory quadratic in them, and Kater's
 `saturateRotate` names, as the origins of its copies' states, the states of
 Lean's automaton of rotations they stand for. Before them, the check of the
 rotation of `eq-tso-tsofm`, 1220 states against Lean's 49455, took 17
@@ -1005,7 +1011,7 @@ Three differences are explained, and the comparison allows for them:
 Not covered:
 
 - Revisits under IMM and LKMM, whose revisited graph has holes, and the
-  reads-from of the reads in it (`GenMCDriver::getRevisitView`), which is
+  reads-from of the reads in it (`BackwardRevisits::revisitView`), which is
   GenMC's driver more than the checker; and reads added before events a revisit
   kept, which GenMC's LKMM mode relocates.
 - The memory-error checks of graphs with a porf cycle (IMM, LKMM), whose state
@@ -1025,7 +1031,10 @@ Not covered:
   more than one location.
 - Labels the instructions do not make: abstract locks, helped
   compare-and-swaps, barriers, condition variables, thread kills; and GenMC's
-  hand-written LKMM checks (RCU, plain accesses).
+  hand-written LKMM checks (RCU, plain accesses). `kat/lkmm-genmc.kat` says
+  what its hand-written freed-memory and write-write checks add to its
+  error rules, and `tests/correct/lkmm/lkmm-genmc-invariants.kat` has Kater
+  prove what the rules and GenMC's exploration rely on.
 
 ## Extensibility
 
@@ -1619,6 +1628,14 @@ After the fixes:
   events; every proof of it has a valid certificate and chain (63, resting
   on 519 letter inclusions and 178 hypotheses that hold up to 4 events), and
   the evidence of its whole proof checks (see [Whole proofs](#whole-proofs));
+  so do the 34 assertions that `tests/correct/lkmm` and
+  `tests/correct/rc11/blind-rmw-psc.kat` brought with the merge of
+  `lkmm-checks` (#56): 39 certificates, resting on 1475 letter inclusions and
+  19 hypotheses that hold up to 4 events. With 5 events the oracle refutes
+  two of `lkmm-genmc-vs-herd.kat`, but on graphs that break the file's
+  `disjoint EXCL # NA`, a declaration of builtin predicates alone, which the
+  oracle leaves out ([#60](https://github.com/vzhn/kater-fork/issues/60)):
+  stated as an assumption, it leaves no counterexample;
 - the export of every `kat/*-genmc.kat` model passes: 222 claims and
   rewrites with up to 5 events, and 488 letter inclusions of the claims'
   certificates, before #33 was fixed (7 of the claims the extensibility
@@ -1633,7 +1650,11 @@ After the fixes:
 - the exported checkers of all six models type-check against GenMC
   (0.19.0-vzhn.10), and the fixes left them byte-identical but for items 16
   and 22, which changed their acyclicity checks and the checks of their
-  clauses `A = 0` alone; a Kater built with assertions exports the same ones;
+  clauses `A = 0` alone; a Kater built with assertions exports the same ones.
+  Since the merge of `lkmm-checks` (#56) they have vzhn/genmc-fork's layout
+  (`genmc/Models/`, no unused arrays): installed into genmc-fork 9fc35d91 in
+  place of its own, they build, and its tests pass but those that fail
+  without them too;
 - run inside GenMC, they answer as the reference semantics does on every
   graph tried, their memory-error checks and races included (see
   [Results](#results)).
