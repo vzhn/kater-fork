@@ -185,12 +185,16 @@ if(LAKE)
   # assertion's expressions to its verdict, checked by the Lean checker of
   # whole proofs in formal/, whose build proves that the assertion of
   # evidence it accepts holds on every execution graph where the module's
-  # assumptions do
+  # assumptions do. tests/correct/lkmm has its own, as its chains take the
+  # checker 20 to 25 minutes, the rest of the suite under two
+  file(GLOB ORACLE_CORRECT_LKMM ${PROJECT_SOURCE_DIR}/tests/correct/lkmm/*.kat)
+  set(ORACLE_CORRECT_NOT_LKMM ${ORACLE_CORRECT_ALL})
+  list(REMOVE_ITEM ORACLE_CORRECT_NOT_LKMM ${ORACLE_CORRECT_LKMM})
   set(EVIDENCE_JSON ${CMAKE_CURRENT_BINARY_DIR}/evidence)
   add_test(NAME formal-evidence-clean
     COMMAND ${CMAKE_COMMAND} -E rm -rf ${EVIDENCE_JSON})
   add_test(NAME formal-evidence-write
-    COMMAND kater-oracle evidence --json ${EVIDENCE_JSON} ${ORACLE_CORRECT_ALL})
+    COMMAND kater-oracle evidence --json ${EVIDENCE_JSON} ${ORACLE_CORRECT_NOT_LKMM})
   add_test(NAME formal-evidence-check
     COMMAND ${LAKE} exe kater-chain-check ${EVIDENCE_JSON}
     WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}/formal)
@@ -202,6 +206,24 @@ if(LAKE)
     FAIL_REGULAR_EXPRESSION "(^|\n)0 assertions accepted")
   set_tests_properties(formal-evidence-clean formal-evidence-write formal-evidence-check
     PROPERTIES LABELS "oracle;formal" TIMEOUT 1800)
+
+  set(LKMM_EVIDENCE_JSON ${CMAKE_CURRENT_BINARY_DIR}/lkmm-evidence)
+  add_test(NAME formal-lkmm-evidence-clean
+    COMMAND ${CMAKE_COMMAND} -E rm -rf ${LKMM_EVIDENCE_JSON})
+  add_test(NAME formal-lkmm-evidence-write
+    COMMAND kater-oracle evidence --json ${LKMM_EVIDENCE_JSON} ${ORACLE_CORRECT_LKMM})
+  add_test(NAME formal-lkmm-evidence-check
+    COMMAND ${LAKE} exe kater-chain-check ${LKMM_EVIDENCE_JSON}
+    WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}/formal)
+  set_tests_properties(formal-lkmm-evidence-clean PROPERTIES
+    FIXTURES_SETUP lkmm-evidence-clean)
+  set_tests_properties(formal-lkmm-evidence-write PROPERTIES
+    FIXTURES_REQUIRED lkmm-evidence-clean FIXTURES_SETUP lkmm-evidence-json)
+  set_tests_properties(formal-lkmm-evidence-check PROPERTIES
+    FIXTURES_REQUIRED lkmm-evidence-json ENVIRONMENT "${LAKE_ENVIRONMENT}"
+    FAIL_REGULAR_EXPRESSION "(^|\n)0 assertions accepted")
+  set_tests_properties(formal-lkmm-evidence-clean formal-lkmm-evidence-write
+    formal-lkmm-evidence-check PROPERTIES LABELS "oracle;formal;slow" TIMEOUT 3600)
 
   # The same for every claim the export of each GenMC model rests on: the
   # inclusions the Checker proves on the way, and each extensibility check,
@@ -254,7 +276,8 @@ if(LAKE)
 
   # One lake at a time in formal/
   set_tests_properties(formal-certificates-check formal-export-certificates-check
-    formal-evidence-check formal-export-evidence-check formal-model-check
+    formal-evidence-check formal-lkmm-evidence-check formal-export-evidence-check
+    formal-model-check
     PROPERTIES RESOURCE_LOCK formal-lake)
 endif()
 

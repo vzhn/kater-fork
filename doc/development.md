@@ -70,7 +70,9 @@ proofs: of the assertions, and of the claims the exports of the GenMC
 models rest on, their extensibility checks among them. With Lean installed
 (through [elan](https://github.com/leanprover/elan)), `lake build` in
 `formal/` checks the proofs, and the tests labeled `formal` run the
-checkers on the suite and on `kat/*-genmc.kat`:
+checkers on the suite and on `kat/*-genmc.kat` (`formal-lkmm-evidence-check`,
+the whole proofs of `tests/correct/lkmm`, takes 20 to 25 minutes and is
+also labeled `slow`; `-LE slow` leaves it out):
 
 ```shell
 cd Release && ctest -L formal
