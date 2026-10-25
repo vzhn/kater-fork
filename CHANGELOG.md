@@ -6,6 +6,38 @@ released.
 
 ## [Unreleased]
 
+## [0.4.0-vzhn.1] - 2026.10.25
+
+The first release of the vzhn/kater-fork fork, on top of Kater 0.4.0.
+genmc-fork's checkers are exported from it.
+
+### Added
+
+- Code export for GenMC's current checker interface and source layout
+  (genmc-fork), and the Linux-kernel memory model (`kat/lkmm-genmc.kat`)
+  with its error rules (#1, #63)
+- `export nonextensible`: a model can say that an export is not
+  extensible, and Kater's extensibility check of it only warns (#39)
+- An extensibility check that decides (#33)
+- `kater-oracle`: Kater and its exported checkers checked against a
+  reference semantics; `tests/wrong` holds only false claims (#6, #31,
+  #36, #42, #23)
+- `formal/`: a checker of Kater's certificates and evidence, proved sound
+  in Lean, and a build warning when the C++ it mirrors changes (#25, #26,
+  #47, #48, #49, #57, #64)
+- Kater split into verifiable layers (#5)
+
+### Fixes
+
+- Exact acyclicity checks in exported code, with Tarjan's algorithm (#27,
+  #29)
+- The check of a clause `A = 0` sets its counterexample (`cexLab`) (#34)
+- Traversals of automata without states (#35), the check of
+  `0 <= VIEW` (#51), counterexample completion (#37)
+- The domain of an inverted relation (#45), two closure rules (#46),
+  `total r`, a lost path in the predicate passes, a loop in
+  `compactEdges` (#30), and the bugs `kater-oracle` found (#7-#18)
+
 ## [0.4.0] - 2026.09.02
 ### Added
 
