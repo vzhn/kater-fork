@@ -8,6 +8,11 @@ released.
 
 ### Fixes
 
+- `kater-oracle`: its semantics of an automaton names the formulas of
+  each round past 24 rounds, which nested once per round: on automata with
+  cycles of a few dozen states, Z3 took gigabytes, then threw an
+  exception `kater-oracle` did not catch. `certify` checks the passes of
+  up to 80 rounds instead of 24 (#44)
 - `kater-oracle`: takes every `disjoint` declaration of a module as a
   hypothesis, including those of builtin predicates alone (`disjoint EXCL
   # NA` in `tests/correct/lkmm`), which it left out; it then reported

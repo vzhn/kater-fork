@@ -560,11 +560,15 @@ assumption read as something it does not say, as in #13 (`r & id <= 0`
 used as `r <= 0`), shows there; a saturation that adds what its hypothesis
 does not give, as in #19 (`total r` making r-steps optional), has no
 evidence that checks. It checks the contract of a
-pass without evidence only when the pass's automata have at most 24 states
-per event of the bound: `NFASemantics` nests its formulas once per round,
-and on automata with cycles of a few dozen states Z3 takes gigabytes of
-memory and then gives up (at 1 event, `eq-eco-paper`'s `normalize` passes of
-31 states took 15 GB; [#44](https://github.com/vzhn/kater-fork/issues/44)).
+pass without evidence only when the pass's automata have at most 80 rounds
+of `NFASemantics`, their states times the events of the graph.
+`NFASemantics` builds each round's formulas from the last round's, and on
+automata with cycles of a few dozen states Z3 took gigabytes of memory and
+then gave up (at 1 event, `eq-eco-paper`'s `normalize` passes of 31 states
+took 15 GB; [#44](https://github.com/vzhn/kater-fork/issues/44)). Past 24
+rounds it now names each round's formulas, and those passes take under a
+second; at 3 events, the passes beyond 80 rounds take minutes and
+gigabytes, the formulas being large anyway.
 
 ### Whole proofs
 
@@ -1706,19 +1710,10 @@ After the fixes:
   `prop-int` need not. Lean's theorem of the check
   ([What Lean checks](#what-lean-checks)) has both as hypotheses, with
   what else it takes of GenMC's addition of the event.
-- **The oracle's semantics of automata overflows Z3**
-  ([#44](https://github.com/vzhn/kater-fork/issues/44)): `NFASemantics`
-  nests its formulas once per round, states times events, and on automata
-  with cycles of a few dozen states Z3 takes gigabytes, then throws an
-  exception `kater-oracle` did not catch. `certify` now catches it, and
-  checks a pass of a chain without evidence only when its automata have at
-  most 24 states per event of the bound.
-- **Exported inclusions and equalities do not compile**
-  ([#58](https://github.com/vzhn/kater-fork/issues/58)): for a model that
-  exports `A <= B` or `A = B` as a consistency constraint, `isConsistent(g)`
-  calls a check over the whole graph, which only acyclicity constraints
-  have, and the `visit` function that joins an equality's two directions is
-  printed outside the class. None of the models has such an export.
+- **The oracle checks only some passes of a chain**: `certify` checks a
+  pass without evidence only when its automata have at most 80 rounds of
+  `NFASemantics` (see [Certificates](#certificates)); at 3 events, 72 of
+  the suite's 266 such passes are larger.
 - **Not checked by the oracle**: of the printed code, the revisits of the
   dependency-tracking models (see
   [The exported checkers](#the-exported-checkers)).
