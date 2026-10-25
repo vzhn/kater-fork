@@ -1,6 +1,6 @@
 // Facts about GenMC's labels that Kater cannot read from the predicates' C++
 // strings in lkmm-genmc.kat. Each holds by construction in GenMC 0.19:
-// Acq, R4rmb, MbR and LKR are ReadLabels, Rel, MbW, LKW, UL and SrcuU
+// Acq, R4rmb, MbR, LKR and FopR are ReadLabels, Rel, MbW, LKW, UL and SrcuU
 // WriteLabels; the kernel's ordered accesses, fences, locks and RMWs carry
 // an atomic ordering.
 
@@ -15,6 +15,7 @@ disjoint lkmm-genmc::MbW # R # F
 disjoint lkmm-genmc::LKW # R # F
 disjoint lkmm-genmc::UL # R # F
 disjoint lkmm-genmc::SrcuU # R # F
+disjoint lkmm-genmc::FopR # W # F
 
 // atomic orderings
 disjoint lkmm-genmc::Acq # NA
@@ -24,5 +25,6 @@ disjoint lkmm-genmc::MbW # NA
 disjoint lkmm-genmc::LKR # NA
 disjoint lkmm-genmc::LKW # NA
 disjoint lkmm-genmc::UL # NA
+disjoint lkmm-genmc::FopR # NA
 disjoint F # NA
 disjoint EXCL # NA
