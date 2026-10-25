@@ -39,6 +39,12 @@ public:
 	using std::runtime_error::runtime_error;
 };
 
+/* Whether R is a positional builtin that GenMC's hb defines (last_*, unprotected) */
+auto isHbPositional(Relation::BuiltinID r) -> bool;
+
+/* That builtin's meaning in G, with HB as GenMC's hb */
+auto hbPositional(Graph &g, Relation::BuiltinID r, const Matrix &hb) -> Matrix;
+
 /*
  * The reference semantics of .kat: what an expression, a constraint or an
  * automaton means on a graph, defined by structural recursion over Kater's

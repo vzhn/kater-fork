@@ -84,6 +84,15 @@ public:
 	[[nodiscard]] auto isLocated(unsigned e) const -> Term;
 	[[nodiscard]] auto hasLocation(unsigned e) const -> Term;
 	[[nodiscard]] auto isDependable(unsigned e) const -> Term;
+	/* The OTHER events that are dependable */
+	[[nodiscard]] auto isDependableOther(unsigned e) const -> Term
+	{
+		return dependableOther_[e];
+	}
+	/* The location of event E (0 if it has none), and the hazard pointer of
+	 * a protection (0 for other events) */
+	[[nodiscard]] auto location(unsigned e) const -> const z3::expr & { return loc_[e]; }
+	[[nodiscard]] auto hazard(unsigned e) const -> const z3::expr & { return hp_[e]; }
 	[[nodiscard]] auto sameThread(unsigned a, unsigned b) const -> Term
 	{
 		return sameThread_(a, b);

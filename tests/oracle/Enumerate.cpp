@@ -225,13 +225,20 @@ auto moRespectsPo(const Execution &x, const std::vector<unsigned> &order) -> boo
 	return true;
 }
 
+/* Whether instruction I's events have a location (fences and thread events
+ * have none) */
+auto isLocated(const Alphabet::Instruction &i) -> bool
+{
+	return Event{.kind = i.kind}.hasLocation();
+}
+
 /* The events of instruction I of THREAD, at location LOC */
 auto eventsOf(const Alphabet::Instruction &i, unsigned thread, int loc) -> std::vector<Event>
 {
 	const Event ev{.thread = thread,
 		       .kind = i.kind,
 		       .order = i.order,
-		       .loc = i.kind == Kind::F ? -1 : loc,
+		       .loc = isLocated(i) ? loc : -1,
 		       .excl = i.rmw,
 		       .flavor = i.flavor,
 		       .fence = i.fence,
@@ -289,12 +296,12 @@ private:
 			auto size = i.rmw ? 2U : 1U;
 			if (used + size > b_.events)
 				continue;
-			auto maxLoc = i.kind == Kind::F ? 1U : std::min(locs + 1, b_.locations);
+			auto maxLoc = isLocated(i) ? std::min(locs + 1, b_.locations) : 1U;
 			for (auto l = 0U; l < maxLoc; l++) {
 				auto evs = eventsOf(i, thread, static_cast<int>(l));
 				x_.events.insert(x_.events.end(), evs.begin(), evs.end());
 				instructions(thread, used + size,
-					     i.kind == Kind::F ? locs : std::max(locs, l + 1),
+					     isLocated(i) ? std::max(locs, l + 1) : locs,
 					     count + 1);
 				x_.events.resize(x_.events.size() - evs.size());
 			}

@@ -59,6 +59,18 @@
  *       and every step of each extensibility check, from the constraint's
  *       automaton to the certificates of its words.
  *
+ *   kater-oracle graphs --json FILE [-n EVENTS] [--threads T] [--locations L]
+ *                       [--heap-events H] [--random N] [--random-events M]
+ *                       [--symbolic K] [--symbolic-events E] [--seed S]
+ *                       [--graph FILE]...
+ *       Writes to FILE, as JSON lines, every graph up to EVENTS events (of
+ *       accesses, fences and dependencies; of the other kinds of events;
+ *       up to H, of a heap), N random ones up to M, K models of the
+ *       symbolic graph's axioms up to E, and the graphs of FILEs, each with
+ *       the oracle's meaning of every builtin relation and predicate: the
+ *       input of the differential test of the model in formal/
+ *       (kater-model-check).
+ *
  *   kater-oracle explain FILE
  *       Prints the automaton of the left-hand side of each assertion of
  *       FILE through the stages of Kater's inclusion check.
@@ -100,6 +112,7 @@
 #include "Export.hpp"
 #include "Extensible.hpp"
 #include "GenMC.hpp"
+#include "GraphJSON.hpp"
 #include "Search.hpp"
 #include "Transforms.hpp"
 
@@ -130,6 +143,7 @@ struct Options {
 	TransformOptions transforms;
 	GenMCOptions genmc;
 	ExtensibleOptions extensible;
+	GraphJSONOptions graphs;
 	bool verbose = false;
 	bool refutable = false;
 	/* evidence: of the claims of the export, not of the assertions */
@@ -146,6 +160,10 @@ struct Options {
 		   "                            [-v] FILE...\n"
 		   "       kater-oracle export [-n EVENTS] [-t SECONDS] [--json DIR] [-v] FILE...\n"
 		   "       kater-oracle evidence --json DIR [--export] [-v] FILE...\n"
+		   "       kater-oracle graphs --json FILE [-n EVENTS] [--threads T]\n"
+		   "                           [--locations L] [--heap-events H] [--random N]\n"
+		   "                           [--random-events M] [--symbolic K]\n"
+		   "                           [--symbolic-events E] [--seed S] [--graph FILE]...\n"
 		   "       kater-oracle explain FILE...\n"
 		   "       kater-oracle audit [-n EVENTS] [-t SECONDS] [-v]\n"
 		   "       kater-oracle transforms [-n EVENTS] [-t SECONDS] [--cases N]\n"
@@ -181,7 +199,7 @@ auto parseOptions(int argc, char **argv, int first) -> Options
 		};
 		if (arg == "-n")
 			opts.search.maxEvents = opts.genmc.bounds.events =
-				opts.extensible.bounds.events = value();
+				opts.extensible.bounds.events = opts.graphs.bounds.events = value();
 		else if (arg == "-t")
 			opts.search.timeoutMs = value() * 1000;
 		else if (arg == "-v")
@@ -193,7 +211,7 @@ auto parseOptions(int argc, char **argv, int first) -> Options
 		else if (arg == "--cases")
 			opts.transforms.cases = value();
 		else if (arg == "--seed")
-			opts.transforms.seed = opts.genmc.seed = value();
+			opts.transforms.seed = opts.genmc.seed = opts.graphs.seed = value();
 		else if (arg == "--depth")
 			opts.transforms.depth = value();
 		else if (arg == "--only")
@@ -207,15 +225,21 @@ auto parseOptions(int argc, char **argv, int first) -> Options
 		else if (arg == "--runner")
 			opts.genmc.runner = text();
 		else if (arg == "--threads")
-			opts.genmc.bounds.threads = opts.extensible.bounds.threads = value();
+			opts.genmc.bounds.threads = opts.extensible.bounds.threads =
+				opts.graphs.bounds.threads = value();
 		else if (arg == "--locations")
-			opts.genmc.bounds.locations = opts.extensible.bounds.locations = value();
+			opts.genmc.bounds.locations = opts.extensible.bounds.locations =
+				opts.graphs.bounds.locations = value();
 		else if (arg == "--random")
-			opts.genmc.random = value();
+			opts.genmc.random = opts.graphs.random = value();
 		else if (arg == "--random-events")
-			opts.genmc.randomBounds.events = value();
+			opts.genmc.randomBounds.events = opts.graphs.randomBounds.events = value();
 		else if (arg == "--heap-events")
-			opts.genmc.heapBounds.events = value();
+			opts.genmc.heapBounds.events = opts.graphs.heapBounds.events = value();
+		else if (arg == "--symbolic")
+			opts.graphs.symbolic = value();
+		else if (arg == "--symbolic-events")
+			opts.graphs.symbolicEvents = value();
 		else if (arg == "--limit")
 			opts.genmc.limit = value();
 		else if (arg == "--graph")
@@ -376,6 +400,12 @@ auto main(int argc, char **argv) -> int
 				      ? writeExportEvidence(f, *opts.jsonDir, opts.verbose)
 				      : writeEvidence(f, *opts.jsonDir, opts.verbose);
 		return ok ? 0 : 1;
+	}
+	if (cmd == "graphs") {
+		if (!opts.jsonDir)
+			usage();
+		opts.graphs.graphs = opts.genmc.graphs;
+		return writeGraphs(*opts.jsonDir, opts.graphs) ? 0 : 1;
 	}
 	if (cmd == "explain") {
 		auto ok = true;

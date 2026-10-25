@@ -25,6 +25,10 @@ the oracle gives no meaning, are any relation and any predicates.
 A module's own relations and predicates are any relations and predicates
 (`User`), but the per-location variant `r-loc` of a relation `r`, which is
 `r` between events on the same location.
+
+`ModelEval` decides the builtins and the axioms on finite graphs, and
+`kater-model-check` compares them with the oracle's on the graphs it
+enumerates (`doc/verification.md`, Whole proofs).
 -/
 
 namespace KaterCert
