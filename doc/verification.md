@@ -1098,12 +1098,20 @@ checked by the ctests `oracle-extensible-refuted-*`):
   reaches past the added write in its thread (`isCoBeforeSavedPrefix`, in
   `GenMCDriver::isMaximalExtension`).
 
-And IMM is not maximally extensible. In `imm-join.graph`, 13 events, a read
-in a hole before a thread join, read from a release write, makes the join
-synchronize with that write (`sw_to_f`: `rf ; po ; [TJ] ; [ACQ]`), and closes
-an `ar` cycle; `ppo` does not order the read before the join (`bob` has
-`po ; [F]`, not `po ; [TJ]`). Read from init, it closes none
-(`oracle-extensible-maximal-refuted-imm-join`).
+IMM was not maximally extensible either. In `imm-join.graph`, 13 events, a
+read in a hole before a thread join, read from a release write, makes the
+join synchronize with that write (`sw_to_f`: `rf ; po ; [TJ] ; [ACQ]`), and
+closes an `ar` cycle; `ppo` did not order the read before the join (`bob`
+had `po ; [F]`, not `po ; [TJ]`). Read from init, it closes none. This is
+the MP-EXT example of Kokologiannakis's thesis (§5.4.1): there, POWER's
+`ppo` has only dependencies and a separate axiom orders events around
+fences, and the model is not extensible. A dependency-tracking model's
+prefix must have the orderings its axioms add. `bob` now orders events
+before and after a join as it does around a fence, `po ; [F|TJ] | [F|TJ] ;
+po`, as `sw_to_f` treats the join as an acquire fence: the read is in the
+prefix of the events after the join, and no revisit leaves the hole
+(`oracle-extensible-maximal-imm-join`). IMM's coherence export and `psc`
+then pass Kater's check.
 
 ### What Kater checks
 
@@ -1188,8 +1196,8 @@ inclusion between LKMM's own predicates, which Kater does not know
 
 A model can say that an export is not extensible: `export nonextensible
 acyclic r` (or `coherence`). The check of that export then only warns, and
-warns as well, that the flag is stale, if it passes. IMM flags `ar`, `psc`
-and its coherence export ([#38](https://github.com/vzhn/kater-fork/issues/38)),
+warns as well, that the flag is stale, if it passes. IMM flags `ar`
+([#38](https://github.com/vzhn/kater-fork/issues/38)),
 LKMM `lkhb` and `pb` ([#39](https://github.com/vzhn/kater-fork/issues/39)),
 and their checkers are unchanged; the ctests `export-nonextensible-*` fail
 once either exports without the warning.
@@ -1205,11 +1213,14 @@ once either exports without the warning.
   on every graph up to N events, and reports it as `vacuous` when its left
   automaton accepts nothing, as all seven acyclicity checks of
   `kat/*-genmc.kat` did before #33 was fixed; none does now. Every claim of
-  the six exports holds up to 3 events; at 3, each claim of LKMM's coherence
-  check takes minutes, so the ctests check LKMM up to 2 events
-  (`oracle-export-lkmm`) and the others up to 3 (`oracle-export`). With
+  the six exports holds up to 2 events, and those of SC, TSO, RA and RC11 up
+  to 3; at 3, each claim of LKMM's coherence check takes minutes, and three
+  of IMM's coherence and `psc` checks, which pass since `bob` orders events
+  around a join (#38), time out after 300 seconds. So the ctests check IMM
+  and LKMM up to 2 events (`oracle-export-imm`, `oracle-export-lkmm`) and
+  the others up to 3 (`oracle-export`). With
   `--json`, it writes these certificates with the others; the checker in
-  Lean accepts the 67 certificates of the six exports (13 of them the
+  Lean accepts the 70 certificates of the six exports (16 of them the
   extensibility checks'), and gives each of their 841 copies
   `checkCertificate`'s verdict.
 - `kater-oracle extensible` checks both properties on concrete graphs:
@@ -1236,8 +1247,8 @@ seconds. Their counterexamples need 8 events and more (above). The ctests
 `oracle-extensible` (up to 3 events) and `oracle-extensible-lkmm` (up to 2)
 check the six models with `--maximal`; `oracle-extensible-refuted-*` the two
 of `tests/oracle/extensible`, IMM and LKMM at their graphs, and
-`oracle-extensible-maximal-refuted-imm-join` the one where IMM can add the
-event, but not maximally.
+`oracle-extensible-maximal-imm-join` the one where IMM could add the
+event, but not maximally, before `bob` ordered events around a join.
 
 ### What Lean checks
 
@@ -1704,8 +1715,9 @@ After the fixes:
   hole in an IMM graph that no way of filling keeps consistent (`addr ; po?`
   orders events through it), and in an LKMM graph (coherence ties the event
   to a later read of its location by `moe`), on graphs of 11 and 8 events in
-  `tests/oracle/extensible`. Both flag their exports `nonextensible`, and
-  export with a warning. A fix changes their `ppo`, or which holes GenMC
+  `tests/oracle/extensible`. Both flag their exports `nonextensible` (IMM
+  only `ar`, since `bob` orders events around a join), and export with a
+  warning. A fix changes their `ppo`, or which holes GenMC
   leaves (`GenMCDriver::isMaximalExtension`).
 - **What the extensibility check leaves out.** It proves extensibility for
   the events that nothing after them accesses the location of; in a hole,

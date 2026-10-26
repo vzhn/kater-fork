@@ -8,6 +8,12 @@ released.
 
 ### Fixes
 
+- `imm-genmc.kat`: `bob` orders the events before and after a thread join,
+  as it does around a fence (`po ; [F|TJ] | [F|TJ] ; po`). `sw_to_f` makes
+  a join synchronise as an acquire fence, and `ppo` did not order a read
+  before it: GenMC could add such a read into a hole and find the graph
+  inconsistent when the read read maximally. The coherence export and `psc`
+  are no longer `nonextensible`; `ar` still is (`addr ; po?`) (#38)
 - The Lean checker of whole proofs reads the inverse of a recursive
   relation, which it rejected as unsupported: its automaton is that of
   the recursion flipped, proved to denote the inverse (#75)
