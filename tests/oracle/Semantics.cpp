@@ -245,18 +245,15 @@ auto Semantics::evalMutRec(const MutRecRE &re) -> Matrix
 	auto recs = re.recs();
 	auto k = static_cast<unsigned>(re.getNumKids());
 
-	/* `x^-1` flips the definitions of x in place, so that they refer to
-	 * x^-1: such a definition is the inverse of the one it was flipped from */
-	if (std::ranges::any_of(re.kids(), [&](auto &kid) { return refersInverted(*kid, recs); })) {
+	/* `x^-1` keeps the definitions of x, and flags them flipped */
+	if (re.isFlipped()) {
 		auto unflipped = re.clone();
 		unflipped->flip();
-		if (const auto *orig = dynamic_cast<const MutRecRE *>(&*unflipped);
-		    orig != nullptr && std::ranges::none_of(orig->kids(), [&](auto &kid) {
-			    return refersInverted(*kid, recs);
-		    }))
-			return evalMutRec(*orig).transpose();
-		throw Unsupported("a recursive definition through both a relation and its inverse");
+		return evalMutRec(dynamic_cast<const MutRecRE &>(*unflipped)).transpose();
 	}
+	if (std::ranges::any_of(re.kids(), [&](auto &kid) { return refersInverted(*kid, recs); }))
+		throw Unsupported("a recursive definition through the inverse of a relation it "
+				  "defines");
 
 	/* Kleene iteration from the empty relations. The definitions are
 	 * left-linear, so a pair is derived through a chain of distinct
