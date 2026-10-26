@@ -8,6 +8,9 @@ released.
 
 ### Fixes
 
+- The Lean checker of whole proofs reads the inverse of a recursive
+  relation, which it rejected as unsupported: its automaton is that of
+  the recursion flipped, proved to denote the inverse (#75)
 - `kater-oracle`: its semantics of an automaton names the formulas of
   each round past 24 rounds, which nested once per round: on automata with
   cycles of a few dozen states, Z3 took gigabytes, then threw an

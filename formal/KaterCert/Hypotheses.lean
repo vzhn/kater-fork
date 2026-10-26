@@ -70,6 +70,7 @@ def widen : Exp → Exp
   | .opt a => .opt a.widen
   | .ref i => .ref i
   | .fix main defs => .fix main defs
+  | .inv a => .inv a.widen
 
 /-- A word as an expression. -/
 def ofWord : List Label → Exp
@@ -173,6 +174,7 @@ theorem widen_sub (hF : Facts M) : ∀ (e : Exp) {x y : E}, e.widen.denote M x y
     · exact .inr (widen_sub hF a h)
   | .ref _, _, _, h => h
   | .fix _ _, _, _, h => h
+  | .inv a, _, _, h => widen_sub hF a h
 
 theorem ofWord_denote : ∀ (w : List Label) {x y : E},
     (Exp.ofWord w).denote M x y ↔ wordRel (Label.denote M) w x y

@@ -15,8 +15,9 @@ right side, with the evidence of its saturations (as in the certificates'
 JSON, `Read.chain`), and the final certificate.
 
 An expression is `{"label": LETTER}`, `{"alt": [E, ...]}`, `{"seq": [E,
-...]}`, `{"star": E}`, `{"plus": E}`, `{"opt": E}` or `{"rec": {"relation":
-ID, "relations": [ID, ...], "defs": [E, ...]}}`; lists fold into the binary
+...]}`, `{"star": E}`, `{"plus": E}`, `{"opt": E}`, `{"rec": {"relation":
+ID, "relations": [ID, ...], "defs": [E, ...]}}` or `{"inv": E}`, the inverse
+of a `rec` (Kater's `MutRecRE` flagged flipped); lists fold into the binary
 `Exp` (an empty sequence is the identity, an empty alternative `0`). A `rec`
 is a `fix` of its definitions, in which a letter of one of the relations it
 defines is a reference to it (`ref`), and must have no checks and not be
@@ -73,6 +74,7 @@ partial def expIn (recs : List (List Int)) (j : Json) : Except String Exp := do
   if let .ok k := j.getObjVal? "star" then return .star (← expIn recs k)
   if let .ok k := j.getObjVal? "plus" then return .plus (← expIn recs k)
   if let .ok k := j.getObjVal? "opt" then return .opt (← expIn recs k)
+  if let .ok k := j.getObjVal? "inv" then return .inv (← expIn recs k)
   if let .ok r := j.getObjVal? "rec" then
     let rel ← (← r.getObjVal? "relation").getInt?
     let rels ← (← (← r.getObjVal? "relations").getArr?).toList.mapM (·.getInt?)

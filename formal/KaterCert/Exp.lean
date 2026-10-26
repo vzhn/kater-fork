@@ -12,7 +12,9 @@ forms Kater supports into flags of a constraint (`A & id <= B`,
 Alternatives and sequences are binary here; Kater's are lists, which a reader
 folds (an empty sequence is the identity, an empty alternative `0`).
 `let rec` (`MutRecRE`) is a `fix` of its definitions, in which the relations
-it defines are references (`ref`), numbered as the definitions are.
+it defines are references (`ref`), numbered as the definitions are. Kater
+pushes inverses into letters, except that of a `let rec`, a `MutRecRE`
+flagged flipped: that is an `inv` of the `fix`.
 
 This mirrors the C++ region `ExpSemantics` (`tests/oracle/Semantics.cpp`), the
 oracle's semantics of expressions: `scripts/check-mirrors.sh` reports when it
@@ -45,6 +47,8 @@ inductive Exp where
   /-- `let rec` (`MutRecRE`): the `main`-th of the relations the definitions
   define together, in their least solution. -/
   | fix (main : Nat) (defs : Defs)
+  /-- The inverse `a^-1`. -/
+  | inv (a : Exp)
 
 /-- The definitions of a `let rec`. -/
 inductive Defs where
@@ -98,6 +102,7 @@ def denoteIn (M : Interp E) (ρ : Nat → Rel E) : Exp → Rel E
   | .opt a => Rel.Opt (a.denoteIn M ρ)
   | .ref i => ρ i
   | .fix main defs => fun x y => ∃ n, Nat.repeat (Defs.denoteIn M · defs) n (fun _ => Rel.empty) main x y
+  | .inv a => Rel.inv (a.denoteIn M ρ)
 
 /-- The relations definitions denote, given those `ρ` of the relations they
 define. -/
@@ -120,6 +125,7 @@ def denote (M : Interp E) : Exp → Rel E
   | .opt a => Rel.Opt (a.denote M)
   | .ref _ => Rel.empty
   | .fix main defs => (Exp.fix main defs).denoteIn M fun _ => Rel.empty
+  | .inv a => Rel.inv (a.denote M)
 
 end Exp
 

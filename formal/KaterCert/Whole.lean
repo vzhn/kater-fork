@@ -63,7 +63,7 @@ def mentions (ids : List Int) : Exp → Bool
   | .label l => match l.rel with | some r => ids.contains r.id | none => false
   | .zero | .ref _ => false
   | .alt a b | .seq a b => a.mentions ids || b.mentions ids
-  | .star a | .plus a | .opt a => a.mentions ids
+  | .star a | .plus a | .opt a | .inv a => a.mentions ids
   | .fix _ defs => Defs.mentions ids defs
 
 def _root_.KaterCert.Defs.mentions (ids : List Int) : Defs → Bool
@@ -88,6 +88,7 @@ def splitRf : Exp → Exp
   | .opt a => .opt a.splitRf
   | .ref i => .ref i
   | .fix main defs => .fix main (Defs.splitRf defs)
+  | .inv a => .inv a.splitRf
 
 def _root_.KaterCert.Defs.splitRf : Defs → Defs
   | .nil => .nil
@@ -166,6 +167,8 @@ theorem splitRf_denoteIn {M : Interp E} (h : RfSplit M) :
         funext i x y
         exact propext (defs_splitRf_denoteIn h defs _ i)
     simp only [this]
+  | .inv a, ρ, x, y => by
+    simp only [Exp.splitRf, Exp.denoteIn, Rel.inv, splitRf_denoteIn h a ρ]
 
 theorem defs_splitRf_denoteIn {M : Interp E} (h : RfSplit M) :
     ∀ (defs : Defs) (ρ : Nat → Rel E) (i : Nat) {x y : E},

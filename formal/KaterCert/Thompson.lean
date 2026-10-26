@@ -23,6 +23,12 @@ parts of the definitions' normal forms (`Exp.nf`): from its start to the
 hub of `xᵢ` it reads what `xᵢ` relates (`Reach`). The parts are not
 subexpressions, so the construction recurses on a bound of its depth, which
 `Exp.size` meets.
+
+The automaton of an inverse `a^-1` is that of `a` flipped, as Kater's
+`NFA::flip` flips it: each step reversed, its letter inverted
+(`Label.flip`), entered at the final state of `a`'s and left from its start.
+A path of the flipped automaton reads the reverse of a word of `a`'s, each
+letter flipped, which relates what that word does, inverted.
 -/
 
 namespace KaterCert
@@ -114,6 +120,35 @@ variable {L : Type} {E : Type u}
 
 namespace Thompson
 
+/-- The transitions `T` reversed, their letters flipped. -/
+def flipT (T : List (Nat × Label × Nat)) : List (Nat × Label × Nat) :=
+  T.map fun t => (t.2.2, t.2.1.flip, t.1)
+
+/-- A word reversed, its letters flipped: what a flipped path reads. -/
+def flipW (w : List Label) : List Label := (w.map Label.flip).reverse
+
+theorem flipW_cons (a : Label) (w : List Label) : flipW (a :: w) = flipW w ++ [a.flip] := by
+  simp [flipW]
+
+/-- A path, flipped, is a path of the flipped transitions. -/
+theorem Path.flip {T : List (Nat × Label × Nat)} :
+    ∀ {p w q}, Path T p w q → Path (flipT T) q (flipW w) p
+  | _, _, _, .nil p => .nil p
+  | _, _, _, .cons (p := p) (a := a) (q := q) ht hw => by
+    rw [flipW_cons]
+    exact (Path.flip hw).append (.single (List.mem_map.mpr ⟨(p, a, q), ht, rfl⟩))
+
+/-- A path of the flipped transitions is one of the transitions, flipped. -/
+theorem Path.of_flip {T : List (Nat × Label × Nat)} :
+    ∀ {p w q}, Path (flipT T) p w q → ∃ u, w = flipW u ∧ Path T q u p
+  | _, _, _, .nil p => ⟨[], rfl, .nil p⟩
+  | _, _, _, .cons ht hw => by
+    obtain ⟨⟨s, l, d⟩, ht', he⟩ := List.mem_map.mp ht
+    simp only [Prod.mk.injEq] at he
+    obtain ⟨rfl, rfl, rfl⟩ := he
+    obtain ⟨u, rfl, hu⟩ := Path.of_flip hw
+    refine ⟨u ++ [l], by simp [flipW], hu.append (.single ht')⟩
+
 /-- Pieces `(s, e, d)` laid out from `m`: the automaton `b e` of each,
 entered from `s` and left to `d` by steps of the identity. -/
 def lay (b : Exp → Nat → List (Nat × Label × Nat) × Nat) :
@@ -180,6 +215,9 @@ def build : Nat → Exp → Nat → List (Nat × Label × Nat) × Nat
     ([(n, .eps, n + 1), (n, .eps, n + 2), (n + 3, .eps, n + 1)] ++ ra.1, ra.2)
   | _ + 1, .ref _, n => ([], n + 2)
   | k + 1, .fix main defs, n => buildFix (build k) main defs n
+  | k + 1, .inv a, n =>
+    let ra := build k a (n + 2)
+    ([(n, .eps, n + 3), (n + 2, .eps, n + 1)] ++ flipT ra.1, ra.2)
 
 /-- What the construction keeps: its states are between `n` and the bound,
 nothing enters its start, and nothing leaves its final state. -/
@@ -417,6 +455,16 @@ theorem build_wf : ∀ (k : Nat) (e : Exp) (n : Nat), WF (build k e n).1 n (buil
   | k + 1, .fix main defs, n => by
     simp only [build]
     exact buildFix_wf (fun e m => build_wf k e m) main defs n
+  | k + 1, .inv a, n => by
+    obtain ⟨ha0, has, had, hai, hao⟩ := build_wf k a (n + 2)
+    simp only [build]
+    refine ⟨by omega, ?_, ?_, ?_, ?_⟩ <;> intro t ht <;>
+      simp only [List.mem_cons, List.mem_append, List.not_mem_nil, or_false, or_assoc, flipT,
+        List.mem_map] at ht <;>
+      rcases ht with rfl | rfl | ⟨t', ht', rfl⟩
+    all_goals first
+      | (dsimp only; omega)
+      | (have := has t' ht'; have := had t' ht'; have := hai t' ht'; dsimp only; omega)
 
 variable {E : Type u} (M : Interp E)
 
@@ -449,6 +497,18 @@ theorem rel_wrap {u : List Label} {x y : E} :
     exact this ▸ hu
   · intro h
     exact ⟨y, h, (rel_eps M).mpr ((rel_nil M).mpr rfl)⟩
+
+/-- A flipped word relates what the word does, inverted. -/
+theorem rel_flipW : ∀ {w : List Label} {x y : E}, rel M (flipW w) x y ↔ rel M w y x
+  | [], x, y => ⟨fun h => h.symm, fun h => h.symm⟩
+  | a :: w, x, y => by
+    rw [flipW_cons, rel_append]
+    simp only [rel, wordRel]
+    constructor
+    · rintro ⟨z, hw, z', ha, rfl⟩
+      exact ⟨z, (Label.denote_flip M a).mp ha, (rel_flipW (w := w)).mp hw⟩
+    · rintro ⟨z, ha, hw⟩
+      exact ⟨z, (rel_flipW (w := w)).mpr hw, y, (Label.denote_flip M a).mpr ha, rfl⟩
 
 section Parts
 
@@ -807,6 +867,57 @@ theorem sound_opt {ta : List (Nat × Label × Nat)} {n m : Nat} {A : Rel E}
         exact .inr (iha hu ((rel_wrap M).mp hw))
     · omega
 
+theorem sound_inv {ta : List (Nat × Label × Nat)} {n m : Nat} {A : Rel E}
+    (wa : WF ta (n + 2) m)
+    (iha : ∀ {u x y}, Path ta (n + 2) u (n + 3) → rel M u x y → A x y) {w : List Label} {x y : E}
+    (h : Path ([(n, .eps, n + 3), (n + 2, .eps, n + 1)] ++ flipT ta) n w (n + 1))
+    (hw : rel M w x y) : Rel.inv A x y := by
+  have := wa.bound
+  have hfs : ∀ t ∈ flipT ta, n + 2 ≤ t.1 ∧ t.1 < m := by
+    intro t ht
+    obtain ⟨t', ht', rfl⟩ := List.mem_map.mp ht
+    exact wa.dst t' ht'
+  have hfd : ∀ t ∈ flipT ta, n + 2 ≤ t.2.2 ∧ t.2.2 < m := by
+    intro t ht
+    obtain ⟨t', ht', rfl⟩ := List.mem_map.mp ht
+    exact wa.src t' ht'
+  have hfo : ∀ t ∈ flipT ta, t.1 ≠ n + 2 := by
+    intro t ht
+    obtain ⟨t', ht', rfl⟩ := List.mem_map.mp ht
+    exact wa.no_in t' ht'
+  have hout : ∀ t ∈ [(n, Label.eps, n + 3), (n + 2, Label.eps, n + 1)] ++ flipT ta,
+      t.1 ≠ n + 1 := by
+    intro t ht
+    simp only [List.mem_cons, List.mem_append, List.not_mem_nil, or_false, or_assoc] at ht
+    rcases ht with rfl | rfl | ht
+    all_goals first
+      | (dsimp only; omega)
+      | (have := hfs t ht; omega)
+  cases h with
+  | @cons _ c q w' _ ht hv =>
+    have ht := mem_conn₁ (out_of_range hfs (s := n) (by omega)) ht
+    simp only [List.mem_cons, List.not_mem_nil, or_false, Prod.mk.injEq] at ht
+    rcases ht with ⟨-, rfl, rfl⟩ | ⟨h1, -⟩
+    · obtain ⟨u, c', q', v, rfl, hu, hc, hv'⟩ :=
+        through (R := fun s => n + 2 ≤ s ∧ s < m) hfd
+          (by
+            intro t ht hR
+            simp only [List.mem_cons, List.mem_append, List.not_mem_nil, or_false,
+              or_assoc] at ht
+            rcases ht with rfl | rfl | ht
+            · dsimp at hR; omega
+            · exact .inr rfl
+            · exact .inl ht)
+          (by omega) hv (by omega)
+      have hc := mem_conn₁ hfo hc
+      simp only [List.mem_cons, List.not_mem_nil, or_false, Prod.mk.injEq] at hc
+      rcases hc with ⟨h1, -⟩ | ⟨-, rfl, rfl⟩
+      · omega
+      · obtain ⟨rfl, -⟩ := Path.of_no_out hout hv'
+        obtain ⟨u₀, rfl, hu₀⟩ := Path.of_flip hu
+        exact iha hu₀ ((rel_flipW M).mp ((rel_wrap M).mp hw))
+    · omega
+
 section Fix
 
 variable {b : Exp → Nat → List (Nat × Label × Nat) × Nat}
@@ -1026,6 +1137,7 @@ theorem sound : ∀ (k : Nat) (e : Exp) (n : Nat) {w : List Label} {x y : E},
     simp only [build] at h
     exact buildFix_sound M (fun e m => build_wf k e m) (fun e m _ _ _ hu hr => sound k e m hu hr)
       h hw
+  | k + 1, .inv a, n, w, x, y, h, hw => sound_inv M (build_wf k a _) (sound k a _) h hw
 
 /-- `ε u ε` along a path. -/
 theorem wrap_path {T : List (Nat × Label × Nat)} {p q r t : Nat} {u : List Label}
@@ -1180,6 +1292,13 @@ theorem complete : ∀ (k : Nat) (e : Exp) (n : Nat) {x y : E}, e.size ≤ k →
     simp only [Exp.size] at hs
     simp only [build]
     exact buildFix_complete M (fun e he hwe m _ _ h' => complete k e m (by omega) hwe h') hwf h
+  | k + 1, .inv a, n, x, y, hs, hwf, h => by
+    simp only [Exp.size] at hs
+    simp only [Exp.wellFormed] at hwf
+    simp only [build]
+    obtain ⟨u, hu, hr⟩ := complete k a (n + 2) (x := y) (y := x) (by omega) hwf h
+    exact ⟨_, wrap_path (by simp) ((Path.flip hu).mono mem_part) (by simp),
+      (rel_wrap M).mpr ((rel_flipW M).mpr hr)⟩
 
 end Thompson
 

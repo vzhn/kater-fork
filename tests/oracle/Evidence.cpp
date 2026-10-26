@@ -47,8 +47,9 @@ namespace {
  * The evidence of an assertion as JSON, for the checker of whole proofs in
  * formal/. An expression is {"label": LETTER}, {"alt": [E, ...]},
  * {"seq": [E, ...]}, {"star": E}, {"plus": E}, {"opt": E}, {"and": [E, E]},
- * {"minus": [E, E]}, {"rot": E}, or {"rec": {"relation": ID, "relations":
- * [ID, ...], "defs": [E, ...]}}; a constraint is {"subset": SIDES},
+ * {"minus": [E, E]}, {"rot": E}, {"rec": {"relation": ID, "relations":
+ * [ID, ...], "defs": [E, ...]}}, or {"inv": E}, the inverse of a "rec" (a
+ * MutRecRE flagged flipped); a constraint is {"subset": SIDES},
  * {"equal": SIDES} or {"total": E}, SIDES being {"lhs": E, "rhs": E,
  * "sameEnds": B, "rotated": B}. An inclusion is SIDES with the "steps" of
  * the left side, each {"stage": NAME, "nfa": A, "origins": O}, the "chain"
@@ -111,7 +112,9 @@ void writeExp(std::ostream &out, const RegExp &re, const Theory &theory)
 		one("opt");
 	} else if (dynamic_cast<const RotRE *>(&re) != nullptr) {
 		one("rot");
-	} else if (const auto *m = dynamic_cast<const MutRecRE *>(&re); m && !m->isFlipped()) {
+	} else if (const auto *m = dynamic_cast<const MutRecRE *>(&re)) {
+		if (m->isFlipped())
+			out << "{\"inv\": ";
 		out << "{\"rec\": {\"relation\": " << m->getRelation().getID()
 		    << ", \"relations\": [";
 		const auto *sep = "";
@@ -127,6 +130,8 @@ void writeExp(std::ostream &out, const RegExp &re, const Theory &theory)
 			sep = ", ";
 		}
 		out << "]}}";
+		if (m->isFlipped())
+			out << "}";
 	} else {
 		out << "{\"unknown\": " << jsonString(toString(re, theory)) << "}";
 	}
