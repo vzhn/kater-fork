@@ -197,6 +197,10 @@ if(LAKE)
   file(GLOB ORACLE_CORRECT_LKMM ${PROJECT_SOURCE_DIR}/tests/correct/lkmm/*.kat)
   set(ORACLE_CORRECT_NOT_LKMM ${ORACLE_CORRECT_ALL})
   list(REMOVE_ITEM ORACLE_CORRECT_NOT_LKMM ${ORACLE_CORRECT_LKMM})
+  # The Lean checker has no inverse of a let rec, which basic/inverse-rec.kat
+  # is about (#21): it rejects the evidence of its proofs as unsupported
+  list(REMOVE_ITEM ORACLE_CORRECT_NOT_LKMM
+    ${PROJECT_SOURCE_DIR}/tests/correct/basic/inverse-rec.kat)
   set(EVIDENCE_JSON ${CMAKE_CURRENT_BINARY_DIR}/evidence)
   add_test(NAME formal-evidence-clean
     COMMAND ${CMAKE_COMMAND} -E rm -rf ${EVIDENCE_JSON})

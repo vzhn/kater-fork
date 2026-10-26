@@ -1674,12 +1674,17 @@ After the fixes:
   has. The paper wanted this as `ra ∩ id = ra2 ∩ id` and settled for
   `sameEnds`, which needs every event to be a read, a write or a fence (§3.3);
   Kater's `& id` is not complete either (vzhn/kater-fork#23).
-- **Inverses of recursive relations.** `x^-1` for a `let rec x` flips the
-  definitions in place, and Kater's automaton construction does not recognize
-  the flipped self-reference `x^-1` as the recursion: it treats it as an
-  unknown relation. That is sound (what holds for every relation in its place
-  holds for `x^-1`) but incomplete: Kater cannot prove that the inverse of
-  `let rec x = po | x;rf` is within `(po^-1 | rf^-1)+`.
+- **Inverses of recursive relations.** `x^-1` for a `let rec x` keeps the
+  definitions and is flagged flipped: its automaton is that of the
+  definitions, flipped (vzhn/kater-fork#21; before, the definitions were
+  flipped in place, and the construction took the self-reference `x^-1` for
+  an unknown relation, which was sound but incomplete). Two cases are still
+  letters of unknown relations, soundly: a definition through the inverse of
+  a relation it defines (`let rec x = po | x^-1;rf`), and, inside the inverse
+  of a recursion, a relation of an enclosing one. The Lean checker has no
+  inverse of a recursion, so it rejects the evidence of a whole proof that
+  has one as unsupported: `formal-evidence-check` leaves out
+  `tests/correct/basic/inverse-rec.kat`, whose certificates it checks.
 - **Normal forms that keep predicate steps.** When a cycle of predicates
   stops `compactEdges` at a fixpoint (item 15), the predicate steps into
   states that do not accept stay in the normal form. That is sound; whether

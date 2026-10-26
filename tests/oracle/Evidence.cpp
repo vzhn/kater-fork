@@ -111,7 +111,7 @@ void writeExp(std::ostream &out, const RegExp &re, const Theory &theory)
 		one("opt");
 	} else if (dynamic_cast<const RotRE *>(&re) != nullptr) {
 		one("rot");
-	} else if (const auto *m = dynamic_cast<const MutRecRE *>(&re)) {
+	} else if (const auto *m = dynamic_cast<const MutRecRE *>(&re); m && !m->isFlipped()) {
 		out << "{\"rec\": {\"relation\": " << m->getRelation().getID()
 		    << ", \"relations\": [";
 		const auto *sep = "";

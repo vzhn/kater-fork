@@ -1,0 +1,3 @@
+// x^-1 is (rf^-1)*;po^-1, which has more than po^-1 (#21)
+let rec x = po | x;rf
+assert x^-1 <= po^-1

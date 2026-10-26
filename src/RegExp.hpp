@@ -636,6 +636,18 @@ public:
 
 	[[nodiscard]] auto getRec(unsigned i) const { return recursive_[i]; }
 
+	/* Whether this is the inverse of the relation the definitions define:
+	 * flipping keeps the definitions, whose references to the recursion
+	 * would otherwise become references to its inverse, which the
+	 * construction of the automaton does not know (vzhn/kater-fork#21) */
+	[[nodiscard]] auto isFlipped() const -> bool { return flipped_; }
+
+	auto flip() -> RegExp & override
+	{
+		flipped_ = !flipped_;
+		return *this;
+	}
+
 	[[nodiscard]] auto toNFAFast() const -> NFA override { abort(); }
 
 	void expandOnNFA(NFA &nfa, StatePair p, RecStatesMap recStates) const override;
@@ -645,7 +657,9 @@ public:
 		std::vector<std::unique_ptr<RegExp>> newKids;
 		for (const auto &k : getKids())
 			newKids.push_back(k->clone());
-		return create(rel_, recursive_, std::move(newKids));
+		auto re = create(rel_, recursive_, std::move(newKids));
+		re->flipped_ = flipped_;
+		return re;
 	}
 
 	auto dump(std::ostream &s, const Theory *theory = nullptr) const -> std::ostream & override;
@@ -656,7 +670,7 @@ protected:
 		const auto &o = dynamic_cast<const MutRecRE &>(other);
 		auto i = 0U;
 		return getRelation() == o.getRelation() && recursive_ == o.recursive_ &&
-		       getNumKids() == other.getNumKids() &&
+		       flipped_ == o.flipped_ && getNumKids() == other.getNumKids() &&
 		       std::all_of(kid_begin(), kid_end(), [&](auto & /*k*/) {
 			       auto res = (*getKid(i) == *o.getKid(i));
 			       ++i;
@@ -665,8 +679,12 @@ protected:
 	}
 
 private:
+	/* expandOnNFA() of the definitions as written */
+	void expandUnflipped(NFA &nfa, StatePair p, RecStatesMap recStates) const;
+
 	Relation rel_;
 	std::vector<Relation> recursive_;
+	bool flipped_ = false;
 };
 
 /*******************************************************************************

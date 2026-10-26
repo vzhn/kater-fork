@@ -24,6 +24,7 @@
 
 #include <cstdlib>
 #include <string_view>
+#include <unordered_map>
 
 using namespace std::literals;
 
@@ -199,6 +200,34 @@ auto MutRecRE::createOpt(Relation rel, std::vector<Relation> rels,
 
 void MutRecRE::expandOnNFA(NFA &nfa, StatePair p, RecStatesMap recStates) const
 {
+	if (!flipped_) {
+		expandUnflipped(nfa, p, std::move(recStates));
+		return;
+	}
+
+	/* The automaton of the definitions, flipped, between the states of P.
+	 * The relations of enclosing recursions are letters in it, as they were
+	 * when flipping turned them into their inverses */
+	NFA sub;
+	auto *s = sub.createStarting();
+	auto *a = sub.createAccepting();
+	expandUnflipped(sub, {s, a}, {});
+	sub.flip();
+
+	std::unordered_map<const NFA::State *, NFA::State *> copy;
+	for (const auto &st : sub.states())
+		copy[&*st] = nfa.createState();
+	for (const auto &st : sub.states())
+		for (const auto &t : st->outs())
+			NFA::addTransition(copy[&*st], NFA::Transition(t.label, copy[t.dest]));
+	for (auto *st : sub.starting())
+		nfa.addEpsilonTransition(p.first, copy[st]);
+	for (auto *st : sub.accepting())
+		nfa.addEpsilonTransition(copy[st], p.second);
+}
+
+void MutRecRE::expandUnflipped(NFA &nfa, StatePair p, RecStatesMap recStates) const
+{
 	RecStatesMap fresh(recStates);
 
 	/* Create a fresh state for each of the mut. rec. relations */
@@ -222,12 +251,12 @@ auto CharRE::dump(std::ostream &s, const Theory *theory) const -> std::ostream &
 auto MutRecRE::dump(std::ostream &s, const Theory *theory) const -> std::ostream &
 {
 	/* Mirrors the surface syntax: rec X where X = ... and Y = ... */
-	s << "rec " << nameOf(rel_, theory) << " where ";
+	s << (flipped_ ? "(rec " : "rec ") << nameOf(rel_, theory) << " where ";
 	std::string_view sep;
 	for (auto i = 0U; i < getNumKids(); i++) {
 		s << sep << nameOf(recursive_[i], theory) << " = ";
 		getKid(i)->dump(s, theory);
 		sep = " and ";
 	}
-	return s;
+	return flipped_ ? s << ")^-1" : s;
 }
