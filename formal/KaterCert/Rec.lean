@@ -28,6 +28,7 @@ def refFree : Exp → Bool
   | .star a | .plus a | .opt a => a.refFree
   | .ref _ => false
   | .fix _ _ => true
+  | .inv a => a.refFree
 
 mutual
 
@@ -35,7 +36,7 @@ mutual
 def size : Exp → Nat
   | .label _ | .zero | .ref _ => 1
   | .alt a b | .seq a b => a.size + b.size + 1
-  | .star a | .plus a | .opt a => a.size + 1
+  | .star a | .plus a | .opt a | .inv a => a.size + 1
   | .fix _ defs => defs.size + 1
 
 def _root_.KaterCert.Defs.size : Defs → Nat
@@ -47,7 +48,7 @@ end
 theorem size_pos : ∀ e : Exp, 0 < e.size
   | .label _ | .zero | .ref _ => by simp [size]
   | .alt _ _ | .seq _ _ => by simp [size]
-  | .star _ | .plus _ | .opt _ => by simp [size]
+  | .star _ | .plus _ | .opt _ | .inv _ => by simp [size]
   | .fix _ _ => by simp [size]
 
 /-- A definition as `c | x_j ; a | ...`: the part `c` without references and
@@ -74,6 +75,7 @@ def nf : Exp → Option (Exp × List (Nat × Exp))
     | some (ca, la) => some (.opt ca, la)
     | none => none
   | .fix m defs => some (.fix m defs, [])
+  | .inv a => if a.refFree then some (.inv a, []) else none
 
 variable {E : Type u} {M : Interp E}
 
@@ -116,6 +118,10 @@ theorem refFree_denoteIn : ∀ {e : Exp}, e.refFree = true → ∀ (ρ : Nat →
     rw [refFree_denoteIn h ρ]
   | .ref _, h, _, _, _ => by simp [refFree] at h
   | .fix _ _, _, _, _, _ => Iff.rfl
+  | .inv a, h, ρ, x, y => by
+    simp only [refFree] at h
+    simp only [denote, denoteIn, Rel.inv]
+    exact refFree_denoteIn h ρ
 
 /-- `denote` is `denoteIn` with references relating nothing. -/
 theorem denote_iff_denoteIn : ∀ (e : Exp) {x y : E},
@@ -144,6 +150,9 @@ theorem denote_iff_denoteIn : ∀ (e : Exp) {x y : E},
     rw [denote_iff_denoteIn a]
   | .ref _, _, _ => Iff.rfl
   | .fix _ _, _, _ => Iff.rfl
+  | .inv a, x, y => by
+    simp only [denote, denoteIn, Rel.inv]
+    exact denote_iff_denoteIn a
 
 /-- What the normal form of a definition gives: parts without references, no
 larger than the definition, that make up what it denotes. -/
@@ -285,6 +294,16 @@ theorem nf_spec : ∀ {e : Exp} {c : Exp} {L : List (Nat × Exp)}, e.nf = some (
     refine ⟨rfl, by simp, Nat.le_refl _, by simp, fun ρ x y => ?_⟩
     simp only [List.not_mem_nil, false_and, exists_false, or_false]
     exact refFree_denoteIn (e := .fix m defs) rfl ρ
+  | .inv a, c, L, h => by
+    simp only [nf] at h
+    split at h
+    · rename_i ha
+      simp only [Option.some.injEq, Prod.mk.injEq] at h
+      obtain ⟨rfl, rfl⟩ := h
+      refine ⟨by simp [refFree, ha], by simp, Nat.le_refl _, by simp, fun ρ x y => ?_⟩
+      simp only [List.not_mem_nil, false_and, exists_false, or_false]
+      exact refFree_denoteIn (e := .inv a) (by simp [refFree, ha]) ρ
+    · simp at h
 
 end Exp
 
@@ -409,7 +428,7 @@ them: what the automaton of an expression needs to read all it denotes
 def wellFormed : Exp → Bool
   | .label _ | .zero | .ref _ => true
   | .alt a b | .seq a b => a.wellFormed && b.wellFormed
-  | .star a | .plus a | .opt a => a.wellFormed
+  | .star a | .plus a | .opt a | .inv a => a.wellFormed
   | .fix _ defs => defs.nfs.isSome && defs.wellFormed
 
 def _root_.KaterCert.Defs.wellFormed : Defs → Bool
@@ -491,6 +510,13 @@ theorem nf_wellFormed : ∀ {e c : Exp} {L : List (Nat × Exp)}, e.nf = some (c,
     simp only [nf, Option.some.injEq, Prod.mk.injEq] at h
     obtain ⟨rfl, rfl⟩ := h
     exact ⟨hw, by simp⟩
+  | .inv a, c, L, h, hw => by
+    simp only [nf] at h
+    split at h
+    · simp only [Option.some.injEq, Prod.mk.injEq] at h
+      obtain ⟨rfl, rfl⟩ := h
+      exact ⟨hw, by simp⟩
+    · simp at h
 
 end Exp
 

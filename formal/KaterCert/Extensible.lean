@@ -400,6 +400,7 @@ theorem mem_altList_denote : ∀ (e : Exp) {a b : E},
   | .opt _, _, _ => by simp [altList]
   | .ref _, _, _ => by simp [altList]
   | .fix _ _, _, _ => by simp [altList]
+  | .inv _, _, _ => by simp [altList]
 
 /-- An expression of the same alternatives denotes the same. -/
 theorem sameAlts_denote {a c : Exp} (h₁ : ∀ f ∈ altList a, f ∈ altList c)

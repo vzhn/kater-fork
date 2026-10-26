@@ -78,4 +78,25 @@ theorem Label.denote_sub_id (M : Interp E) {l : Label} (h : l.rel = none) :
   simp only [Label.denote, h] at hxy
   exact hxy.1
 
+/-- The letter of the inverse, as Kater's `TransLabel::flip` makes it: a
+predicate stays, `[pre];r;[post]` becomes `[post];r^-1;[pre]`. -/
+def Label.flip (l : Label) : Label :=
+  match l.rel with
+  | none => l
+  | some r => { rel := some { r with inverse := !r.inverse }, pre := l.post, post := l.pre }
+
+theorem Label.denote_flip (M : Interp E) (l : Label) {x y : E} :
+    l.flip.denote M x y ↔ l.denote M y x := by
+  unfold Label.flip
+  cases h : l.rel with
+  | none =>
+    simp only [Label.denote, h]
+    constructor
+    · rintro ⟨rfl, hc⟩; exact ⟨rfl, hc⟩
+    · rintro ⟨rfl, hc⟩; exact ⟨rfl, hc⟩
+  | some r =>
+    simp only [Label.denote, h, Relation.denote]
+    cases r.inverse <;> simp only [Bool.not_false, Bool.not_true, ite_true] <;>
+      exact ⟨fun ⟨a, b, c⟩ => ⟨c, b, a⟩, fun ⟨a, b, c⟩ => ⟨c, b, a⟩⟩
+
 end KaterCert

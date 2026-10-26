@@ -599,8 +599,11 @@ one before it, as relations:
   left-linear: each is a part without references and parts `x_j ; a`, and
   their least solution is what the parts reach from one another, which an
   automaton with a state for each relation, and the parts' automata
-  between those states, reads. On the left, `rf` is split into `rfe | rfi`
-  where `expandRfs` splits it.
+  between those states, reads. The inverse of a `let rec` (a `MutRecRE`
+  flagged flipped) is the automaton of the recursion flipped: its words
+  reversed and their letters inverted, which relate what the recursion's
+  words do, inverted. On the left, `rf` is split into `rfe | rfi` where
+  `expandRfs` splits it.
 - **Inclusions of automata** (`Guarded`). An automaton denotes no more than
   another if each of its words is matched by one of the other's, a word
   being read as tests and steps in turn, with consecutive tests merged and
@@ -1685,10 +1688,9 @@ After the fixes:
   an unknown relation, which was sound but incomplete). Two cases are still
   letters of unknown relations, soundly: a definition through the inverse of
   a relation it defines (`let rec x = po | x^-1;rf`), and, inside the inverse
-  of a recursion, a relation of an enclosing one. The Lean checker has no
-  inverse of a recursion, so it rejects the evidence of a whole proof that
-  has one as unsupported: `formal-evidence-check` leaves out
-  `tests/correct/basic/inverse-rec.kat`, whose certificates it checks.
+  of a recursion, a relation of an enclosing one. The Lean checker reads
+  the inverse of a recursion as an inverse of its `fix` (vzhn/kater-fork#75),
+  and checks the whole proofs of `tests/correct/basic/inverse-rec.kat`.
 - **Normal forms that keep predicate steps.** When a cycle of predicates
   stops `compactEdges` at a fixpoint (item 15), the predicate steps into
   states that do not accept stay in the normal form. That is sound; whether

@@ -91,6 +91,7 @@ theorem seqList_denote (M : Interp E) : ∀ (e : Exp) {x y : E},
   | .opt a, x, y => by simp only [Exp.seqList, seqRel, Rel.comp_id]
   | .ref _, x, y => by simp only [Exp.seqList, seqRel, Rel.comp_id]
   | .fix _ _, x, y => by simp only [Exp.seqList, seqRel, Rel.comp_id]
+  | .inv _, x, y => by simp only [Exp.seqList, seqRel, Rel.comp_id]
 
 /-- Letters that are all predicates relate an event to itself, with their
 checks. -/
@@ -125,6 +126,7 @@ theorem predChecks_rel {M : Interp E} : ∀ {es : List Exp} {ps : List Predicate
   | .opt _ :: _, _, h, _, _, _ => by simp [predChecks] at h
   | .ref _ :: _, _, h, _, _, _ => by simp [predChecks] at h
   | .fix _ _ :: _, _, h, _, _, _ => by simp [predChecks] at h
+  | .inv _ :: _, _, h, _, _, _ => by simp [predChecks] at h
 
 /-! ## What the theory takes in holds -/
 
