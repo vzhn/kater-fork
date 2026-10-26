@@ -64,7 +64,7 @@ static auto allowedOrders(Kind k) -> std::vector<Order>
 Graph::Graph(z3::context &ctx, unsigned n)
 	: ctx_(&ctx), n_(n), rf_(ctx, n), mo_(ctx, n), ctrl_(ctx, n), addr_(ctx, n), data_(ctx, n),
 	  pctrl_(ctx, n), tc_(ctx, n), tj_(ctx, n), lin_(ctx, n), sameThread_(ctx, n),
-	  sameLoc_(ctx, n), sameBlock_(ctx, n), sameHp_(ctx, n), axioms_(ctx)
+	  sameLoc_(ctx, n), sameBlock_(ctx, n), sameHp_(ctx, n), axioms_(ctx), definitions_(ctx)
 {
 	buildStructure();
 	buildDerived();
@@ -78,7 +78,7 @@ Graph::Graph(z3::context &ctx, const Execution &x, UserPredicates userPredicates
 	  concreteOrder_(order ? std::move(*order) : x.additionOrder(std::nullopt).events),
 	  rf_(ctx, n_), mo_(ctx, n_), ctrl_(ctx, n_), addr_(ctx, n_), data_(ctx, n_),
 	  pctrl_(ctx, n_), tc_(ctx, n_), tj_(ctx, n_), lin_(ctx, n_), sameThread_(ctx, n_),
-	  sameLoc_(ctx, n_), sameBlock_(ctx, n_), sameHp_(ctx, n_), axioms_(ctx)
+	  sameLoc_(ctx, n_), sameBlock_(ctx, n_), sameHp_(ctx, n_), axioms_(ctx), definitions_(ctx)
 {
 	buildStructure(x);
 	buildDerived();
@@ -105,6 +105,15 @@ auto Graph::freshMatrix(const std::string &name,
 				      freshBool(name + "_" + std::to_string(i) + "_" +
 						std::to_string(j)));
 	return m;
+}
+
+auto Graph::define(const Term &t) -> Term
+{
+	if (t.isTrue() || t.isFalse() || t.expr().is_const())
+		return t;
+	auto name = freshBool("def_" + std::to_string(definitions_.size()));
+	definitions_.push_back(name == t.expr());
+	return {name};
 }
 
 void Graph::addAxiom(const Term &t)

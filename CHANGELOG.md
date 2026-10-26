@@ -8,6 +8,11 @@ released.
 
 ### Fixes
 
+- `kater-oracle`: its semantics of an automaton names the formulas of
+  each round past 24 rounds, which nested once per round: on automata with
+  cycles of a few dozen states, Z3 took gigabytes, then threw an
+  exception `kater-oracle` did not catch. `certify` checks the passes of
+  up to 80 rounds instead of 24 (#44)
 - The inverse of a recursive relation (`x^-1` for a `let rec x`) is the
   inverse of its least solution: Kater flipped the definitions in place,
   and took the flipped self-reference for an unknown relation, so it could

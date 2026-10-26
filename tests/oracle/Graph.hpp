@@ -138,6 +138,12 @@ public:
 	/* What every graph GenMC builds satisfies; for a concrete graph, the
 	 * axioms it violates (all of them false) */
 	[[nodiscard]] auto axioms() const -> const z3::expr_vector & { return axioms_; }
+
+	/* A fresh name for T, defined equal to it (T itself if constant): a
+	 * formula built from names grows with its parts, not with the times
+	 * each is used. The definitions hold in any graph */
+	auto define(const Term &t) -> Term;
+	[[nodiscard]] auto definitions() const -> const z3::expr_vector & { return definitions_; }
 	[[nodiscard]] auto isConcrete() const -> bool { return concrete_; }
 
 	/* The unknowns a counterexample can usually do without (label flags,
@@ -203,6 +209,7 @@ private:
 	std::map<Predicate::ID, std::pair<Predicate, std::vector<Term>>> userPredicates_;
 
 	z3::expr_vector axioms_;
+	z3::expr_vector definitions_;
 };
 
 } // namespace oracle
