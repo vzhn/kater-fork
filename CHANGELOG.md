@@ -14,6 +14,11 @@ released.
   its `ar` is no longer `nonextensible`. IMM's own `ar` is exported as
   `arFull`, an `extra` export that `isConsistent` leaves out, for GenMC to
   check of complete executions and of the graphs of errors (#38)
+- GenMC export: an `extra` export is printed for the whole graph as well,
+  `bool NAME(const ExecutionGraph &g) const`, next to the check of the
+  newest event (now `const` too): the latter finds only cycles through that
+  event, and so not a cycle of a complete execution whose events were
+  added in another order (#38)
 - `imm-genmc.kat`: `bob` orders the events before and after a thread join,
   as it does around a fence (`po ; [F|TJ] | [F|TJ] ; po`). `sw_to_f` makes
   a join synchronise as an acquire fence, and `ppo` did not order a read

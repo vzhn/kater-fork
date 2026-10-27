@@ -39,6 +39,13 @@ foreach(m imm lkmm)
     PASS_REGULAR_EXPRESSION "warning: not extensible")
 endforeach()
 
+# vzhn/kater-fork#38: an extra export is printed for the newest event and
+# for the whole graph, both const
+add_test(NAME export-extra
+  COMMAND $<TARGET_FILE:${PROJECT_NAME}> -e ${CMAKE_CURRENT_SOURCE_DIR}/export/extra-genmc.kat)
+set_tests_properties(export-extra PROPERTIES LABELS "integration"
+  PASS_REGULAR_EXPRESSION "bool scFull\\(const EventLabel \\*lab\\) const [^\n]*\n[^\n]*bool scFull\\(const ExecutionGraph &g\\) const")
+
 # vzhn/kater-fork#51: the check of A <= VIEW, for an A that accepts nothing,
 # ended without a return. Every function of the exported checker that
 # returns a value has to end with one
