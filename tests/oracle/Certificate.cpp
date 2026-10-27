@@ -636,16 +636,33 @@ auto certifyFile(const std::string &file, const SearchOptions &opts, bool verbos
 	/* What the certificates rest on, each a claim to refute: returns whether
 	 * a graph does. NFASemantics nests its formulas once per round, and Z3
 	 * gives up on those of some automata with cycles of a few dozen states:
-	 * such claims count as undecided */
+	 * such claims, and those the solver gives up on within the time limit or
+	 * the oracle cannot express, count as undecided, and fail unless
+	 * --allow-unchecked names them, by a part of FILE: WHAT (#83) */
 	auto undecided = 0U;
+	auto decline = [&](const std::string &what, const std::string &why) {
+		undecided++;
+		const auto named = file + ": " + what;
+		if (uncheckedAllowed(opts, named)) {
+			std::cout << "undecided (allowed): " << named << " (" << why << ")\n";
+		} else {
+			ok = false;
+			std::cout << "UNDECIDED " << named << " (" << why << ")\n";
+		}
+	};
 	auto refute = [&](const std::string &what, const Query &violation) {
 		Search s;
 		try {
 			s = search(
 				*module, [&](Graph &g, Semantics &sem) { return hyps(g, sem); },
 				violation, opts);
-		} catch (const z3::exception &) {
-			undecided++;
+		} catch (const z3::exception &e) {
+			decline(what, e.msg());
+			return 0U;
+		}
+		if (s.outcome == Search::Outcome::Unknown ||
+		    s.outcome == Search::Outcome::Unsupported) {
+			decline(what, s.detail);
 			return 0U;
 		}
 		if (s.outcome != Search::Outcome::Counterexample)

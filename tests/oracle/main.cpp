@@ -27,6 +27,12 @@
  *       an error too: the files are of false claims, and a true one that
  *       Kater cannot prove belongs in tests/incomplete.
  *
+ *   check, audit, export and certify fail as well when a claim goes
+ *   unchecked: the solver gives up within -t SECONDS, or (but in audit,
+ *   which skips those) the oracle cannot express the claim. A claim whose
+ *   text contains the TEXT of an --allow-unchecked (which may be repeated)
+ *   is reported and counted, but does not fail them (#83).
+ *
  *   kater-oracle audit [-n EVENTS] [-t SECONDS]
  *       Checks every fact Kater's Theory states about the builtin relations
  *       and predicates against their meaning in GenMC.
@@ -128,6 +134,7 @@
 #include <iostream>
 #include <memory>
 #include <optional>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -155,17 +162,20 @@ struct Options {
 [[noreturn]] void usage()
 {
 	std::cerr
-		<< "usage: kater-oracle check [-n EVENTS] [-t SECONDS] [--refutable] [-v] FILE...\n"
+		<< "usage: kater-oracle check [-n EVENTS] [-t SECONDS] [--refutable]\n"
+		   "                          [--allow-unchecked TEXT]... [-v] FILE...\n"
 		   "       kater-oracle certify [-n EVENTS] [-t SECONDS] [--json DIR]\n"
-		   "                            [-v] FILE...\n"
-		   "       kater-oracle export [-n EVENTS] [-t SECONDS] [--json DIR] [-v] FILE...\n"
+		   "                            [--allow-unchecked TEXT]... [-v] FILE...\n"
+		   "       kater-oracle export [-n EVENTS] [-t SECONDS] [--json DIR]\n"
+		   "                           [--allow-unchecked TEXT]... [-v] FILE...\n"
 		   "       kater-oracle evidence --json DIR [--export] [-v] FILE...\n"
 		   "       kater-oracle graphs --json FILE [-n EVENTS] [--threads T]\n"
 		   "                           [--locations L] [--heap-events H] [--random N]\n"
 		   "                           [--random-events M] [--symbolic K]\n"
 		   "                           [--symbolic-events E] [--seed S] [--graph FILE]...\n"
 		   "       kater-oracle explain FILE...\n"
-		   "       kater-oracle audit [-n EVENTS] [-t SECONDS] [-v]\n"
+		   "       kater-oracle audit [-n EVENTS] [-t SECONDS] [--allow-unchecked TEXT]...\n"
+		   "                          [-v]\n"
 		   "       kater-oracle transforms [-n EVENTS] [-t SECONDS] [--cases N]\n"
 		   "                               [--seed S] [--depth D] [--only NAME]\n"
 		   "                               [--evidence-only] [-v]\n"
@@ -206,6 +216,8 @@ auto parseOptions(int argc, char **argv, int first) -> Options
 			opts.verbose = opts.genmc.verbose = opts.extensible.verbose = true;
 		else if (arg == "--refutable")
 			opts.refutable = true;
+		else if (arg == "--allow-unchecked")
+			opts.search.allowUnchecked.push_back(text());
 		else if (arg == "--maximal")
 			opts.extensible.maximal = true;
 		else if (arg == "--cases")
@@ -308,16 +320,23 @@ auto checkFile(const std::string &file, const Options &opts) -> bool
 			[&](Graph & /*g*/, Semantics &sem) { return !sem.holds(goal); },
 			opts.search);
 
+		std::ostringstream what;
+		what << assrt->getDbgInfo() << ": assert " << WithTheory(goal, module->getTheory());
 		auto unsound = katerHolds && found.outcome == Search::Outcome::Counterexample;
 		auto unrefuted = opts.refutable && !katerHolds &&
 				 found.outcome != Search::Outcome::Counterexample;
-		sound &= !unsound && !unrefuted;
+		/* What Kater proves and the oracle cannot check (#83) */
+		auto unchecked = katerHolds && (found.outcome == Search::Outcome::Unknown ||
+						found.outcome == Search::Outcome::Unsupported);
+		auto allowed = unchecked && uncheckedAllowed(opts.search, what.str());
+		sound &= !unsound && !unrefuted && (!unchecked || allowed);
 
-		std::cout << assrt->getDbgInfo() << ": assert "
-			  << WithTheory(goal, module->getTheory())
-			  << "\n    kater: " << (katerHolds ? "holds" : "does not hold")
+		std::cout << what.str() << "\n    kater: " << (katerHolds ? "holds" : "does not hold")
 			  << "; oracle: " << describe(found) << (unsound ? "  <-- UNSOUND" : "")
-			  << (unrefuted ? "  <-- expected a counterexample" : "") << "\n";
+			  << (unrefuted ? "  <-- expected a counterexample" : "")
+			  << (unchecked ? (allowed ? "  (unchecked, allowed)" : "  <-- UNCHECKED")
+					: "")
+			  << "\n";
 		if (found.outcome == Search::Outcome::Counterexample && (unsound || opts.verbose))
 			std::cout << found.detail;
 	}

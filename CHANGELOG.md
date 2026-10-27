@@ -8,6 +8,12 @@ released.
 
 ### Fixes
 
+- `kater-oracle`: `check`, `audit`, `export` and `certify` fail when a claim
+  goes unchecked (the solver gives up within the time limit, or the oracle
+  cannot express it; `audit` still skips the latter), unless
+  `--allow-unchecked TEXT` names it. They printed such claims and passed:
+  `certify` did not even count a timeout. The ctests name the two claims
+  that go unchecked today (#83)
 - `imm-genmc.kat`: GenMC explores IMM without the `po?` of `addr ; po?`,
   which ordered events through a read in a hole whatever it read: GenMC
   could leave a hole it could not fill. The weaker model is extensible, and

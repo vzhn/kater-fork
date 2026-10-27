@@ -131,6 +131,21 @@ the graph. With `--refutable`, an assertion Kater rejects without a
 counterexample is an error: for files of false claims, where a true claim
 Kater cannot prove would belong in `tests/incomplete`.
 
+`check`, `audit`, `export` and `certify` also fail when a claim goes
+unchecked: the solver gives up within `-t SECONDS`, or the oracle cannot
+express the claim (but in `audit`, which skips those on purpose). Before #83
+they printed such a claim and passed, so a ctest could pass without checking
+what it was written for (#80). `--allow-unchecked TEXT`, which may be
+repeated, names the claims, by a part of their text, that may go unchecked:
+they are still reported and counted (in `check` and `certify`, by the text
+`FILE: claim`). The ctests that need one say why: `oracle-check-correct`,
+`oracle-certify` and `formal-certificates-write` (`assume-total-compound.kat`,
+whose proof rests on `assume total`, which the oracle cannot express: 11 of
+the claims `certify` makes of it) and `oracle-export-imm` (the claim below,
+at 2 events). `oracle-unchecked-fails`
+checks that a claim not named fails. `transforms` keeps reporting the
+expressions it cannot decide without failing: its cases are random.
+
     kater-oracle audit [-n EVENTS]
 
 Every fact the Theory states about the builtins: inclusions between relations,
@@ -1101,7 +1116,8 @@ checked by the ctests `oracle-extensible-refuted-*`):
   error is reported. The claim of the new `ar`'s extensibility check is
   checked by `kater-oracle export` up to 1 event only
   (`formal-export-certificates-write`): at 2 events it does not finish in an
-  hour, and `oracle-export-imm` leaves it unchecked. Lean accepts its
+  hour, and `oracle-export-imm` allows it to go unchecked
+  (`--allow-unchecked`, #83). Lean accepts its
   certificate, and the oracle's sweep of the explored model above finds
   every event added consistently up to 3 events.
 - `lkmm-moe.graph`, 8 events: a write in a hole before a read of its
