@@ -1214,11 +1214,14 @@ once either exports without the warning.
   automaton accepts nothing, as all seven acyclicity checks of
   `kat/*-genmc.kat` did before #33 was fixed; none does now. Every claim of
   the six exports holds up to 2 events, and those of SC, TSO, RA and RC11 up
-  to 3; at 3, each claim of LKMM's coherence check takes minutes, and three
-  of IMM's coherence and `psc` checks, which pass since `bob` orders events
+  to 3. At 3 events, the claim of each coherence check takes 5 to 10
+  minutes (the whole export of RC11 about 10), LKMM's longer, and three of
+  IMM's coherence and `psc` checks, which pass since `bob` orders events
   around a join (#38), time out after 300 seconds. So the ctests check IMM
-  and LKMM up to 2 events (`oracle-export-imm`, `oracle-export-lkmm`) and
-  the others up to 3 (`oracle-export`). With
+  and LKMM up to 2 events (`oracle-export-imm`, `oracle-export-lkmm`), and
+  the others up to 3 with 1200 seconds a claim (`oracle-export-sc`, ...),
+  one model a test; with 300 seconds, the coherence claims of all four went
+  unchecked, and the test still passed (#80). With
   `--json`, it writes these certificates with the others; the checker in
   Lean accepts the 70 certificates of the six exports (16 of them the
   extensibility checks'), and gives each of their 841 copies
