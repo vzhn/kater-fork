@@ -85,7 +85,7 @@ set_tests_properties(oracle-extensible oracle-extensible-lkmm PROPERTIES
 
 # Models that are not, at a graph each where the oracle finds an event
 # GenMC cannot add (vzhn/kater-fork#33): the two of extensible/, which Kater
-# rejects, and IMM and LKMM themselves, on larger graphs
+# rejects, and LKMM itself, on a larger graph
 foreach(m mp mp-acq)
   add_test(NAME oracle-extensible-refuted-${m}
     COMMAND kater-oracle extensible --refutable
@@ -93,16 +93,19 @@ foreach(m mp mp-acq)
       ${CMAKE_CURRENT_SOURCE_DIR}/extensible/${m}-genmc.kat)
   set_tests_properties(oracle-extensible-refuted-${m} PROPERTIES LABELS "oracle")
 endforeach()
-foreach(case imm:imm-addr-po lkmm:lkmm-moe)
-  string(REPLACE ":" ";" parts ${case})
-  list(GET parts 0 model)
-  list(GET parts 1 graph)
-  add_test(NAME oracle-extensible-refuted-${graph}
-    COMMAND kater-oracle extensible --refutable
-      --graph ${CMAKE_CURRENT_SOURCE_DIR}/extensible/${graph}.graph
-      ${PROJECT_SOURCE_DIR}/kat/${model}-genmc.kat)
-  set_tests_properties(oracle-extensible-refuted-${graph} PROPERTIES LABELS "oracle")
-endforeach()
+add_test(NAME oracle-extensible-refuted-lkmm-moe
+  COMMAND kater-oracle extensible --refutable
+    --graph ${CMAKE_CURRENT_SOURCE_DIR}/extensible/lkmm-moe.graph
+    ${PROJECT_SOURCE_DIR}/kat/lkmm-genmc.kat)
+set_tests_properties(oracle-extensible-refuted-lkmm-moe PROPERTIES LABELS "oracle")
+# vzhn/kater-fork#38: IMM's addr ; po? ordered events through a read in a
+# hole, until GenMC explored IMM without it (arFull, an extra export the
+# oracle does not take, has it)
+add_test(NAME oracle-extensible-maximal-imm-addr-po
+  COMMAND kater-oracle extensible --maximal
+    --graph ${CMAKE_CURRENT_SOURCE_DIR}/extensible/imm-addr-po.graph
+    ${PROJECT_SOURCE_DIR}/kat/imm-genmc.kat)
+set_tests_properties(oracle-extensible-maximal-imm-addr-po PROPERTIES LABELS "oracle")
 # vzhn/kater-fork#38: IMM could add a read into a hole before a join, but
 # not maximally, until ppo ordered events before a join as before a fence
 add_test(NAME oracle-extensible-maximal-imm-join

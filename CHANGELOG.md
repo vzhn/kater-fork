@@ -8,6 +8,12 @@ released.
 
 ### Fixes
 
+- `imm-genmc.kat`: GenMC explores IMM without the `po?` of `addr ; po?`,
+  which ordered events through a read in a hole whatever it read: GenMC
+  could leave a hole it could not fill. The weaker model is extensible, and
+  its `ar` is no longer `nonextensible`. IMM's own `ar` is exported as
+  `arFull`, an `extra` export that `isConsistent` leaves out, for GenMC to
+  check of complete executions and of the graphs of errors (#38)
 - `imm-genmc.kat`: `bob` orders the events before and after a thread join,
   as it does around a fence (`po ; [F|TJ] | [F|TJ] ; po`). `sw_to_f` makes
   a join synchronise as an acquire fence, and `ppo` did not order a read
