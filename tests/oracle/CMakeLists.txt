@@ -35,7 +35,17 @@ add_test(NAME oracle-transforms COMMAND kater-oracle transforms -n 3 --cases 40 
 # Kater proves no assertion of the suite that a small graph refutes
 file(GLOB ORACLE_CORRECT ${PROJECT_SOURCE_DIR}/tests/correct/basic/*.kat
   ${PROJECT_SOURCE_DIR}/tests/correct/equivalence/*.kat)
-add_test(NAME oracle-check-correct COMMAND kater-oracle check -n 3 ${ORACLE_CORRECT})
+# A claim the oracle does not check fails the test unless allowed here
+# (vzhn/kater-fork#83): it cannot express assume total, on which
+# assume-total-compound.kat's assertion rests
+add_test(NAME oracle-check-correct COMMAND kater-oracle check -n 3
+  --allow-unchecked "assume-total-compound.kat:" ${ORACLE_CORRECT})
+# ... and without the --allow-unchecked, the same claim fails it
+add_test(NAME oracle-unchecked-fails
+  COMMAND sh -c "\"$0\" check -n 3 \"$1\"; test $? -eq 1"
+    $<TARGET_FILE:kater-oracle>
+    ${PROJECT_SOURCE_DIR}/tests/correct/basic/assume-total-compound.kat)
+set_tests_properties(oracle-unchecked-fails PROPERTIES LABELS "oracle")
 # tests/wrong holds false claims: each one Kater rejects has a counterexample
 # (6 events for C11 to Power). True claims Kater cannot prove go in
 # tests/incomplete instead
@@ -60,12 +70,17 @@ set_tests_properties(oracle-check-issue-60 PROPERTIES LABELS "oracle")
 # 300 seconds left unchecked (vzhn/kater-fork#80). IMM and LKMM on smaller
 # graphs: at 3 events, each claim of LKMM's coherence check takes longer,
 # and three of IMM's coherence and psc checks, which pass since
-# vzhn/kater-fork#38, time out
+# vzhn/kater-fork#38, time out. An unchecked claim fails the test unless
+# allowed (vzhn/kater-fork#83): the claim of the extensibility check of the
+# ar GenMC explores under IMM (since #38) takes over an hour at 2 events
 file(GLOB ORACLE_GENMC_MODELS ${PROJECT_SOURCE_DIR}/kat/*-genmc.kat)
 foreach(model ${ORACLE_GENMC_MODELS})
   get_filename_component(m ${model} NAME_WE)
   string(REGEX REPLACE "-genmc$" "" m ${m})
-  if(m MATCHES "^(imm|lkmm)$")
+  if(m STREQUAL "imm")
+    add_test(NAME oracle-export-${m} COMMAND kater-oracle export -n 2 -t 300
+      --allow-unchecked "the cycles of acyclic(rfe" ${model})
+  elseif(m STREQUAL "lkmm")
     add_test(NAME oracle-export-${m} COMMAND kater-oracle export -n 2 -t 300 ${model})
   else()
     add_test(NAME oracle-export-${m} COMMAND kater-oracle export -n 3 -t 1200 ${model})
@@ -146,7 +161,8 @@ set_tests_properties(oracle-extensible-refuted-mp-incompat oracle-export-issue-4
 
 # Kater's proofs of the suite come with certificates and chains, which
 # check, and the letter inclusions and hypotheses they rest on hold
-add_test(NAME oracle-certify COMMAND kater-oracle certify -n 3 ${ORACLE_CORRECT})
+add_test(NAME oracle-certify COMMAND kater-oracle certify -n 3
+  --allow-unchecked "assume-total-compound.kat:" ${ORACLE_CORRECT})
 set_tests_properties(oracle-certify PROPERTIES LABELS "oracle" TIMEOUT 900)
 
 # The certificates of the whole suite, with the chains of passes their right
@@ -167,7 +183,8 @@ if(LAKE)
   add_test(NAME formal-certificates-clean
     COMMAND ${CMAKE_COMMAND} -E rm -rf ${CERTIFICATES_JSON})
   add_test(NAME formal-certificates-write
-    COMMAND kater-oracle certify -n 1 --json ${CERTIFICATES_JSON} ${ORACLE_CORRECT_ALL})
+    COMMAND kater-oracle certify -n 1 --json ${CERTIFICATES_JSON}
+      --allow-unchecked "assume-total-compound.kat:" ${ORACLE_CORRECT_ALL})
   add_test(NAME formal-certificates-check
     COMMAND ${LAKE} exe kater-cert-check ${CERTIFICATES_JSON}
     WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}/formal)

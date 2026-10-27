@@ -136,7 +136,13 @@ public:
 		case Search::Outcome::Unsupported:
 		case Search::Outcome::Unknown:
 			unchecked_++;
-			std::cout << "unchecked: " << what << " (" << s.detail << ")\n";
+			if (uncheckedAllowed(opts_, what)) {
+				allowed_++;
+				std::cout << "unchecked (allowed): " << what << " (" << s.detail
+					  << ")\n";
+			} else {
+				std::cout << "UNCHECKED: " << what << " (" << s.detail << ")\n";
+			}
 			break;
 		}
 	}
@@ -144,11 +150,11 @@ public:
 	void summary(const std::string &file) const
 	{
 		std::cout << file << ": " << holding_ << " hold, " << failing_ << " are false, "
-			  << unchecked_ << " were not checked (up to " << opts_.maxEvents
-			  << " events)\n";
+			  << unchecked_ << " were not checked (" << allowed_ << " allowed; up to "
+			  << opts_.maxEvents << " events)\n";
 	}
 
-	[[nodiscard]] auto ok() const -> bool { return failing_ == 0; }
+	[[nodiscard]] auto ok() const -> bool { return failing_ == 0 && unchecked_ == allowed_; }
 
 private:
 	const KatModule *module_;
@@ -158,6 +164,7 @@ private:
 	unsigned holding_ = 0;
 	unsigned failing_ = 0;
 	unsigned unchecked_ = 0;
+	unsigned allowed_ = 0; /* of the unchecked, those --allow-unchecked names */
 };
 
 auto noExtra(Graph &g, Semantics & /*sem*/) -> Term { return Term::constant(g.ctx(), true); }

@@ -64,7 +64,14 @@ public:
 			break;
 		case Search::Outcome::Unknown:
 			unchecked_++;
-			std::cout << "unknown:  " << what << " (" << s.detail << ")\n";
+			if (uncheckedAllowed(opts_, what)) {
+				allowed_++;
+				std::cout << "unknown (allowed): " << what << " (" << s.detail
+					  << ")\n";
+			} else {
+				unknown_++;
+				std::cout << "UNKNOWN:  " << what << " (" << s.detail << ")\n";
+			}
 			break;
 		}
 	}
@@ -82,10 +89,13 @@ public:
 	{
 		std::cout << "\n"
 			  << holding_ << " facts hold, " << failing_ << " are false, " << unchecked_
-			  << " were not checked (up to " << opts_.maxEvents << " events)\n";
+			  << " were not checked (" << unknown_ << " of them unknown, " << allowed_
+			  << " allowed unknown; up to " << opts_.maxEvents << " events)\n";
 	}
 
-	[[nodiscard]] auto allHold() const -> bool { return failing_ == 0; }
+	/* What the oracle cannot express is skipped; what the solver gave up on
+	 * fails, unless allowed (#83) */
+	[[nodiscard]] auto allHold() const -> bool { return failing_ == 0 && unknown_ == 0; }
 
 	[[nodiscard]] auto theory() const -> const Theory & { return *theory_; }
 
@@ -97,6 +107,8 @@ private:
 	unsigned holding_ = 0;
 	unsigned failing_ = 0;
 	unsigned unchecked_ = 0;
+	unsigned unknown_ = 0; /* of the unchecked, those the solver gave up on */
+	unsigned allowed_ = 0; /* and those of them --allow-unchecked names */
 };
 
 auto builtinRelations(const Theory &theory) -> std::vector<Relation>

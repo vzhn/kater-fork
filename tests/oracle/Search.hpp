@@ -67,7 +67,20 @@ struct SearchOptions {
 	unsigned minEvents = 1;
 	unsigned maxEvents = 5;
 	unsigned timeoutMs = 60000;
+	/* --allow-unchecked: the claims, by a part of their text, that may go
+	 * unchecked (the solver gives up, or the oracle cannot express them)
+	 * without failing the command (#83) */
+	std::vector<std::string> allowUnchecked;
 };
+
+/* Whether the claim WHAT may go unchecked */
+inline auto uncheckedAllowed(const SearchOptions &opts, const std::string &what) -> bool
+{
+	for (const auto &part : opts.allowUnchecked)
+		if (what.find(part) != std::string::npos)
+			return true;
+	return false;
+}
 
 /*
  * Looks for a graph, from the smallest up, that GenMC can build, satisfies
