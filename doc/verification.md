@@ -1379,9 +1379,9 @@ check rejects. What it does not formalize is GenMC, which stays trusted:
 - and, as for assertions, the model, the C++ that writes the evidence and
   the Lean that reads it, and Lean's kernel and compiler.
 
-On the six models, the checker accepts the 8 extensibility checks that
-pass (the coherence of all but IMM, which is `nonextensible`, and the
-acyclicity of SC's, TSO's and RC11's exports), and their 13 words
+On the six models, the checker accepts the 11 extensibility checks that
+pass (the coherence of all six, and the acyclicity of SC's, TSO's and
+RC11's exports and of IMM's `psc` and `ar`; #38), and their 17 words
 automata; for each, Lean's words are within Kater's, which takes it under
 a second but for LKMM (see [Whole proofs](#whole-proofs)). In a one-off
 experiment, of 40 copies of the evidence of five checks that each differ
