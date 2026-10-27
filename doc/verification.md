@@ -1098,7 +1098,12 @@ checked by the ctests `oracle-extensible-refuted-*`):
   the approach of Bouajjani et al. (2023) for models that are not
   extensible, which Mixer (POPL 2025, §2.4) describes: explore a weaker
   extensible model, and check the full one before an execution counts or an
-  error is reported.
+  error is reported. The claim of the new `ar`'s extensibility check is
+  checked by `kater-oracle export` up to 1 event only
+  (`formal-export-certificates-write`): at 2 events it does not finish in an
+  hour, and `oracle-export-imm` leaves it unchecked. Lean accepts its
+  certificate, and the oracle's sweep of the explored model above finds
+  every event added consistently up to 3 events.
 - `lkmm-moe.graph`, 8 events: a write in a hole before a read of its
   location, which reads a write of another thread. Coherence puts the added
   write `mo`-before that write, its only place, and the `moe` step closes a

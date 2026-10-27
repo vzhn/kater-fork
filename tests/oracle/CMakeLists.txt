@@ -100,7 +100,9 @@ add_test(NAME oracle-extensible-refuted-lkmm-moe
 set_tests_properties(oracle-extensible-refuted-lkmm-moe PROPERTIES LABELS "oracle")
 # vzhn/kater-fork#38: IMM's addr ; po? ordered events through a read in a
 # hole, until GenMC explored IMM without it (arFull, an extra export the
-# oracle does not take, has it)
+# oracle does not take, has it). The claim of that ar's extensibility check
+# takes over an hour at 2 events: oracle-export-imm leaves it unchecked, and
+# only formal-export-certificates-write (1 event) checks it
 add_test(NAME oracle-extensible-maximal-imm-addr-po
   COMMAND kater-oracle extensible --maximal
     --graph ${CMAKE_CURRENT_SOURCE_DIR}/extensible/imm-addr-po.graph
