@@ -1,9 +1,11 @@
-# kat/imm-genmc.kat is not extensible. The read e1 is in a hole between e0,
-# which it depends on by address, and the write e2. Added, whatever it reads,
-# it makes e0 -ppo-> e2 ([DEP] ; addr ; po ; [W], IMM's deps have addr ; po?)
-# and closes the ar cycle e10 -rfe-> e0 -ppo-> e2 -rfe-> e4 -ppo-> e5
-# -FSC;hb;eco;hb;FSC-> e9 -ppo-> e10 (e5 -po-> e6 -fr-> e8 -po-> e9). Without
-# e1 the graph is consistent: e0 and e2 are not ordered.
+# IMM is not extensible (vzhn/kater-fork#38). The read e1 is in a hole
+# between e0, which it depends on by address, and the write e2. Added,
+# whatever it reads, it makes e0 -ppo-> e2 ([DEP] ; addr ; po ; [W], IMM's
+# deps have addr ; po?) and closes the ar cycle e10 -rfe-> e0 -ppo-> e2
+# -rfe-> e4 -ppo-> e5 -FSC;hb;eco;hb;FSC-> e9 -ppo-> e10 (e5 -po-> e6 -fr->
+# e8 -po-> e9). Without e1 the graph is consistent: e0 and e2 are not
+# ordered. kat/imm-genmc.kat now explores IMM without the po? (its ar), which
+# adds e1 consistently, and leaves IMM's ar to arFull, an extra export.
 e0: T0 R(x) rlx
 e1: T0 R(y) rlx
 e2: T0 W(z) rlx

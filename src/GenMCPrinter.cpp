@@ -1066,10 +1066,14 @@ void GenMCPrinter::printConsistency(
 		emitConjunction(cpp, clauses);
 	}
 
-	/* print the extras */
+	/* print the extras: the incremental check (cycles through LAB, the
+	 * newest event) and the check of the whole graph, which finds a cycle
+	 * whose events were all added before the newest one */
 	for (auto &stmt : module.exports()) {
 		if (stmt->isExtra()) {
-			hpp.line("bool {}(const EventLabel *lab) {{ return {}(lab); }}",
+			hpp.line("bool {}(const EventLabel *lab) const {{ return {}(lab); }}",
+				 *stmt->getNameOfExtra(), exportedNames.at(&*stmt));
+			hpp.line("bool {}(const ExecutionGraph &g) const {{ return {}(g); }}",
 				 *stmt->getNameOfExtra(), exportedNames.at(&*stmt));
 		}
 	}

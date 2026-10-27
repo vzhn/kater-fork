@@ -1090,7 +1090,20 @@ checked by the ctests `oracle-extensible-refuted-*`):
   and closes an `ar` cycle through an `FSC ; hb ; eco ; hb ; FSC` step;
   without it, the graph is consistent. GenMC can leave this hole: the write's
   prefix, computed with the read there, has the first event and not the
-  read, which a revisit by the write then drops.
+  read, which a revisit by the write then drops. `kat/imm-genmc.kat` now
+  explores IMM without the `po?`, a weaker model that is extensible (the
+  ctest `oracle-extensible-maximal-imm-addr-po`), and exports IMM's own
+  `ar` as `arFull`, an `extra` export that `isConsistent` leaves out: GenMC
+  checks it of a complete execution and of the graph of an error. This is
+  the approach of Bouajjani et al. (2023) for models that are not
+  extensible, which Mixer (POPL 2025, §2.4) describes: explore a weaker
+  extensible model, and check the full one before an execution counts or an
+  error is reported. The claim of the new `ar`'s extensibility check is
+  checked by `kater-oracle export` up to 1 event only
+  (`formal-export-certificates-write`): at 2 events it does not finish in an
+  hour, and `oracle-export-imm` leaves it unchecked. Lean accepts its
+  certificate, and the oracle's sweep of the explored model above finds
+  every event added consistently up to 3 events.
 - `lkmm-moe.graph`, 8 events: a write in a hole before a read of its
   location, which reads a write of another thread. Coherence puts the added
   write `mo`-before that write, its only place, and the `moe` step closes a
@@ -1196,7 +1209,8 @@ inclusion between LKMM's own predicates, which Kater does not know
 
 A model can say that an export is not extensible: `export nonextensible
 acyclic r` (or `coherence`). The check of that export then only warns, and
-warns as well, that the flag is stale, if it passes. IMM flags `ar`
+warns as well, that the flag is stale, if it passes. IMM flags `arFull`,
+its own `ar`, which GenMC checks apart
 ([#38](https://github.com/vzhn/kater-fork/issues/38)),
 LKMM `lkhb` and `pb` ([#39](https://github.com/vzhn/kater-fork/issues/39)),
 and their checkers are unchanged; the ctests `export-nonextensible-*` fail
@@ -1373,9 +1387,9 @@ check rejects. What it does not formalize is GenMC, which stays trusted:
 - and, as for assertions, the model, the C++ that writes the evidence and
   the Lean that reads it, and Lean's kernel and compiler.
 
-On the six models, the checker accepts the 8 extensibility checks that
-pass (the coherence of all but IMM, which is `nonextensible`, and the
-acyclicity of SC's, TSO's and RC11's exports), and their 13 words
+On the six models, the checker accepts the 11 extensibility checks that
+pass (the coherence of all six, and the acyclicity of SC's, TSO's and
+RC11's exports and of IMM's `psc` and `ar`; #38), and their 17 words
 automata; for each, Lean's words are within Kater's, which takes it under
 a second but for LKMM (see [Whole proofs](#whole-proofs)). In a one-off
 experiment, of 40 copies of the evidence of five checks that each differ
@@ -1718,10 +1732,12 @@ After the fixes:
   hole in an IMM graph that no way of filling keeps consistent (`addr ; po?`
   orders events through it), and in an LKMM graph (coherence ties the event
   to a later read of its location by `moe`), on graphs of 11 and 8 events in
-  `tests/oracle/extensible`. Both flag their exports `nonextensible` (IMM
-  only `ar`, since `bob` orders events around a join), and export with a
-  warning. A fix changes their `ppo`, or which holes GenMC
-  leaves (`GenMCDriver::isMaximalExtension`).
+  `tests/oracle/extensible`. LKMM flags its exports `nonextensible`, and
+  exports with a warning; a fix changes its `ppo`, or which holes GenMC
+  leaves (`GenMCDriver::isMaximalExtension`). GenMC explores IMM without the
+  `po?` of `addr ; po?`, which is extensible, and checks IMM's `ar`
+  (`arFull`, flagged `nonextensible`) of complete executions and of the
+  graphs of errors.
 - **What the extensibility check leaves out.** It proves extensibility for
   the events that nothing after them accesses the location of; in a hole,
   an event with a later access to its location has an `eco` step out of it

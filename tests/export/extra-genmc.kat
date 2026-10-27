@@ -1,0 +1,9 @@
+// An extra export: a named check that isConsistent leaves out, which GenMC
+// calls itself. Kater prints it for the newest event and for the whole
+// graph, which finds a cycle whose events were all added before the newest
+// one (vzhn/kater-fork#38)
+let ppo = po
+view hb = (po | rf | tc | tj | lin)+
+export coherence hb
+export acyclic (po | rf | mo | fr)
+export extra scFull acyclic (po | rf | mo | fr)
